@@ -1,10 +1,10 @@
 # EdgeLinkd: Node-RED Reimplemented in Rust
 
 [![Build Status]][actions]
-[![Releases](https://img.shields.io/github/release/oldrev/edgelink.svg)](https://github.com/oldrev/edgelink/releases)
+[![Releases](https://img.shields.io/github/release/oldrev/edgelinkd.svg)](https://github.com/oldrev/edgelinkd/releases)
 
-[Build Status]: https://img.shields.io/github/actions/workflow/status/oldrev/edgelink/CICD.yml?branch=master
-[actions]: https://github.com/oldrev/edgelink/actions?query=branch%3Amaster
+[Build Status]: https://img.shields.io/github/actions/workflow/status/oldrev/edgelinkd/CICD.yml?branch=master
+[actions]: https://github.com/oldrev/edgelinkd/actions?query=branch%3Amaster
 
 ![Node-RED Rust Backend](assets/banner.jpg)
 
@@ -98,13 +98,13 @@ cargo build --release
 **Clone the repository with submodules:**
 
 ```bash
-git clone --recursive https://github.com/oldrev/edgelink.git
+git clone --recursive https://github.com/oldrev/edgelinkd.git
 ```
 
 Or if you've already cloned without submodules:
 
 ```bash
-git clone https://github.com/oldrev/edgelink.git
+git clone https://github.com/oldrev/edgelinkd.git
 cd edgelink
 git submodule update --init --recursive
 ```
@@ -145,7 +145,7 @@ By default, your browser will open the Node-RED frontend at [http://127.0.0.1:18
 
 **Main command-line options:**
 
-- `[FLOWS_PATH]`: Optional, specify the flow file (default: `~/.edgelink/flows.json`)
+- `[FLOWS_PATH]`: Optional, specify the flow file (default: `~/.edgelinkd/flows.json`)
 - `--headless`: Headless mode (no Web UI, suitable for production)
 - `--bind <BIND>`: Custom web server bind address (default: `127.0.0.1:1888`)
 - `-u, --user-dir <USER_DIR>`: Specify user directory (default: `~/.edgelink`)
@@ -320,7 +320,7 @@ Refer [REDNODES-SPECS-DIFF.md](tests/REDNODES-SPECS-DIFF.md) to view the details
 
 ## Roadmap
 
-Check out our [milestones](https://github.com/oldrev/edgelink/milestones) to get a glimpse of the upcoming features and milestones.
+Check out our [milestones](https://github.com/oldrev/edgelinkd/milestones) to get a glimpse of the upcoming features and milestones.
 
 ## Contribution
 
@@ -351,7 +351,7 @@ Please refer to [ISSUES.md](docs/ISSUES.md) for a list of known issues and worka
 
 ## Feedback and Support
 
-We welcome your feedback! If you encounter any issues or have suggestions, please open an [issue](https://github.com/edge-link/edgelink/issues).
+We welcome your feedback! If you encounter any issues or have suggestions, please open an [issue](https://github.com/edge-link/edgelinkd/issues).
 
 E-mail: oldrev(at)gmail.com
 

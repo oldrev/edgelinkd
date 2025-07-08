@@ -1,10 +1,10 @@
 # EdgeLinkd：Rust 重新实现的 Node-RED
 
 [![Build Status]][actions]
-[![Releases](https://img.shields.io/github/release/oldrev/edgelink.svg)](https://github.com/oldrev/edgelink/releases)
+[![Releases](https://img.shields.io/github/release/oldrev/edgelinkd.svg)](https://github.com/oldrev/edgelinkd/releases)
 
-[Build Status]: https://img.shields.io/github/actions/workflow/status/oldrev/edgelink/CICD.yml?branch=master
-[actions]: https://github.com/oldrev/edgelink/actions?query=branch%3Amaster
+[Build Status]: https://img.shields.io/github/actions/workflow/status/oldrev/edgelinkd/CICD.yml?branch=master
+[actions]: https://github.com/oldrev/edgelinkd/actions?query=branch%3Amaster
 
 ![Node-RED Rust Backend](assets/banner.jpg)
 
@@ -66,13 +66,13 @@ EdgeLinkd 现在包含完整的 Node-RED Web 编辑器，允许您直接在浏�
 **使用 submodules 的方式克隆代码仓库：**
 
 ```bash
-git clone --recursive https://github.com/oldrev/edgelink.git
+git clone --recursive https://github.com/oldrev/edgelinkd.git
 ```
 
 或者你只克隆了主仓库，这样可以补救：
 
 ```bash
-git clone https://github.com/oldrev/edgelink.git
+git clone https://github.com/oldrev/edgelinkd.git
 cd edgelink
 git submodule update --init --recursive
 ```
@@ -113,7 +113,7 @@ cargo run -- run
 
 **主要命令行参数：**
 
-- `[FLOWS_PATH]`：可选，指定流程文件（默认为 `~/.edgelink/flows.json`）
+- `[FLOWS_PATH]`：可选，指定流程文件（默认为 `~/.edgelinkd/flows.json`）
 - `--headless`：无头模式（不启动 Web UI，适合生产部署）
 - `--bind <BIND>`：自定义 Web 绑定地址，默认 `127.0.0.1:1888`
 - `-u, --user-dir <USER_DIR>`：指定用户目录（默认为 `~/.edgelink`）
@@ -183,7 +183,7 @@ py.test
 
 ## 开发路线图
 
-请参见项目的[里程碑页面](https://github.com/oldrev/edgelink/milestones)。
+请参见项目的[里程碑页面](https://github.com/oldrev/edgelinkd/milestones)。
 
 ## 贡献
 
@@ -199,7 +199,7 @@ py.test
 
 ## 反馈与技术支持
 
-我们欢迎任何反馈！如果你遇到任何技术问题或者 bug，请提交 [issue](https://github.com/edge-link/edgelink/issues)。
+我们欢迎任何反馈！如果你遇到任何技术问题或者 bug，请提交 [issue](https://github.com/edge-link/edgelinkd/issues)。
 
 ### 社交网络聊天群：
 
