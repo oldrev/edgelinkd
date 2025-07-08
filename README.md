@@ -333,6 +333,10 @@ We welcome contributions! Whether it's:
 - **Code contributions** and new node implementations
 - **Testing** on different platforms
 
+Here is the English translation:
+
+> Note: Please make meaningful contributions, or watch and learn. Simply modifying the README or making non-substantive changes will be considered malicious behavior.
+
 Please read [CONTRIBUTING.md](.github/CONTRIBUTING.md) for details.
 
 ### Support the Project
