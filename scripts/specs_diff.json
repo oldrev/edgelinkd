@@ -1,0 +1,137 @@
+[
+    {
+        "category": "common nodes",
+        "nodes": [
+            [
+                "inject",
+                "nodes/common/test_inject_node.py",
+                "test/nodes/core/common/20-inject_spec.js"
+            ],
+            [
+                "catch",
+                "nodes/common/test_catch_node.py",
+                "test/nodes/core/common/25-catch_spec.js"
+            ],
+            [
+                "link",
+                "nodes/common/test_link_nodes.py",
+                "test/nodes/core/common/60-link_spec.js"
+            ]
+        ]
+    },
+    {
+        "category": "function nodes",
+        "nodes": [
+            [
+                "function",
+                "nodes/function/test_function_node.py",
+                "test/nodes/core/function/10-function_spec.js"
+            ],
+            [
+                "switch",
+                "nodes/function/test_switch_node.py",
+                "test/nodes/core/function/10-switch_spec.js"
+            ],
+            [
+                "change",
+                "nodes/function/test_change_node.py",
+                "test/nodes/core/function/15-change_spec.js"
+            ],
+            [
+                "range",
+                "nodes/function/test_range_node.py",
+                "test/nodes/core/function/16-range_spec.js"
+            ],
+            [
+                "template",
+                "nodes/function/test_template_node.py",
+                "test/nodes/core/function/80-template_spec.js"
+            ],
+            [
+                "delay",
+                "nodes/function/test_delay_node.py",
+                "test/nodes/core/function/89-delay_spec.js"
+            ],
+            [
+                "trigger",
+                "nodes/function/test_trigger_node.py",
+                "test/nodes/core/function/89-trigger_spec.js"
+            ],
+            [
+                "rbe",
+                "nodes/function/test_rbe_node.py",
+                "test/nodes/core/function/rbe_spec.js"
+            ],
+            [
+                "exec",
+                "nodes/function/test_exec_node.py",
+                "test/nodes/core/function/90-exec_spec.js"
+            ]
+        ]
+    },
+    {
+        "category": "sequence nodes",
+        "nodes": [
+            [
+                "spilt node",
+                "nodes/sequence/test_split_node.py",
+                "test/nodes/core/sequence/17-split_spec.js"
+            ],
+            [
+                "sort node",
+                "nodes/sequence/test_sort_node.py",
+                "test/nodes/core/sequence/18-sort_spec.js"
+            ],
+            [
+                "batch node",
+                "nodes/sequence/test_batch_node.py",
+                "test/nodes/core/sequence/19-batch_spec.js"
+            ]
+        ]
+    },
+   {
+        "category": "network nodes",
+        "nodes": [
+            [
+                "tcp request",
+                "nodes/network/test_tcprequest_node.py",
+                "test/nodes/core/network/31-tcprequest_spec.js"
+            ]
+        ]
+    },
+   {
+        "category": "parser nodes",
+        "nodes": [
+            [
+                "json node",
+                "nodes/parsers/test_json_node.py",
+                "test/nodes/core/parsers/70-JSON_spec.js"
+            ],
+            [
+                "xml node",
+                "nodes/parsers/test_xml_node.py",
+                "test/nodes/core/parsers/70-XML_spec.js"
+            ],
+            [
+                "csv node",
+                "nodes/parsers/test_csv_node.py",
+                "test/nodes/core/parsers/70-CSV_spec.js"
+            ],
+            [
+                "yaml node",
+                "nodes/parsers/test_yaml_node.py",
+                "test/nodes/core/parsers/70-YAML_spec.js"
+            ]
+        ]
+    },
+    {
+        "category": "subflow",
+        "nodes": [
+            [
+                "subflow",
+                "nodes/test_subflow.py",
+                "test/nodes/subflow/subflow_spec.js"
+            ]
+        ]
+    }
+]

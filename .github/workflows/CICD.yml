@@ -1,0 +1,355 @@
+name: CICD
+
+on:
+  push:
+    branches:
+      - master
+      - dev
+      - 'dev-*'
+    paths:
+      - '.github/workflows/**'
+      - 'src/**'
+      - 'tests/**'
+      - 'crates/**'
+      - 'node-plugins/**'
+      - '3rd-party/node-red/**'
+      - '*.rs'
+      - '*.toml'
+      - '*.ini'
+      - '*.lock'
+  pull_request:
+    branches:
+      - master
+    paths:
+      - '.github/workflows/**'
+      - 'src/**'
+      - 'tests/**'
+      - 'crates/**'
+      - 'node-plugins/**'
+      - '3rd-party/node-red/**'
+      - '*.rs'
+      - '*.toml'
+      - '*.ini'
+      - '*.lock'
+
+permissions:
+  contents: read
+
+env:
+  RUSTFLAGS: ${{ (github.ref == 'refs/heads/master' || github.base_ref == 'master') && '-Dwarnings' || '' }}
+
+jobs:
+  fmt-and-check:
+    name: Format and Syntax Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: x86_64-unknown-linux-gnu
+          components: rustfmt
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      - name: Cargo metadata (fail fast on dependency errors)
+        run: cargo metadata --locked --format-version=1
+      - name: Check code formatting
+        run: cargo fmt --check
+      - name: Cargo check (syntax only)
+        run: cargo check --workspace
+
+  build-and-test-windows:
+    name: Build and Test on Windows
+    needs: fmt-and-check
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        target: [x86_64-pc-windows-msvc, x86_64-pc-windows-gnu]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: pip install -r ./tests/requirements.txt
+
+      - name: Ensure package-lock.json exists
+        shell: bash
+        run: |
+          (cd 3rd-party/node-red && if [ ! -f package-lock.json ]; then npm install --package-lock-only; fi)
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: 3rd-party/node-red/package-lock.json
+
+      - name: Cache Node.js dependencies
+        uses: actions/cache@v4
+        with:
+          path: 3rd-party/node-red/node_modules
+          key: ${{ runner.os }}-node-modules-${{ hashFiles('3rd-party/node-red/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-modules-
+
+      - name: Setup msys2 toolchains
+        if: endsWith(matrix.target, '-gnu')
+        uses: msys2/setup-msys2@v2
+        with:
+          release: false
+          install: mingw-w64-x86_64-gcc mingw-w64-i686-gcc
+
+      - name: Prepare env for windows
+        if: matrix.target == 'x86_64-pc-windows-gnu'
+        run: |
+          # Add symlinks to the target-specific GNU sysroots for Clang
+          New-Item -Path "C:\Program Files\LLVM\x86_64-w64-mingw32" -ItemType SymbolicLink -Value "C:\msys64\mingw64\x86_64-w64-mingw32"
+          # Add path to GCC executables to PATH (only mingw64 for 64-bit)
+          echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          # Configure CC_<target> environment variable (only 64-bit)
+          echo "CC_x86_64_pc_windows_gnu=x86_64-w64-mingw32-gcc" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Set up Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: ${{ matrix.target }}
+          components: llvm-tools-preview
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build
+        run: cargo build --profile ci --workspace --target ${{ matrix.target }} --features full
+
+      - name: Run Rust tests
+        run: cargo test --workspace --no-fail-fast --features full --target ${{ matrix.target }} --profile ci
+
+  build-and-test-linux:
+    name: Build and Test on Linux (x86-64)
+    needs: fmt-and-check
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [x86_64-unknown-linux-gnu]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: pip install -r ./tests/requirements.txt
+
+      - name: Ensure package-lock.json exists
+        shell: bash
+        run: |
+          (cd 3rd-party/node-red && if [ ! -f package-lock.json ]; then npm install --package-lock-only; fi)
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: 3rd-party/node-red/package-lock.json
+
+      - name: Cache Node.js dependencies
+        uses: actions/cache@v4
+        with:
+          path: 3rd-party/node-red/node_modules
+          key: ${{ runner.os }}-node-modules-${{ hashFiles('3rd-party/node-red/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-modules-
+
+      - name: Set up Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: ${{ matrix.target }}
+          components: llvm-tools-preview
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build
+        run: cargo build --profile ci --workspace --target ${{ matrix.target }} --features full
+        env:
+          PYTHON_SYS_EXECUTABLE: ${{ env.PYTHON_SYS_EXECUTABLE }}
+
+      - name: Run Rust tests
+        run: cargo test --workspace --no-fail-fast --features full --target ${{ matrix.target }} --profile ci
+
+      - name: Run Python tests
+        env:
+          EDGELINK_BUILD_TARGET: ${{ matrix.target }}
+          EDGELINK_BUILD_PROFILE: ci
+        run: pytest ./tests -v
+
+  build-and-test-on-arm-linux:
+    name: Build and Test on ARM Linux
+    needs: fmt-and-check
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [ aarch64-unknown-linux-gnu, armv7-unknown-linux-gnueabihf, armv7-unknown-linux-gnueabi]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: ${{ matrix.target }}
+          components: llvm-tools-preview
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: pip install -r ./tests/requirements.txt
+
+      - name: Ensure package-lock.json exists
+        shell: bash
+        run: |
+          (cd 3rd-party/node-red && if [ ! -f package-lock.json ]; then npm install --package-lock-only; fi)
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: 3rd-party/node-red/package-lock.json
+
+      - name: Cache Node.js dependencies
+        uses: actions/cache@v4
+        with:
+          path: 3rd-party/node-red/node_modules
+          key: ${{ runner.os }}-node-modules-${{ hashFiles('3rd-party/node-red/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-modules-
+
+
+      # - name: Install dependencies
+      #   run: sudo apt-get -y install qemu-user qemu-user-static
+
+      - name: Setup cross-compilation tools for ARM 64
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          echo "EDGELINK_TOOLCHAIN_TRIPLE=aarch64-linux-gnu" >> $GITHUB_ENV
+          echo "EDGELINK_QEMU_CMD=qemu-aarch64-static" >> $GITHUB_ENV
+          echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
+      #     sudo apt-get update
+      #     sudo apt-get install -y gcc-aarch64-linux-gnu libc-dev-arm64-cross libssl-dev:arm64
+      #     echo "OPENSSL_DIR=/usr/lib/aarch64-linux-gnu" >> $GITHUB_ENV
+
+      - name: Setup cross-compilation tools for ARM 32 (gnueabihf)
+        if: matrix.target == 'armv7-unknown-linux-gnueabihf'
+        run: |
+          echo "EDGELINK_TOOLCHAIN_TRIPLE=arm-linux-gnueabihf" >> $GITHUB_ENV
+          echo "EDGELINK_QEMU_CMD=qemu-arm-static" >> $GITHUB_ENV
+          echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
+      #     sudo apt-get update
+      #     sudo apt-get install -y gcc-arm-linux-gnueabihf libc-dev-armhf-cross libssl-dev:armhf
+      #     echo "OPENSSL_DIR=/usr/lib/arm-linux-gnueabihf" >> $GITHUB_ENV
+
+      - name: Setup cross-compilation tools for ARM 32 (gnueabi)
+        if: matrix.target == 'armv7-unknown-linux-gnueabi'
+        run: |
+          echo "EDGELINK_TOOLCHAIN_TRIPLE=arm-linux-gnueabi" >> $GITHUB_ENV
+          echo "EDGELINK_QEMU_CMD=qemu-arm-static" >> $GITHUB_ENV
+          echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
+      #     sudo apt-get update
+      #     sudo apt-get install -y gcc-arm-linux-gnueabi libc-dev-armel-cross libssl-dev:armel
+      #     echo "OPENSSL_DIR=/usr/lib/arm-linux-gnueabi" >> $GITHUB_ENV
+
+      - name: Install cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Cross build
+        run: cross build --profile ci --workspace --target ${{ matrix.target }} --features full --exclude edgelink-pymod
+
+      - name: Cross build tests without running
+        run: cross test --profile ci --target ${{ matrix.target }} --features full --exclude edgelink-pymod --no-run --message-format=json | tee ./target/${{ matrix.target }}/ci/cargo-build-test.json
+
+      - name: Run unit tests in QEMU ARM
+        run: python3 ./scripts/cross-unittest.py ${{ env.EDGELINK_QEMU_CMD }}  ${{ env.EDGELINK_TOOLCHAIN_TRIPLE }} ./target/${{ matrix.target }}/ci/cargo-build-test.json
+        env:
+          EDGELINK_TOOLCHAIN_TRIPLE: ${{ env.EDGELINK_TOOLCHAIN_TRIPLE }}
+          EDGELINK_QEMU_CMD: ${{ env.EDGELINK_QEMU_CMD }}
+
+  clippy:
+    name: Clippy
+    needs: fmt-and-check
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/master' || github.base_ref == 'master'
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: x86_64-unknown-linux-gnu
+          components: clippy
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      - name: Clippy
+        run: cargo clippy --all-features --tests --all

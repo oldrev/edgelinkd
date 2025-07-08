@@ -1,0 +1,13 @@
+[root]
+level = "info"
+appenders = [ "stdout", "file" ]
+
+[appenders.stdout]
+kind = "console"
+encoder = { pattern = "[{h({l})}]\t{m}{n}"}
+#encoder = { pattern = "[{l}]\t{d} - {t} - {m}{n}" }
+
+[appenders.file]
+kind = "file"
+path = "log/edgelinkd.log"
+encoder = { pattern = "[{l}]\t{d} - {t} - {m}{n}" }

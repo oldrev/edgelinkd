@@ -1,0 +1,8 @@
+/target
+/vendor
+/log
+__pycache__
+/.pytest_cache
+
+# Static files - generated from build script
+/static

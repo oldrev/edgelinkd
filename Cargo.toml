@@ -1,0 +1,148 @@
+[package]
+name = "edgelink-app"
+version = "0.1.99"
+edition = "2021"
+rust-version = "1.77.2"
+readme = "README.md"
+homepage = "https://github.com/oldrev/edgelink.rs"
+description = "EdgeLink is a Node-RED compatible run-time engine in Rust."
+build = "build.rs"
+license = "Apache 2.0"
+authors = ["Li Wei <oldrev@gmail.com>"]
+
+
+[[bin]]
+name = "edgelinkd"
+path = "src/main.rs"
+
+
+# Enable a small amount of optimization in debug mode
+[profile.dev]
+opt-level = 0
+
+[profile.ci]
+inherits = "release"
+debug = false
+incremental = false
+
+[profile.release]
+opt-level = "z"   # Optimize for size.
+lto = true        # Enable Link Time Optimization
+codegen-units = 1 # Reduce number of codegen units to increase optimizations.
+strip = true      # Automatically strip symbols from the binary.
+
+[profile.test]
+opt-level = 1 # Enables thin local LTO and some optimizations.
+
+[workspace.dependencies]
+bincode = { version = "^2.0", features = ["serde"] }
+async-trait = "0.1"
+anyhow = { version = "1", features = ["backtrace"] }
+log = "0.4"
+tokio = "1"
+tokio-util = "0.7"
+semver = "1"
+config = { version = "^0.15", default-features = false, features = [
+    "convert-case",
+    "toml",
+] }
+serde = { version = "1" }
+serde_json = "1"
+serde_with = "3"
+dashmap = { version = "6", features = ["serde"] }
+rand = "0.8"
+base64 = "0.22"
+bytes = { version = "1", features = ["std", "serde"] }
+chrono = "0.4"
+regex = "1"
+thiserror = "2"
+nom = "^8.0"
+tokio-cron-scheduler = "^0.14"
+bumpalo = "3"
+dirs-next = "2"
+clap = { version = "4", features = ["derive"] }
+itertools = "^0.14"
+arrayvec = "0.7"
+smallvec = "1"
+smallstr = { version = "0.3", features = ["serde", "std", "union"] }
+inventory = "0.3"
+uuid = { version = "1.0", features = ["v4", "serde"] }
+futures = "0.3"
+futures-util = "0.3"
+rquickjs = { version = "0.9", features = [
+    "chrono",
+    "loader",
+    "allocator",
+    "either",
+    "classes",
+    "properties",
+    "array-buffer",
+    "macro",
+    "futures",
+    "parallel",
+] }
+#llrt_modules = { git = "https://github.com/awslabs/llrt.git", default-features = false, package = "llrt_modules", features = ["buffer", "timers"]}
+rquickjs-extra = { version = "0.1", default-features = false, features = [
+    "timers",
+    "console",
+] }
+log4rs = { version = "1", features = [
+    "console_appender",
+    "file_appender",
+    "rolling_file_appender",
+    "compound_policy",
+    "delete_roller",
+    "fixed_window_roller",
+    "size_trigger",
+    "time_trigger",
+    #    "json_encoder",
+    "pattern_encoder",
+    "threshold_filter",
+    "config_parsing",
+    "toml_format",
+], default-features = false }
+ctor = "^0.2"
+sha2 = "0.10"
+hex = "0.4"
+reqwest = { version = "0.11", features = ["json", "blocking", "rustls-tls"], default-features = false }
+
+[dependencies]
+clap.workspace = true
+dirs-next.workspace = true
+anyhow.workspace = true
+log.workspace = true
+tokio = { workspace = true, features = ["signal"] }
+tokio-util.workspace = true
+config.workspace = true
+semver.workspace = true
+serde_json.workspace = true
+serde = { workspace = true, features = ["derive"] }
+log4rs.workspace = true
+async-trait.workspace = true
+
+edgelink-core = { path = "crates/core", default-features = false }
+
+# Node plug-ins:
+edgelink-nodes-dummy = { path = "node-plugins/edgelink-nodes-dummy" }
+
+edgelink-web = { path = "crates/web", default-features = true }
+
+[dev-dependencies]
+
+[build-dependencies]
+chrono = { workspace = true }
+
+[workspace]
+members = ["crates/*", "node-plugins/*"]
+
+[package.metadata.bundle]
+identifier = "com.github.oldrev.edgelink"
+
+[features]
+full = ["default", "rqjs_bindgen"]
+default = ["core", "js", "net", "storage"]
+core = ["edgelink-core/core"]
+js = ["edgelink-core/js"]
+net = ["edgelink-core/net"]
+storage = ["edgelink-core/storage"]
+rqjs_bindgen = ["js", "edgelink-core/rqjs_bindgen"]

@@ -1,0 +1,21 @@
+[package]
+name = "edgelink-web"
+version = "0.1.99"
+edition = "2024"
+
+[dependencies]
+axum = { version = "0.8.4", features = ["macros", "ws"] }
+tower = { version = "0.4", features = ["util"] }
+tower-http = { version = "0.5", features = ["fs", "cors"] }
+
+tokio = { workspace = true, features = ["full"] }
+tokio-util = { workspace = true }
+futures-util = { workspace = true }
+log = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+uuid = { workspace = true, features = ["v4", "serde"] }
+chrono = { workspace = true, features = ["serde"] }
+anyhow = { workspace = true }
+sha2 = { workspace = true }
+edgelink-core = { path = "../core" }

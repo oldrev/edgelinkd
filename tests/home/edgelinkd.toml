@@ -1,0 +1,16 @@
+[runtime]
+
+[runtime.engine]
+
+[runtime.context]
+default = "memory"
+
+[runtime.context.stores]
+memory = { provider = "memory" }
+memory0 = { provider = "memory" }
+memory1 = { provider = "memory" }
+memory2 = { provider = "memory" }
+
+
+[runtime.flow]
+node_msg_queue_capacity = 16

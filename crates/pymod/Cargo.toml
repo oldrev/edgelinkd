@@ -1,0 +1,24 @@
+[package]
+name = "edgelink-pymod"
+version = "0.1.99"
+edition = "2024"
+
+[lib]
+name = "edgelink_pymod"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "^0.20", features = ["extension-module"] }
+pyo3-asyncio = { version = "^0.20", features = ["tokio-runtime"] }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+config.workspace = true
+log4rs.workspace = true
+log.workspace = true
+
+edgelink-core = { path = "../../crates/core", default-features = true, features = [
+    "pymod", "default"
+] }
+# Node plug-ins:
+edgelink-nodes-dummy = { path = "../../node-plugins/edgelink-nodes-dummy" }

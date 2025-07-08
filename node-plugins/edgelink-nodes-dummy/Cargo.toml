@@ -1,0 +1,15 @@
+[package]
+name = "edgelink-nodes-dummy"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-trait.workspace = true
+tokio-util.workspace = true
+log.workspace = true
+config.workspace = true
+inventory.workspace = true
+edgelink-core = { path = "../../crates/core", default-features = false, features = [
+    "core",
+] }
+edgelink-macro = { path = "../../crates/macro" }

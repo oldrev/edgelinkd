@@ -1,0 +1,4 @@
+[runtime.context.stores]
+memory0 = { provider = "memory" }
+memory1 = { provider = "memory" }
+memory2 = { provider = "memory" }

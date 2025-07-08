@@ -1,0 +1,12 @@
+[package]
+name = "edgelink-macro"
+version = "0.1.99"
+edition = "2024"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"

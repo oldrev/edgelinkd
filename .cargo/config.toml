@@ -1,0 +1,24 @@
+[env]
+EDGELINK_HOME = "./"
+EDGELINK_RUN_ENV = "dev"
+CLICOLOR_FORCE="1"
+
+[build]
+#rustflags='-C prefer-dynamic'
+
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld.exe"
+rustdocflags = ["-Clinker=rust-lld.exe"]
+
+# This cfg will reduce the size of `windows::core::Error` from 16 bytes to 4 bytes
+[target.'cfg(target_os = "windows")']
+rustflags = ["--cfg", "windows_slim_errors"]
+
+[target.armv7-unknown-linux-gnueabihf]
+linker = "arm-linux-gnueabihf-gcc"
+
+[target.aarch64-unknown-linux-gnu]
+linker = "aarch64-linux-gnu-gcc"
+
+[target.armv7-unknown-linux-gnueabi]
+linker = "arm-linux-gnueabi-gcc"

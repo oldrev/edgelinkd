@@ -1,0 +1,89 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'edgelink-app'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=edgelinkd",
+                    "--package=edgelink-app"
+                ],
+                "filter": {
+                    "name": "edgelinkd",
+                    "kind": "bin"
+                }
+            },
+            "args": [
+                "-v",
+                "4"
+            ],
+            "env": {
+                "EDGELINK_HOME": "${workspaceFolder}"
+            },
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "internalConsoleOptions": "neverOpen",
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'edgelink-app'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=edgelinkd",
+                    "--package=edgelink-app"
+                ],
+                "filter": {
+                    "name": "edgelinkd",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'edgelink'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--color always",
+                    "--package=edgelink"
+                ],
+                "filter": {
+                    "name": "edgelink",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'all'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--all",
+                ]
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        }
+    ]
+}

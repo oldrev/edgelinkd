@@ -1,0 +1,99 @@
+[package]
+name = "edgelink-core"
+version = "0.1.99"
+edition = "2024"
+readme = "README.md"
+authors = ["Li Wei <oldrev@gmail.com>"]
+
+[lib]
+name = "edgelink_core"
+
+[dependencies]
+anyhow.workspace = true
+tokio = { workspace = true, features = [
+    "rt",
+    "rt-multi-thread",
+    "macros",
+    "time",
+    "fs",
+    "net",
+    "sync",
+    "io-util",
+    "io-std",
+    "process",
+] }
+config.workspace = true
+async-trait.workspace = true
+log.workspace = true
+tokio-util.workspace = true
+thiserror.workspace = true
+nom.workspace = true
+bumpalo.workspace = true
+regex.workspace = true
+tokio-cron-scheduler.workspace = true
+chrono.workspace = true
+semver.workspace = true
+rquickjs = { optional = true, workspace = true }
+rquickjs-extra = { optional = true, workspace = true }
+#llrt_modules = { optional = true, workspace = true }
+rand.workspace = true
+base64.workspace = true
+uuid.workspace = true
+# Serialization stuff
+bytes.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+serde_with.workspace = true
+bincode.workspace = true
+sha2.workspace = true
+hex.workspace = true
+# Template engine and YAML support
+mustache = "0.9.0"
+serde_yaml_ng = { version = "0.10.0", optional = true }
+# URL encoding
+urlencoding = { version = "2.1", optional = true }
+# URL parsing
+url = "2.5"
+# XML parsing
+quick-xml = { version = "0.36", optional = true, features = ["serialize"] }
+serde-xml-rs = { version = "0.6", optional = true }
+# Crates in this project
+edgelink-macro = { path = "../macro" }
+dashmap.workspace = true
+itertools.workspace = true
+smallvec.workspace = true
+smallstr.workspace = true
+inventory.workspace = true
+arrayvec = { workspace = true, features = ["std", "serde"] }
+notify = { version = "^8.0", optional = true }
+rumqttc = { version = "0.24", optional = true }
+tokio-tungstenite = { version = "0.24", optional = true, features = ["rustls-tls-native-roots"] }
+futures-util = { version = "0.3", optional = true }
+reqwest = { workspace = true, optional = true }
+
+[dev-dependencies]
+# Enable test-utilities in dev mode only. This is mostly for tests.
+tokio = { workspace = true, features = ["test-util"] }
+log4rs.workspace = true
+ctor.workspace = true
+futures.workspace = true
+
+
+[features]
+default = ["core", "js", "net", "storage", "parser"]
+core = []
+pymod = []
+#js = ["rquickjs", "rquickjs-extra", "llrt_modules"]
+js = ["rquickjs", "rquickjs-extra"]
+rqjs_bindgen = ["rquickjs/bindgen"]
+net = ["nodes_mqtt", "nodes_udp", "nodes_tcp", "nodes_http", "nodes_websocket"]
+parser = ["nodes_xml", "nodes_yaml"]
+storage = ["nodes_storage_watch"]
+nodes_mqtt = ["rumqttc"]
+nodes_http = ["tokio/net", "reqwest", "urlencoding"]
+nodes_tcp = ["tokio/net"]
+nodes_udp = ["tokio/net"]
+nodes_websocket = ["tokio-tungstenite", "futures-util"]
+nodes_storage_watch = ["notify"]
+nodes_xml = ["quick-xml", "serde-xml-rs"]
+nodes_yaml = ["serde_yaml_ng"]
