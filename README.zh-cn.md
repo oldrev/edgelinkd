@@ -8,7 +8,7 @@
 
 ![Node-RED Rust Backend](assets/banner.jpg)
 
-[English](README.md) | 简体中文
+[English](README.md) | 简中
 
 ## 概述
 
