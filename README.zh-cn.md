@@ -197,8 +197,6 @@ py.test
 
 [![爱发电支持](assets/aifadian.jpg)](https://afdian.com/a/mingshu)
 
-你可以在项目的 CONTRIBUTING.md 或 README.md 文件中加入如下声明：
-
 ## 反馈与技术支持
 
 我们欢迎任何反馈！如果你遇到任何技术问题或者 bug，请提交 [issue](https://github.com/edge-link/edgelink/issues)。
