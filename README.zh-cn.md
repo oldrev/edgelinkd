@@ -199,9 +199,6 @@ py.test
 
 你可以在项目的 CONTRIBUTING.md 或 README.md 文件中加入如下声明：
 
-
-需要我帮你自动插入到某个文件中吗？如果有指定位置或文件，请告知。
-
 ## 反馈与技术支持
 
 我们欢迎任何反馈！如果你遇到任何技术问题或者 bug，请提交 [issue](https://github.com/edge-link/edgelink/issues)。
