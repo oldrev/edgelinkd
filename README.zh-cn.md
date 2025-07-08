@@ -8,7 +8,7 @@
 
 ![Node-RED Rust Backend](assets/banner.jpg)
 
-[English](README.md) | 简体中文
+[English](README.md) | 简中
 
 ## 概述
 
@@ -191,9 +191,16 @@ py.test
 
 欢迎贡献！请阅读 [CONTRIBUTING.md](.github/CONTRIBUTING.md) 获取更多信息。
 
+> 注意：请做出有用的贡献，或者安静地看我表演。通过修改 README 等无实质内容的提交来蹭贡献排行榜的行为不受欢迎。
+
 如果你想支持本项目的开发，可以考虑请我喝杯啤酒：
 
 [![爱发电支持](assets/aifadian.jpg)](https://afdian.com/a/mingshu)
+
+你可以在项目的 CONTRIBUTING.md 或 README.md 文件中加入如下声明：
+
+
+需要我帮你自动插入到某个文件中吗？如果有指定位置或文件，请告知。
 
 ## 反馈与技术支持
 
