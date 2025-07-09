@@ -14,7 +14,9 @@ use edgelink_macro::*;
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 enum JoinMode {
+    #[default]
     Auto,
     Array,
     Object,
@@ -22,15 +24,12 @@ enum JoinMode {
     Buffer,
 }
 
-impl Default for JoinMode {
-    fn default() -> Self {
-        JoinMode::Auto
-    }
-}
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 enum JoinBuild {
+    #[default]
     Array,
     Object,
     String,
@@ -38,11 +37,6 @@ enum JoinBuild {
     Merged,
 }
 
-impl Default for JoinBuild {
-    fn default() -> Self {
-        JoinBuild::Array
-    }
-}
 
 #[derive(Debug, Clone, Deserialize)]
 #[allow(dead_code)]

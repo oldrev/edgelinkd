@@ -27,7 +27,7 @@ where
         where
             E: de::Error,
         {
-            v.trim().parse::<u64>().map_err(|_| E::custom(format!("invalid u64 string: {}", v)))
+            v.trim().parse::<u64>().map_err(|_| E::custom(format!("invalid u64 string: {v}")))
         }
         fn visit_string<E>(self, v: String) -> Result<u64, E>
         where
@@ -88,7 +88,7 @@ where
             if s.is_empty() {
                 Ok(None)
             } else {
-                s.parse::<u64>().map(Some).map_err(|_| E::custom(format!("invalid u64 string: {}", v)))
+                s.parse::<u64>().map(Some).map_err(|_| E::custom(format!("invalid u64 string: {v}")))
             }
         }
         fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
@@ -125,7 +125,7 @@ where
             match v.trim().to_ascii_lowercase().as_str() {
                 "true" | "1" => Ok(true),
                 "false" | "0" => Ok(false),
-                _ => Err(E::custom(format!("invalid bool string: {}", v))),
+                _ => Err(E::custom(format!("invalid bool string: {v}"))),
             }
         }
         fn visit_string<E>(self, v: String) -> Result<bool, E>
@@ -192,7 +192,7 @@ where
                 "" => Ok(None),
                 "true" | "1" => Ok(Some(true)),
                 "false" | "0" => Ok(Some(false)),
-                _ => Err(E::custom(format!("invalid bool string: {}", v))),
+                _ => Err(E::custom(format!("invalid bool string: {v}"))),
             }
         }
         fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
@@ -244,7 +244,7 @@ where
         where
             E: de::Error,
         {
-            v.trim().parse::<usize>().map_err(|_| E::custom(format!("invalid usize string: {}", v)))
+            v.trim().parse::<usize>().map_err(|_| E::custom(format!("invalid usize string: {v}")))
         }
         fn visit_string<E>(self, v: String) -> Result<usize, E>
         where
@@ -305,7 +305,7 @@ where
             if s.is_empty() {
                 Ok(None)
             } else {
-                s.parse::<usize>().map(Some).map_err(|_| E::custom(format!("invalid usize string: {}", v)))
+                s.parse::<usize>().map(Some).map_err(|_| E::custom(format!("invalid usize string: {v}")))
             }
         }
         fn visit_string<E>(self, v: String) -> Result<Self::Value, E>

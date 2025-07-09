@@ -419,7 +419,7 @@ impl CsvNode {
 
             // Node-RED: if no template/header, auto-generate col1, col2, ...
             if template.is_empty() {
-                template = (1..=fields.len()).map(|i| Some(format!("col{}", i))).collect();
+                template = (1..=fields.len()).map(|i| Some(format!("col{i}"))).collect();
             }
 
             // Use template to create object

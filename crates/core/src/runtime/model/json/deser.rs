@@ -336,14 +336,14 @@ pub fn parse_red_type_value(t: &str) -> RedElementTypeValue {
 }
 
 pub fn parse_red_id_str(id_str: &str) -> Option<ElementId> {
-    if id_str.len() < 1 {
+    if id_str.is_empty() {
         return None;
     }
     if let Ok(element_id) = id_str.parse::<ElementId>() {
         return Some(element_id);
     }
 
-    log::warn!("Failed to parse ID '{}' as hex, converting to hash", id_str);
+    log::warn!("Failed to parse ID '{id_str}' as hex, converting to hash");
 
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
@@ -359,7 +359,7 @@ pub fn parse_red_id_value(id_value: &serde_json::Value) -> Option<ElementId> {
     if let Some(id_str) = id_value.as_str() {
         parse_red_id_str(id_str)
     } else {
-        log::warn!("ID value is not a string: {:?}", id_value);
+        log::warn!("ID value is not a string: {id_value:?}");
         None
     }
 }

@@ -113,7 +113,7 @@ impl Msg {
     }
 
     pub fn contains(&self, prop: &str) -> bool {
-        self.body.as_object().map_or(false, |obj| obj.contains_property(prop))
+        self.body.as_object().is_some_and(|obj| obj.contains_property(prop))
     }
 
     /// Check if a navigation property exists
