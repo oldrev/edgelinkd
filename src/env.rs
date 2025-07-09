@@ -14,14 +14,16 @@ impl<'a> EdgelinkEnv<'a> {
 
     /// Prepare the runtime environment: ensure flows file exists or error if user-specified and missing
     pub fn prepare(&self, flows_path: Option<String>) -> Result<(), EdgelinkError> {
-        let flows_path = self.cli_args.get_flows_path(flows_path.clone());
-        if !self.cli_args.is_flows_path_user(&flows_path.clone().into()) {
-            ensure_flows_file_exists(&flows_path).map_err(|e| EdgelinkError::Other(e.into()))?;
-        } else if !Path::new(&flows_path).exists() {
+    let flows_path = self.cli_args.get_flows_path(flows_path.clone());
+    if self.cli_args.is_flows_path_user(&flows_path) {
+        if !Path::new(&flows_path).exists() {
             return Err(EdgelinkError::Other(
                 anyhow::anyhow!("The specified flows file does not exist: `{}`", flows_path).into(),
             ));
         }
-        Ok(())
+    } else {
+        ensure_flows_file_exists(&flows_path).map_err(|e| EdgelinkError::Other(e.into()))?;
     }
+    Ok(())
+}
 }
