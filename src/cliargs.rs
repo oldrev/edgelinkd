@@ -1,7 +1,5 @@
 use clap::{Parser, Subcommand};
 
-use crate::consts;
-
 const LONG_ABOUT: &str = r#"
 EdgeLink Daemon Program
 
@@ -66,7 +64,7 @@ pub enum Commands {
 }
 
 impl CliArgs {
-    // （已移除 default_run_command，保持 CliArgs 纯数据对象）
+    /*
     /// Get the actual flows path, considering user_dir if provided
     pub fn get_flows_path(&self, flows_path: Option<String>) -> String {
         if let Some(flows_path) = flows_path {
@@ -84,5 +82,40 @@ impl CliArgs {
     /// Returns true if flows_path is user-specified, false if default
     pub fn is_flows_path_user(&self, flows_path: &Option<String>) -> bool {
         flows_path.is_some()
+    }
+    */
+
+    /// Merge CliArgs into config::Config, overriding config values with CLI values if set
+    pub fn merge_into_config_builder(
+        &self,
+        builder: config::ConfigBuilder<config::builder::DefaultState>,
+    ) -> Result<config::ConfigBuilder<config::builder::DefaultState>, config::ConfigError> {
+        let mut builder = builder;
+        // flows_path (from subcommand Run)
+        if let Some(Commands::Run { flows_path, .. }) = &self.command {
+            if let Some(fp) = flows_path {
+                builder = builder.set_override("flows_path", fp.clone())?;
+            }
+        }
+        // verbose
+        builder = builder.set_override("verbose", self.verbose as i64)?;
+        // log_path
+        if let Some(ref log_path) = self.log_path {
+            builder = builder.set_override("log_path", log_path.clone())?;
+        }
+        // env
+        if let Some(ref env) = self.env {
+            builder = builder.set_override("env", env.clone())?;
+        }
+        // user_dir
+        if let Some(ref user_dir) = self.user_dir {
+            builder = builder.set_override("user_dir", user_dir.clone())?;
+        }
+        // home
+        if let Some(ref home) = self.home {
+            builder = builder.set_override("home", home.clone())?;
+        }
+        // 其他参数可按需添加
+        Ok(builder)
     }
 }

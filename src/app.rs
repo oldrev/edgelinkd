@@ -30,27 +30,28 @@ pub struct App {
 
 impl App {
     pub async fn new(
-        elargs: Arc<CliArgs>,
-        app_config: Option<config::Config>,
-        flows_path: Option<String>,
+        _elargs: Arc<CliArgs>,
+        app_config: config::Config,
+        _flows_path: Option<String>,
     ) -> edgelink_core::Result<Self> {
         let reg = create_registry()?;
 
         let msgs_to_inject = Vec::new();
 
-        // Ensure flows.json exists, create default if it doesn't
-        let flows_path = elargs.get_flows_path(flows_path);
+        // flows_path 只从 config 获取，已统一默认值
+        let flows_path =
+            app_config.get_string("flows_path").expect("Config must provide flows_path after normalization");
         ensure_flows_file_exists(&flows_path)?;
 
         log::info!("Loading flows file: {flows_path}");
-        let engine = Engine::with_flows_file(&reg, &flows_path, app_config.clone()).await?;
+        let engine = Engine::with_flows_file(&reg, &flows_path, Some(app_config.clone())).await?;
 
         Ok(App {
             _registry: reg,
             engine: Arc::new(RwLock::new(engine)),
             msgs_to_inject: Mutex::new(msgs_to_inject),
             flows_path: flows_path.clone(),
-            app_config: app_config.clone(),
+            app_config: Some(app_config),
         })
     }
 

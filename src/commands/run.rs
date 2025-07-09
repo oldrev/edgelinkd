@@ -18,8 +18,8 @@ impl Command for RunCommand {
     }
 
     async fn execute(&self, args: Arc<CliArgs>) -> Result<()> {
-        if let Some(Commands::Run { flows_path, headless, bind }) = &args.command {
-            run_app_internal(args.clone(), flows_path.clone(), *headless, bind.clone()).await
+        if let Some(Commands::Run { .. }) = &args.command {
+            run_app_internal(args.clone()).await
         } else {
             anyhow::bail!("Invalid command arguments for run")
         }

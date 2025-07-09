@@ -24,7 +24,6 @@ enum JoinMode {
     Buffer,
 }
 
-
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
@@ -36,7 +35,6 @@ enum JoinBuild {
     Buffer,
     Merged,
 }
-
 
 #[derive(Debug, Clone, Deserialize)]
 #[allow(dead_code)]
