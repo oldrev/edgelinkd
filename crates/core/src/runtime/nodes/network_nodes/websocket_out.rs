@@ -236,12 +236,16 @@ impl WebSocketOutNode {
                         }
                     }
 
-                    if is_binary && !bytes.is_empty() { Message::Binary(bytes) } else { Message::Text(data_to_send) }
+                    if is_binary && !bytes.is_empty() {
+                        Message::Binary(bytes.into())
+                    } else {
+                        Message::Text(data_to_send.into())
+                    }
                 }
-                _ => Message::Text(data_to_send),
+                _ => Message::Text(data_to_send.into()),
             }
         } else {
-            Message::Text(data_to_send)
+            Message::Text(data_to_send.into())
         };
 
         // Send the message

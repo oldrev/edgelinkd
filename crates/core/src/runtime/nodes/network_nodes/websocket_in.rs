@@ -169,8 +169,8 @@ impl WebSocketInNode {
                     _ = stop_token.cancelled() => break,
                     msg = stream.next() => {
                         match msg {
-                            Some(Ok(Message::Text(text))) => {
-                                self.send_output_message(Variant::String(text), stop_token.clone()).await?;
+                            Some(Ok(Message::Text(utf8_text))) => {
+                                self.send_output_message(Variant::String(utf8_text.to_string()), stop_token.clone()).await?;
                             }
                             Some(Ok(Message::Binary(data))) => {
                                 // Convert binary data to array of numbers (like Node.js Buffer)

@@ -9,7 +9,7 @@ pub mod time;
 pub mod topo;
 
 pub fn generate_uid() -> u64 {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let random_part: u64 = rand::RngCore::next_u64(&mut rng);
     let timestamp_part = SystemTime::now().duration_since(UNIX_EPOCH).expect("Time error!!!").as_nanos() as u64;
 

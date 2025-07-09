@@ -240,7 +240,7 @@ impl WebSocketListenerNode {
 
         // Convert payload to WebSocket message
         let ws_message = match &payload {
-            Variant::String(s) => Message::Text(s.clone()),
+            Variant::String(s) => Message::Text(s.clone().into()),
             Variant::Array(arr) => {
                 // Convert array of numbers to binary data
                 let mut bytes = Vec::new();
@@ -253,12 +253,12 @@ impl WebSocketListenerNode {
                         }
                     }
                 }
-                Message::Binary(bytes)
+                Message::Binary(bytes.into())
             }
             _ => {
                 // Convert other types to JSON string
                 let json_str = serde_json::to_string(&payload).unwrap_or_else(|_| format!("{payload:?}"));
-                Message::Text(json_str)
+                Message::Text(json_str.into())
             }
         };
 
