@@ -67,7 +67,7 @@ inventory.workspace = true
 arrayvec = { workspace = true, features = ["std", "serde"] }
 notify = { version = "^8.0", optional = true }
 rumqttc = { version = "0.24", optional = true }
-tokio-tungstenite = { version = "0.24", optional = true, features = ["rustls-tls-native-roots"] }
+tokio-tungstenite = { version = "0.26", optional = true, features = ["rustls-tls-native-roots"] }
 futures-util = { version = "0.3", optional = true }
 reqwest = { workspace = true, optional = true }
 
