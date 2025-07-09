@@ -1,14 +1,18 @@
+use crate::handlers::WebState;
+use axum::Extension;
 use axum::{
     extract::Path,
     http::{HeaderMap, StatusCode, header},
     response::IntoResponse,
 };
-use std::path::PathBuf;
 
 /// Handle static core library resources
 /// Maps URLs like /core/common/lib/debug/debug-utils.js to static/core/common/lib/debug/debug-utils.js
-pub async fn serve_core_lib_resource(Path(resource_path): Path<String>) -> impl IntoResponse {
-    let static_dir = get_static_dir();
+pub async fn serve_core_lib_resource(
+    Extension(state): Extension<WebState>,
+    Path(resource_path): Path<String>,
+) -> impl IntoResponse {
+    let static_dir = &state.static_dir;
 
     // Construct the full path: core/{resource_path}
     let file_path = static_dir.join("core").join(&resource_path);
@@ -23,8 +27,11 @@ pub async fn serve_core_lib_resource(Path(resource_path): Path<String>) -> impl 
 
 /// Handle debug view resources
 /// Maps URLs like /debug/view/debug-utils.js to static/core/common/lib/debug/debug-utils.js
-pub async fn serve_debug_view_resource(Path(resource_path): Path<String>) -> impl IntoResponse {
-    let static_dir = get_static_dir();
+pub async fn serve_debug_view_resource(
+    Extension(state): Extension<WebState>,
+    Path(resource_path): Path<String>,
+) -> impl IntoResponse {
+    let static_dir = &state.static_dir;
 
     // Map debug/view/* to core/common/lib/debug/*
     let file_path = static_dir.join("core/common/lib/debug").join(&resource_path);
@@ -38,8 +45,8 @@ pub async fn serve_debug_view_resource(Path(resource_path): Path<String>) -> imp
 }
 
 /// Handle special debug view.html with theme CSS injection
-pub async fn serve_debug_view_html() -> impl IntoResponse {
-    let static_dir = get_static_dir();
+pub async fn serve_debug_view_html(Extension(state): Extension<WebState>) -> impl IntoResponse {
+    let static_dir = &state.static_dir;
 
     let file_path = static_dir.join("core/common/lib/debug/view.html");
 
@@ -56,8 +63,8 @@ pub async fn serve_debug_view_html() -> impl IntoResponse {
 }
 
 /// Handle debug.js at root path (for main editor)
-pub async fn serve_debug_js() -> impl IntoResponse {
-    let static_dir = get_static_dir();
+pub async fn serve_debug_js(Extension(state): Extension<WebState>) -> impl IntoResponse {
+    let static_dir = &state.static_dir;
 
     let file_path = static_dir.join("core/common/lib/debug/debug.js");
 
@@ -72,8 +79,8 @@ pub async fn serve_debug_js() -> impl IntoResponse {
 }
 
 /// Handle debug-utils.js at root path (for main editor)
-pub async fn serve_debug_utils_js() -> impl IntoResponse {
-    let static_dir = get_static_dir();
+pub async fn serve_debug_utils_js(Extension(state): Extension<WebState>) -> impl IntoResponse {
+    let static_dir = &state.static_dir;
 
     let file_path = static_dir.join("core/common/lib/debug/debug-utils.js");
 
@@ -88,13 +95,7 @@ pub async fn serve_debug_utils_js() -> impl IntoResponse {
 }
 
 /// Get the static directory path - try OUT_DIR first, fallback to current directory
-fn get_static_dir() -> PathBuf {
-    if let Ok(out_dir) = std::env::var("OUT_DIR") {
-        PathBuf::from(out_dir).join("ui_static")
-    } else {
-        std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")).join("static")
-    }
-}
+// get_static_dir moved to utils.rs
 
 /// Serve a static file with appropriate content type
 async fn serve_static_file(file_path: &std::path::Path, resource_path: &str) -> axum::response::Response {

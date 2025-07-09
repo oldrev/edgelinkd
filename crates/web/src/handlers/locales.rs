@@ -1,3 +1,5 @@
+use crate::handlers::WebState;
+use axum::Extension;
 use axum::{
     extract::{Path, Query},
     http::StatusCode,
@@ -5,16 +7,18 @@ use axum::{
 };
 use serde_json::Value;
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 /// Handle locale requests for Node-RED compatibility
 /// Maps URLs like /locales/nodes?lng=en-US to the appropriate locale files
-pub async fn get_nodes_locale(Query(params): Query<HashMap<String, String>>) -> Result<Json<Value>, StatusCode> {
+pub async fn get_nodes_locale(
+    Extension(state): Extension<WebState>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<Value>, StatusCode> {
     // Get language from query parameter, default to en-US
     let lang = params.get("lng").cloned().unwrap_or_else(|| "en-US".to_string());
 
     // Get the static directory path
-    let static_dir = get_static_dir();
+    let static_dir = &state.static_dir;
 
     // Try to load the locale file from the new structure
     let locale_path = static_dir.join("locales").join(&lang).join("messages.json");
@@ -24,12 +28,12 @@ pub async fn get_nodes_locale(Query(params): Query<HashMap<String, String>>) -> 
             Ok(json) => Ok(Json(json)),
             Err(_) => {
                 log::warn!("Invalid JSON in locale file: {}", locale_path.display());
-                get_fallback_locale(&lang).await
+                get_fallback_locale(&state, &lang).await
             }
         },
         Err(_) => {
             // If the specific locale isn't found, try fallback strategies
-            get_fallback_locale(&lang).await
+            get_fallback_locale(&state, &lang).await
         }
     }
 }
@@ -38,6 +42,7 @@ pub async fn get_nodes_locale(Query(params): Query<HashMap<String, String>>) -> 
 /// Maps URLs like /locales/inject?lng=en-US to namespace-specific translations
 /// Special handling for /locales/node-red which returns all node translations
 pub async fn get_namespace_locale(
+    Extension(state): Extension<WebState>,
     Path(namespace): Path<String>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Value>, StatusCode> {
@@ -45,11 +50,11 @@ pub async fn get_namespace_locale(
 
     // Special case: node-red namespace should return all node translations (messages.json)
     if namespace == "node-red" {
-        return get_nodes_locale(Query(params)).await;
+        return get_nodes_locale(Extension(state.clone()), Query(params)).await;
     }
 
     // For other namespaces, return subset of the nodes locale
-    match get_nodes_locale(Query(params)).await {
+    match get_nodes_locale(Extension(state.clone()), Query(params)).await {
         Ok(Json(full_locale)) => {
             if let Some(namespace_data) = full_locale.get(&namespace) {
                 Ok(Json(namespace_data.clone()))
@@ -63,8 +68,8 @@ pub async fn get_namespace_locale(
 }
 
 /// Get available locales
-pub async fn get_available_locales() -> Result<Json<Value>, StatusCode> {
-    let static_dir = get_static_dir();
+pub async fn get_available_locales(Extension(state): Extension<WebState>) -> Result<Json<Value>, StatusCode> {
+    let static_dir = &state.static_dir;
     let locales_dir = static_dir.join("locales");
 
     let mut available_langs = Vec::new();
@@ -104,8 +109,8 @@ pub async fn get_available_locales() -> Result<Json<Value>, StatusCode> {
 }
 
 /// Get fallback locale with fallback strategies
-async fn get_fallback_locale(requested_lang: &str) -> Result<Json<Value>, StatusCode> {
-    let static_dir = get_static_dir();
+async fn get_fallback_locale(state: &WebState, requested_lang: &str) -> Result<Json<Value>, StatusCode> {
+    let static_dir = &state.static_dir;
 
     // Strategy 1: Try primary language (e.g., 'en' for 'en-US')
     if requested_lang.contains('-') {
@@ -194,9 +199,12 @@ fn get_hardcoded_fallback_locale() -> Value {
 
 /// Handle editor locale requests (for Node-RED editor UI translations)
 /// Maps URLs like /locales/editor?lng=en-US to editor-specific translations
-pub async fn get_editor_locale(Query(params): Query<HashMap<String, String>>) -> Result<Json<Value>, StatusCode> {
+pub async fn get_editor_locale(
+    Extension(state): Extension<WebState>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<Value>, StatusCode> {
     let lang = params.get("lng").cloned().unwrap_or_else(|| "en-US".to_string());
-    let static_dir = get_static_dir();
+    let static_dir = &state.static_dir;
 
     // Try to load editor locale files (editor.json, jsonata.json, infotips.json)
     let locale_dir = static_dir.join("locales").join(&lang);
@@ -221,15 +229,15 @@ pub async fn get_editor_locale(Query(params): Query<HashMap<String, String>>) ->
 
     if combined_locale.is_empty() {
         // Try fallback
-        get_editor_fallback_locale(&lang).await
+        get_editor_fallback_locale(&state, &lang).await
     } else {
         Ok(Json(Value::Object(combined_locale)))
     }
 }
 
 /// Get fallback editor locale
-async fn get_editor_fallback_locale(requested_lang: &str) -> Result<Json<Value>, StatusCode> {
-    let static_dir = get_static_dir();
+async fn get_editor_fallback_locale(state: &WebState, requested_lang: &str) -> Result<Json<Value>, StatusCode> {
+    let static_dir = &state.static_dir;
 
     // Strategy 1: Try primary language
     if requested_lang.contains('-') {
@@ -282,11 +290,4 @@ async fn get_editor_fallback_locale(requested_lang: &str) -> Result<Json<Value>,
     })))
 }
 
-/// Get the static directory path
-fn get_static_dir() -> PathBuf {
-    if let Ok(out_dir) = std::env::var("OUT_DIR") {
-        PathBuf::from(out_dir).join("ui_static")
-    } else {
-        std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")).join("static")
-    }
-}
+// get_static_dir moved to utils.rs

@@ -59,7 +59,7 @@ fn determine_static_directory() -> PathBuf {
     }
 
     // Final fallback to project root static directory
-    PathBuf::from("static")
+    PathBuf::from("ui_static")
 }
 
 pub async fn run_app(cli_args: Arc<CliArgs>) -> anyhow::Result<()> {

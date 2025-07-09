@@ -21,18 +21,36 @@ pub struct WebState {
     pub restart_callback: Option<FlowEngineRestartCallback>, // Callback to restart the engine
     pub engine: Option<Arc<Engine>>,                         // Engine instance for direct integration
     pub cancel_token: Option<CancellationToken>,             // Cancellation token for graceful shutdown
+    pub static_dir: PathBuf,                                 // Static files directory
 }
 
 impl Default for WebState {
     fn default() -> Self {
         Self {
             settings: Arc::new(RwLock::new(RuntimeSettings::default())),
-            registry: None,             // No registry by default, needs to be set later
-            comms: CommsManager::new(), // Create WebSocket communication manager
-            flows_file_path: None,      // No flows file path by default
-            restart_callback: None,     // No restart callback by default
-            engine: None,               // No engine by default
-            cancel_token: None,         // No cancellation token by default
+            registry: None,                         // No registry by default, needs to be set later
+            comms: CommsManager::new(),             // Create WebSocket communication manager
+            flows_file_path: None,                  // No flows file path by default
+            restart_callback: None,                 // No restart callback by default
+            engine: None,                           // No engine by default
+            cancel_token: None,                     // No cancellation token by default
+            static_dir: Self::default_static_dir(), // Set static_dir using helper
+        }
+    }
+}
+
+impl WebState {
+    /// Helper to determine the default static directory path
+    fn default_static_dir() -> PathBuf {
+        if let Ok(out_dir) = std::env::var("OUT_DIR") {
+            PathBuf::from(out_dir).join("ui_static")
+        } else {
+            // Use the directory of the current executable
+            let exe_dir = std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+                .unwrap_or_else(|| PathBuf::from("."));
+            exe_dir.join("ui_static")
         }
     }
 }

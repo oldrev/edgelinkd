@@ -57,7 +57,7 @@ pub async fn get_icon_file(
     let static_dir = if let Ok(out_dir) = std::env::var("OUT_DIR") {
         std::path::PathBuf::from(out_dir).join("ui_static")
     } else {
-        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")).join("static")
+        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")).join("ui_static")
     };
 
     // Build icon file path

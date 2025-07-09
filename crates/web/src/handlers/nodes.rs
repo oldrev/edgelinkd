@@ -1,4 +1,5 @@
 use crate::handlers::WebState;
+// use crate::handlers::utils::get_static_dir;
 use axum::{
     Extension,
     extract::{Path, Query},
@@ -7,7 +8,6 @@ use axum::{
 };
 use serde_json::Value;
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 struct NodeInfo {
@@ -302,13 +302,16 @@ pub async fn uninstall_node_module(
 }
 
 /// Get node message directory
-pub async fn get_node_messages(Query(params): Query<HashMap<String, String>>) -> Result<Json<Value>, StatusCode> {
+pub async fn get_node_messages(
+    Extension(state): Extension<WebState>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<Value>, StatusCode> {
     let lang = params.get("lng").unwrap_or(&"en-US".to_string()).clone();
 
     log::info!("Getting node messages for language: {lang}");
 
-    // Get the static directory path
-    let static_dir = get_static_dir();
+    // Use static_dir from WebState
+    let static_dir = &state.static_dir;
 
     // Try to load the locale file from the new structure
     let locale_path = static_dir.join("locales").join(&lang).join("messages.json");
@@ -318,13 +321,13 @@ pub async fn get_node_messages(Query(params): Query<HashMap<String, String>>) ->
             Ok(json) => Ok(Json(json)),
             Err(_) => {
                 log::warn!("Invalid JSON in locale file: {}", locale_path.display());
-                get_fallback_node_messages(&lang).await
+                get_fallback_node_messages(&state, &lang).await
             }
         },
         Err(_) => {
             log::warn!("Locale file not found: {}", locale_path.display());
             // If the specific locale isn't found, try fallback strategies
-            get_fallback_node_messages(&lang).await
+            get_fallback_node_messages(&state, &lang).await
         }
     }
 }
@@ -365,6 +368,7 @@ pub async fn toggle_node_set(
 
 /// Get node set messages
 pub async fn get_node_set_messages(
+    Extension(state): Extension<WebState>,
     Path((module_name, set_name)): Path<(String, String)>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Value>, StatusCode> {
@@ -372,8 +376,8 @@ pub async fn get_node_set_messages(
 
     log::info!("Getting node set messages for {module_name}/{set_name} in language: {lang}");
 
-    // Get the static directory path
-    let static_dir = get_static_dir();
+    // Use static_dir from WebState
+    let static_dir = &state.static_dir;
 
     // Try to load the locale file from the new structure
     let locale_path = static_dir.join("locales").join(&lang).join("messages.json");
@@ -398,20 +402,20 @@ pub async fn get_node_set_messages(
             }
             Err(_) => {
                 log::warn!("Invalid JSON in locale file: {}", locale_path.display());
-                get_fallback_node_set_messages(&module_name, &set_name, &lang).await
+                get_fallback_node_set_messages(&state, &module_name, &set_name, &lang).await
             }
         },
         Err(_) => {
             log::warn!("Locale file not found: {}", locale_path.display());
             // If the specific locale isn't found, try fallback strategies
-            get_fallback_node_set_messages(&module_name, &set_name, &lang).await
+            get_fallback_node_set_messages(&state, &module_name, &set_name, &lang).await
         }
     }
 }
 
 /// Get fallback node messages with fallback strategies
-async fn get_fallback_node_messages(requested_lang: &str) -> Result<Json<Value>, StatusCode> {
-    let static_dir = get_static_dir();
+async fn get_fallback_node_messages(state: &WebState, requested_lang: &str) -> Result<Json<Value>, StatusCode> {
+    let static_dir = &state.static_dir;
 
     // Strategy 1: Try primary language (e.g., 'en' for 'en-US')
     if requested_lang.contains('-') {
@@ -441,11 +445,12 @@ async fn get_fallback_node_messages(requested_lang: &str) -> Result<Json<Value>,
 
 /// Get fallback node set messages with fallback strategies  
 async fn get_fallback_node_set_messages(
+    state: &WebState,
     module_name: &str,
     set_name: &str,
     requested_lang: &str,
 ) -> Result<Json<Value>, StatusCode> {
-    let static_dir = get_static_dir();
+    let static_dir = &state.static_dir;
 
     // Strategy 1: Try primary language (e.g., 'en' for 'en-US')
     if requested_lang.contains('-') {
@@ -534,13 +539,4 @@ fn get_hardcoded_fallback_node_set_messages(module_name: &str, set_name: &str) -
             "description": "Node set description"
         }
     })
-}
-
-/// Get the static directory path
-fn get_static_dir() -> PathBuf {
-    if let Ok(out_dir) = std::env::var("OUT_DIR") {
-        PathBuf::from(out_dir).join("ui_static")
-    } else {
-        std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")).join("static")
-    }
 }
