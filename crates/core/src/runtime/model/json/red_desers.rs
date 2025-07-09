@@ -340,7 +340,7 @@ mod tests {
         ];
         for (json, expected) in cases {
             let parsed: TestU64 = serde_json::from_str(json).unwrap();
-            assert_eq!(parsed.v, expected, "failed on input: {}", json);
+            assert_eq!(parsed.v, expected, "failed on input: {json}");
         }
     }
 
@@ -357,7 +357,7 @@ mod tests {
         ];
         for (json, expected) in cases {
             let parsed: TestOptU64 = serde_json::from_str(json).unwrap();
-            assert_eq!(parsed.v, expected, "failed on input: {}", json);
+            assert_eq!(parsed.v, expected, "failed on input: {json}");
         }
     }
 
@@ -408,7 +408,7 @@ mod tests {
         ];
         for (json, expected) in cases {
             let parsed: TestBool = serde_json::from_str(json).unwrap();
-            assert_eq!(parsed.v, expected, "failed on input: {}", json);
+            assert_eq!(parsed.v, expected, "failed on input: {json}");
         }
     }
 
@@ -429,7 +429,7 @@ mod tests {
         ];
         for (json, expected) in cases {
             let parsed: TestOptBool = serde_json::from_str(json).unwrap();
-            assert_eq!(parsed.v, expected, "failed on input: {}", json);
+            assert_eq!(parsed.v, expected, "failed on input: {json}");
         }
     }
 
@@ -450,7 +450,7 @@ mod tests {
             vec![(r#"{ "v": 123 }"#, 123), (r#"{ "v": "456" }"#, 456), (r#"{ "v": 0 }"#, 0), (r#"{ "v": "0" }"#, 0)];
         for (json, expected) in cases {
             let parsed: TestUsize = serde_json::from_str(json).unwrap();
-            assert_eq!(parsed.v, expected, "failed on input: {}", json);
+            assert_eq!(parsed.v, expected, "failed on input: {json}");
         }
     }
     #[test]
@@ -471,7 +471,7 @@ mod tests {
         ];
         for (json, expected) in cases {
             let parsed: TestOptUsize = serde_json::from_str(json).unwrap();
-            assert_eq!(parsed.v, expected, "failed on input: {}", json);
+            assert_eq!(parsed.v, expected, "failed on input: {json}");
         }
     }
     #[test]
