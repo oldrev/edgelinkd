@@ -56,7 +56,7 @@ urlencoding = { version = "2.1", optional = true }
 url = "2.5"
 # XML parsing
 quick-xml = { version = "0.36", optional = true, features = ["serialize"] }
-serde-xml-rs = { version = "0.6", optional = true }
+serde-xml-rs = { version = "0.8", optional = true }
 # Crates in this project
 edgelink-macro = { path = "../macro" }
 dashmap.workspace = true
