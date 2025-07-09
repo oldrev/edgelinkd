@@ -701,7 +701,7 @@ dependencies = [
  "nom 8.0.0",
  "notify",
  "quick-xml",
- "rand 0.8.5",
+ "rand 0.9.1",
  "regex",
  "reqwest",
  "rquickjs",
