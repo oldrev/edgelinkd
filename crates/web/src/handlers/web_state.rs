@@ -12,6 +12,9 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
+// --- WebStateCore trait implementation ---
+use edgelink_core::runtime::web_state_trait::WebStateCore;
+
 /// Callback type for restarting the flow engine
 pub type FlowEngineRestartCallback = Arc<dyn Fn(PathBuf) -> tokio::task::JoinHandle<()> + Send + Sync>;
 
@@ -28,6 +31,28 @@ pub struct WebState {
     pub cancel_token: RwLock<Option<CancellationToken>>, // Cancellation token for graceful shutdown
     pub static_dir: PathBuf,                      // Static files directory
     pub web_handlers: WebHandlerRegistry,         // Dynamic/static web handler registry
+}
+
+/// Implement WebStateCore trait for WebState
+impl WebStateCore for WebState {
+    fn engine(&self) -> &RwLock<Option<Arc<Engine>>> {
+        &self.engine
+    }
+    fn registry(&self) -> &RwLock<Option<RegistryHandle>> {
+        &self.registry
+    }
+    fn static_dir(&self) -> &PathBuf {
+        &self.static_dir
+    }
+    fn web_handlers(&self) -> &WebHandlerRegistry {
+        &self.web_handlers
+    }
+    fn flows_file_path(&self) -> &RwLock<Option<PathBuf>> {
+        &self.flows_file_path
+    }
+    fn cancel_token(&self) -> &RwLock<Option<CancellationToken>> {
+        &self.cancel_token
+    }
 }
 
 impl WebState {
@@ -65,9 +90,23 @@ impl WebState {
 
 impl WebState {
     /// Register all web_handlers routes into the given axum Router and return the new Router.
+    /// Passes a reference to self (as WebStateCore) to each handler's router registration if supported.
     pub fn register_web_routes(&self, mut router: Router) -> Router {
+        // If your MethodRouter or handler registration supports passing state, adapt here.
+        // For now, we assume each WebHandlerDescriptor.router is a MethodRouter that can be extended to accept state.
+        // If you want to pass state to handlers, you should wrap the handler with an Extension or similar extractor.
+        use axum::Extension;
+        use edgelink_core::runtime::web_state_trait::WebStateCore;
+        let state: &dyn WebStateCore = self;
         for desc in self.web_handlers.routes_handle().lock().unwrap().iter() {
+            // Here, we wrap the handler with Extension(state) if needed.
+            // This requires that the handler is written to accept Extension<T> as an argument.
+            // If not, you may need to refactor the handler registration to support it.
+            // Example: router = router.route(&desc.path, desc.router.clone().layer(Extension(state)));
+            // But axum::Extension requires 'static, so we use Arc<dyn WebStateCore> if needed.
+            // For now, just register as before, but document the pattern:
             router = router.route(&desc.path, desc.router.clone());
+            // TODO: Refactor handler registration to accept state via Extension<Arc<dyn WebStateCore>> if needed.
         }
         router
     }

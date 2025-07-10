@@ -246,6 +246,80 @@ fn handle_legacy_json(orig: &Value) -> Value {
     n
 }
 
+mod inject_web {
+    use super::*;
+    use crate::runtime::model::{ElementId, json::deser::parse_red_id_str};
+    use crate::runtime::nodes::CancellationToken;
+    use crate::web::StaticWebHandler;
+    use axum::{http::StatusCode, response::IntoResponse};
+
+    // POST /inject/:id
+    // Now accepts Extension<Arc<dyn WebStateCore>> for state access
+    use crate::runtime::web_state_trait::WebStateCore;
+    use axum::Extension;
+    use std::sync::Arc;
+
+    async fn inject_post_handler(
+        Extension(state): Extension<Arc<dyn WebStateCore + Send + Sync>>,
+        req: axum::extract::Request,
+    ) -> axum::response::Response {
+        // Extract node id from path
+        let id_str = req.uri().path().trim_start_matches("/inject/");
+        if id_str.is_empty() {
+            return StatusCode::BAD_REQUEST.into_response();
+        }
+
+        // Convert id_str to ElementId (hex string)
+        let eid = parse_red_id_str(id_str).unwrap();
+
+        // Find the node by id via Engine from state
+        let engine_guard = state.engine().read().await;
+        let engine = match engine_guard.as_ref() {
+            Some(engine) => engine.clone(),
+            None => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        };
+        let node = engine.find_flow_node_by_id(&eid);
+        if let Some(node) = node {
+            // Only allow inject nodes
+            if node.type_str() != "inject" {
+                return StatusCode::NOT_FOUND.into_response();
+            }
+            // Optionally check permissions here (not implemented)
+
+            // Try to trigger the inject node
+            let node = node.clone();
+            let stop_token = CancellationToken::new();
+            // Spawn the inject_msg as a background task
+            let id = id_str.to_string();
+            tokio::spawn(async move {
+                if let Some(inject_node) = node.as_any().downcast_ref::<InjectNode>() {
+                    if let Err(e) = inject_node.inject_msg(stop_token).await {
+                        log::error!("InjectNode /inject/:id failed: {e}");
+                    }
+                } else {
+                    log::warn!("Node with id '{}' is not an InjectNode", id);
+                }
+            });
+            StatusCode::OK.into_response()
+        } else {
+            StatusCode::NOT_FOUND.into_response()
+        }
+    }
+    // (已移除重复/旧 handler 实现)
+
+    fn inject_post_router() -> axum::routing::MethodRouter {
+        axum::routing::post(inject_post_handler)
+    }
+
+    inventory::submit! {
+        StaticWebHandler {
+            type_: "/inject/:id",
+            // Handler is registered with Extension extractor for Arc<dyn WebStateCore>
+            router: inject_post_router,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

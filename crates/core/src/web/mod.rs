@@ -4,10 +4,10 @@ use inventory;
 use std::sync::{Arc, Mutex};
 
 /// Descriptor for statically registered web handlers (compile-time).
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct StaticWebHandler {
     pub type_: &'static str,
-    pub router: MethodRouter,
+    pub router: fn() -> MethodRouter,
 }
 
 #[derive(Debug, Clone)]
@@ -35,7 +35,7 @@ impl WebHandlerRegistry {
     fn register_static_handlers(&mut self) {
         for static_handler in inventory::iter::<StaticWebHandler> {
             let desc =
-                WebHandlerDescriptor { path: static_handler.type_.to_string(), router: static_handler.router.clone() };
+                WebHandlerDescriptor { path: static_handler.type_.to_string(), router: (static_handler.router)() };
             self.register_route(desc);
         }
     }

@@ -6,3 +6,4 @@ __pycache__
 
 # Static files - generated from build script
 /static
+/flows.json

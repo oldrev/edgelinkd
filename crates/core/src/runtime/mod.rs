@@ -12,6 +12,7 @@ pub mod nodes;
 pub mod registry;
 pub mod status_channel;
 pub mod subflow;
+pub mod web_state_trait;
 
 #[cfg(feature = "js")]
 pub mod js;
