@@ -133,7 +133,6 @@ async fn start_web_server(
     let static_dir = determine_static_directory();
     log::info!("Using static directory: {}", static_dir.display());
 
-    // flows_path 只从 config 获取，已统一默认值
     let flows_path = cfg.get_string("flows_path").expect("Config must provide flows_path after normalization");
     let flows_path = PathBuf::from(flows_path);
 
@@ -152,12 +151,14 @@ async fn start_web_server(
 
     let web_server = WebServer::new(static_dir, cancel.clone())
         .with_registry(app.registry().clone())
+        .await
         .with_flows_file_path(flows_path)
+        .await
         .with_restart_callback(restart_callback)
+        .await
         .with_engine(app.engine().clone(), cancel.clone())
         .await;
 
-    // Determine bind address: config > 默认
     let bind_addr = if let Ok(addr) = cfg.get_string("bind") {
         addr
     } else if let Ok(host) = cfg.get_string("ui-host.host") {

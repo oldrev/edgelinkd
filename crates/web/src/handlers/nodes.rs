@@ -1,4 +1,5 @@
 use crate::handlers::WebState;
+use std::sync::Arc;
 // use crate::handlers::utils::get_static_dir;
 use axum::{
     Extension,
@@ -25,7 +26,7 @@ type GroupedNodes = HashMap<String, NodeInfo>;
 
 /// Get all nodes
 pub async fn get_nodes(
-    Extension(state): Extension<WebState>,
+    Extension(state): Extension<Arc<WebState>>,
     headers: HeaderMap,
 ) -> Result<axum::response::Response, StatusCode> {
     // Check Accept header to determine response format
@@ -37,7 +38,8 @@ pub async fn get_nodes(
         Ok(Html(html_content).into_response())
     } else {
         // Return node list in JSON format - based on actual node registry
-        if let Some(registry) = &state.registry {
+        let registry_guard = state.registry.read().await;
+        if let Some(registry) = registry_guard.as_ref() {
             // Use actual node registry
             let mut grouped_nodes: GroupedNodes = GroupedNodes::new();
 
@@ -251,10 +253,11 @@ fn get_fallback_nodes_html() -> String {
 
 /// Get node module info
 pub async fn get_node_module(
-    Extension(state): Extension<WebState>,
+    Extension(state): Extension<Arc<WebState>>,
     Path(module_name): Path<String>,
 ) -> Result<Json<Value>, StatusCode> {
-    if let Some(registry) = &state.registry {
+    let registry_guard = state.registry.read().await;
+    if let Some(registry) = registry_guard.as_ref() {
         // Lookup module info from registry
         for (_, meta_node) in registry.all().iter() {
             if meta_node.module == module_name {
@@ -275,7 +278,7 @@ pub async fn get_node_module(
 
 /// Install node module
 pub async fn install_node_module(
-    Extension(_state): Extension<WebState>,
+    Extension(_state): Extension<Arc<WebState>>,
     Json(_payload): Json<Value>,
 ) -> Result<Json<Value>, StatusCode> {
     // Node module installation is now managed by registry, just return unimplemented status here
@@ -284,7 +287,7 @@ pub async fn install_node_module(
 
 /// Enable/disable node module
 pub async fn toggle_node_module(
-    Extension(_state): Extension<WebState>,
+    Extension(_state): Extension<Arc<WebState>>,
     Path(_module_name): Path<String>,
     Json(_payload): Json<Value>,
 ) -> Result<Json<Value>, StatusCode> {
@@ -294,7 +297,7 @@ pub async fn toggle_node_module(
 
 /// Uninstall node module
 pub async fn uninstall_node_module(
-    Extension(_state): Extension<WebState>,
+    Extension(_state): Extension<Arc<WebState>>,
     Path(_module_name): Path<String>,
 ) -> Result<StatusCode, StatusCode> {
     // Node module uninstall is now managed by registry, just return unimplemented status here
@@ -303,7 +306,7 @@ pub async fn uninstall_node_module(
 
 /// Get node message directory
 pub async fn get_node_messages(
-    Extension(state): Extension<WebState>,
+    Extension(state): Extension<Arc<WebState>>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Value>, StatusCode> {
     let lang = params.get("lng").unwrap_or(&"en-US".to_string()).clone();
@@ -334,10 +337,11 @@ pub async fn get_node_messages(
 
 /// Get node set info
 pub async fn get_node_set(
-    Extension(state): Extension<WebState>,
+    Extension(state): Extension<Arc<WebState>>,
     Path((module_name, set_name)): Path<(String, String)>,
 ) -> Result<Json<Value>, StatusCode> {
-    if let Some(registry) = &state.registry {
+    let registry_guard = state.registry.read().await;
+    if let Some(registry) = registry_guard.as_ref() {
         // Lookup node set info from registry
         for (_, meta_node) in registry.all().iter() {
             if meta_node.module == module_name {
@@ -358,7 +362,7 @@ pub async fn get_node_set(
 
 /// Enable/disable node set
 pub async fn toggle_node_set(
-    Extension(_state): Extension<WebState>,
+    Extension(_state): Extension<Arc<WebState>>,
     Path((_module_name, _set_name)): Path<(String, String)>,
     Json(_payload): Json<Value>,
 ) -> Result<Json<Value>, StatusCode> {
@@ -368,7 +372,7 @@ pub async fn toggle_node_set(
 
 /// Get node set messages
 pub async fn get_node_set_messages(
-    Extension(state): Extension<WebState>,
+    Extension(state): Extension<Arc<WebState>>,
     Path((module_name, set_name)): Path<(String, String)>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Value>, StatusCode> {

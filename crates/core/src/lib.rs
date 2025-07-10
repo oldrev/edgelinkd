@@ -1,6 +1,7 @@
 pub mod runtime;
 pub mod text;
 pub mod utils;
+pub mod web;
 
 /// The `PluginRegistrar` is defined by the application and passed to `plugin_entry`. It's used
 /// for a plugin module to register itself with the application.

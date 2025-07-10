@@ -70,6 +70,7 @@ rumqttc = { version = "0.24", optional = true }
 tokio-tungstenite = { workspace = true, optional = true, features = ["rustls-tls-native-roots"] }
 futures-util = { version = "0.3", optional = true }
 reqwest = { workspace = true, optional = true }
+axum.workspace = true
 
 [dev-dependencies]
 # Enable test-utilities in dev mode only. This is mostly for tests.

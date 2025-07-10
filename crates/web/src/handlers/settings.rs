@@ -8,12 +8,13 @@ use axum::{
 };
 use serde_json::Value;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 // settings/user_settings/locale/icons related handlers
 // ...existing code...
 
 /// Get user settings
-pub async fn get_user_settings() -> Result<Json<Value>, StatusCode> {
+pub async fn get_user_settings(Extension(_state): Extension<Arc<WebState>>) -> Result<Json<Value>, StatusCode> {
     let settings = serde_json::json!({
         "user": "default",
         "theme": "default",
@@ -24,14 +25,17 @@ pub async fn get_user_settings() -> Result<Json<Value>, StatusCode> {
 }
 
 /// Update user settings
-pub async fn update_user_settings(Json(payload): Json<Value>) -> Result<Json<Value>, StatusCode> {
+pub async fn update_user_settings(
+    Extension(_state): Extension<Arc<WebState>>,
+    Json(payload): Json<Value>,
+) -> Result<Json<Value>, StatusCode> {
     log::debug!("Updating user settings: {payload:?}");
 
     // In actual implementation, this should save the settings
     Ok(Json(payload))
 }
 /// Get system settings
-pub async fn get_settings(Extension(state): Extension<WebState>) -> Result<Json<RuntimeSettings>, StatusCode> {
+pub async fn get_settings(Extension(state): Extension<Arc<WebState>>) -> Result<Json<RuntimeSettings>, StatusCode> {
     let settings = state.settings.read().await;
     Ok(Json(settings.clone()))
 }

@@ -3,6 +3,7 @@ use crate::models::*;
 use axum::{Extension, extract::Path, http::StatusCode, response::Json};
 use serde_json::Value;
 use std::path::Path as StdPath;
+use std::sync::Arc;
 
 /// Load flows from a JSON file
 async fn load_flows_from_file(
@@ -40,7 +41,9 @@ async fn save_flows_to_file(
 
 /// Trigger engine restart after flows change
 async fn restart_engine_if_available(state: &WebState) {
-    if let (Some(restart_callback), Some(flows_path)) = (&state.restart_callback, &state.flows_file_path) {
+    let restart_callback_guard = state.restart_callback.read().await;
+    let flows_path_guard = state.flows_file_path.read().await;
+    if let (Some(restart_callback), Some(flows_path)) = (restart_callback_guard.as_ref(), flows_path_guard.as_ref()) {
         log::info!("Triggering flow engine restart...");
         restart_callback(flows_path.clone());
         state.comms.send_notification("info", "Flow engine restart initiated").await;
@@ -50,8 +53,9 @@ async fn restart_engine_if_available(state: &WebState) {
 }
 
 /// Get all flows (Node-RED compatible)
-pub async fn get_flows(Extension(state): Extension<WebState>) -> Result<Json<Value>, StatusCode> {
-    let flows = if let Some(ref flows_path) = state.flows_file_path {
+pub async fn get_flows(Extension(state): Extension<Arc<WebState>>) -> Result<Json<Value>, StatusCode> {
+    let flows_path_guard = state.flows_file_path.read().await;
+    let flows = if let Some(ref flows_path) = flows_path_guard.as_ref() {
         match load_flows_from_file(flows_path).await {
             Ok(flows) => flows,
             Err(e) => {
@@ -73,7 +77,10 @@ pub async fn get_flows(Extension(state): Extension<WebState>) -> Result<Json<Val
 }
 
 /// Deploy/update all flows (Node-RED compatible)
-pub async fn post_flows(Extension(state): Extension<WebState>, payload: String) -> Result<Json<Value>, StatusCode> {
+pub async fn post_flows(
+    Extension(state): Extension<Arc<WebState>>,
+    payload: String,
+) -> Result<Json<Value>, StatusCode> {
     log::debug!("Received raw POST payload: {payload}");
 
     // Try to parse the payload
@@ -92,20 +99,26 @@ pub async fn post_flows(Extension(state): Extension<WebState>, payload: String) 
     log::debug!("Full payload: {parsed_payload:?}");
 
     // Save flows to file if path is available
-    if let Some(ref flows_path) = state.flows_file_path {
+    let flows_path_guard = state.flows_file_path.read().await;
+    if let Some(ref flows_path) = flows_path_guard.as_ref() {
         match save_flows_to_file(&parsed_payload.flows, flows_path).await {
             Ok(_) => {
                 log::info!("Flows saved to file: {}", flows_path.display());
 
                 // Redeploy flows using event-driven approach
-                if let Some(ref _engine) = state.engine {
+                let engine_guard = state.engine.read().await;
+                if let Some(ref _engine) = engine_guard.as_ref() {
                     let flows_json = serde_json::Value::Array(parsed_payload.flows);
                     match state.redeploy_flows(flows_json).await {
                         Ok(_) => {
                             log::info!("Flows redeployed successfully!");
                             // Send deploy success notification with actual revision
-                            let revision =
-                                if let Some(ref engine) = state.engine { engine.flows_rev() } else { "1".to_string() };
+                            let engine_guard2 = state.engine.read().await;
+                            let revision = if let Some(ref engine) = engine_guard2.as_ref() {
+                                engine.flows_rev()
+                            } else {
+                                "1".to_string()
+                            };
                             state.comms.send_deploy_notification(true, &revision).await;
                             // Note: other notifications will be sent automatically by event listeners
                         }
@@ -151,9 +164,10 @@ pub async fn post_flows(Extension(state): Extension<WebState>, payload: String) 
 }
 
 /// Get flows state
-pub async fn get_flows_state(Extension(state): Extension<WebState>) -> Result<Json<Value>, StatusCode> {
+pub async fn get_flows_state(Extension(state): Extension<Arc<WebState>>) -> Result<Json<Value>, StatusCode> {
     // Check if engine is available and its running state
-    let (started, state_str) = if let Some(ref engine) = state.engine {
+    let engine_guard = state.engine.read().await;
+    let (started, state_str) = if let Some(ref engine) = engine_guard.as_ref() {
         let is_running = engine.is_running();
         if is_running { (true, "started") } else { (false, "stopped") }
     } else {
@@ -171,16 +185,17 @@ pub async fn get_flows_state(Extension(state): Extension<WebState>) -> Result<Js
 
 /// Set flows state
 pub async fn post_flows_state(
-    Extension(state): Extension<WebState>,
+    Extension(state): Extension<Arc<WebState>>,
     Json(payload): Json<FlowState>,
 ) -> Result<Json<Value>, StatusCode> {
     log::info!("Setting flows state to: {}", payload.state);
 
     // Check if state value is valid
+    let engine_guard = state.engine.read().await;
     let (started, state_str) = match payload.state.as_str() {
         "start" => {
             // Start flows
-            if let Some(ref engine) = state.engine {
+            if let Some(ref engine) = engine_guard.as_ref() {
                 match engine.start().await {
                     Ok(_) => {
                         log::info!("Engine started successfully");
@@ -201,7 +216,7 @@ pub async fn post_flows_state(
         }
         "stop" => {
             // Stop flows
-            if let Some(ref engine) = state.engine {
+            if let Some(ref engine) = engine_guard.as_ref() {
                 match engine.stop().await {
                     Ok(_) => {
                         log::info!("Engine stopped successfully");
@@ -235,10 +250,11 @@ pub async fn post_flows_state(
 
 /// Get single flow
 pub async fn get_flow(
-    Extension(state): Extension<WebState>,
+    Extension(state): Extension<Arc<WebState>>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, StatusCode> {
-    let flows = if let Some(ref flows_path) = state.flows_file_path {
+    let flows_path_guard = state.flows_file_path.read().await;
+    let flows = if let Some(ref flows_path) = flows_path_guard.as_ref() {
         match load_flows_from_file(flows_path).await {
             Ok(flows) => flows,
             Err(e) => {
@@ -267,10 +283,11 @@ pub async fn get_flow(
 
 /// Create new flow
 pub async fn post_flow(
-    Extension(state): Extension<WebState>,
+    Extension(state): Extension<Arc<WebState>>,
     Json(payload): Json<serde_json::Value>,
 ) -> Result<Json<Value>, StatusCode> {
-    let mut flows = if let Some(ref flows_path) = state.flows_file_path {
+    let flows_path_guard = state.flows_file_path.read().await;
+    let mut flows = if let Some(ref flows_path) = flows_path_guard.as_ref() {
         match load_flows_from_file(flows_path).await {
             Ok(flows) => flows,
             Err(e) => {
@@ -286,14 +303,14 @@ pub async fn post_flow(
     flows.push(payload.clone());
 
     // Save back to file
-    if let Some(ref flows_path) = state.flows_file_path {
+    if let Some(ref flows_path) = flows_path_guard.as_ref() {
         if let Err(e) = save_flows_to_file(&flows, flows_path).await {
             log::error!("Failed to save flows to file: {e}");
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
 
         // Restart engine after modification
-        restart_engine_if_available(&state).await;
+        restart_engine_if_available(&*state).await;
     }
 
     Ok(Json(payload))
@@ -301,11 +318,12 @@ pub async fn post_flow(
 
 /// Update flow
 pub async fn put_flow(
-    Extension(state): Extension<WebState>,
+    Extension(state): Extension<Arc<WebState>>,
     Path(id): Path<String>,
     Json(payload): Json<serde_json::Value>,
 ) -> Result<Json<Value>, StatusCode> {
-    let mut flows = if let Some(ref flows_path) = state.flows_file_path {
+    let flows_path_guard = state.flows_file_path.read().await;
+    let mut flows = if let Some(ref flows_path) = flows_path_guard.as_ref() {
         match load_flows_from_file(flows_path).await {
             Ok(flows) => flows,
             Err(e) => {
@@ -335,14 +353,14 @@ pub async fn put_flow(
     }
 
     // Save back to file
-    if let Some(ref flows_path) = state.flows_file_path {
+    if let Some(ref flows_path) = flows_path_guard.as_ref() {
         if let Err(e) = save_flows_to_file(&flows, flows_path).await {
             log::error!("Failed to save flows to file: {e}");
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
 
         // Restart engine after modification
-        restart_engine_if_available(&state).await;
+        restart_engine_if_available(&*state).await;
     }
 
     Ok(Json(payload))
@@ -350,10 +368,11 @@ pub async fn put_flow(
 
 /// Delete flow
 pub async fn delete_flow(
-    Extension(state): Extension<WebState>,
+    Extension(state): Extension<Arc<WebState>>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, StatusCode> {
-    let mut flows = if let Some(ref flows_path) = state.flows_file_path {
+    let flows_path_guard = state.flows_file_path.read().await;
+    let mut flows = if let Some(ref flows_path) = flows_path_guard.as_ref() {
         match load_flows_from_file(flows_path).await {
             Ok(flows) => flows,
             Err(e) => {
@@ -372,14 +391,14 @@ pub async fn delete_flow(
 
     if flows.len() < initial_len {
         // Save back to file
-        if let Some(ref flows_path) = state.flows_file_path {
+        if let Some(ref flows_path) = flows_path_guard.as_ref() {
             if let Err(e) = save_flows_to_file(&flows, flows_path).await {
                 log::error!("Failed to save flows to file: {e}");
                 return Err(StatusCode::INTERNAL_SERVER_ERROR);
             }
 
             // Restart engine after modification
-            restart_engine_if_available(&state).await;
+            restart_engine_if_available(&*state).await;
         }
 
         Ok(StatusCode::NO_CONTENT)

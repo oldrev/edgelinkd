@@ -5,11 +5,12 @@ use axum::{
     http::{HeaderMap, StatusCode, header},
     response::IntoResponse,
 };
+use std::sync::Arc;
 
 /// Handle static core library resources
 /// Maps URLs like /core/common/lib/debug/debug-utils.js to static/core/common/lib/debug/debug-utils.js
 pub async fn serve_core_lib_resource(
-    Extension(state): Extension<WebState>,
+    Extension(state): Extension<Arc<WebState>>,
     Path(resource_path): Path<String>,
 ) -> impl IntoResponse {
     let static_dir = &state.static_dir;
@@ -28,7 +29,7 @@ pub async fn serve_core_lib_resource(
 /// Handle debug view resources
 /// Maps URLs like /debug/view/debug-utils.js to static/core/common/lib/debug/debug-utils.js
 pub async fn serve_debug_view_resource(
-    Extension(state): Extension<WebState>,
+    Extension(state): Extension<Arc<WebState>>,
     Path(resource_path): Path<String>,
 ) -> impl IntoResponse {
     let static_dir = &state.static_dir;
@@ -45,7 +46,7 @@ pub async fn serve_debug_view_resource(
 }
 
 /// Handle special debug view.html with theme CSS injection
-pub async fn serve_debug_view_html(Extension(state): Extension<WebState>) -> impl IntoResponse {
+pub async fn serve_debug_view_html(Extension(state): Extension<Arc<WebState>>) -> impl IntoResponse {
     let static_dir = &state.static_dir;
 
     let file_path = static_dir.join("core/common/lib/debug/view.html");
@@ -63,7 +64,7 @@ pub async fn serve_debug_view_html(Extension(state): Extension<WebState>) -> imp
 }
 
 /// Handle debug.js at root path (for main editor)
-pub async fn serve_debug_js(Extension(state): Extension<WebState>) -> impl IntoResponse {
+pub async fn serve_debug_js(Extension(state): Extension<Arc<WebState>>) -> impl IntoResponse {
     let static_dir = &state.static_dir;
 
     let file_path = static_dir.join("core/common/lib/debug/debug.js");
@@ -79,7 +80,7 @@ pub async fn serve_debug_js(Extension(state): Extension<WebState>) -> impl IntoR
 }
 
 /// Handle debug-utils.js at root path (for main editor)
-pub async fn serve_debug_utils_js(Extension(state): Extension<WebState>) -> impl IntoResponse {
+pub async fn serve_debug_utils_js(Extension(state): Extension<Arc<WebState>>) -> impl IntoResponse {
     let static_dir = &state.static_dir;
 
     let file_path = static_dir.join("core/common/lib/debug/debug-utils.js");

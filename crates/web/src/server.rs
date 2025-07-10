@@ -4,18 +4,29 @@ use axum::serve;
 use axum::{Extension, Router};
 use edgelink_core::runtime::registry::RegistryHandle;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower_http::services::ServeDir;
 
 pub struct WebServer {
     pub static_dir: PathBuf,
-    pub app_state: WebState,
+    pub app_state: Arc<WebState>,
 }
 
 impl WebServer {
     pub fn new(static_dir: impl Into<PathBuf>, cancel_token: CancellationToken) -> Self {
-        let app_state = WebState::default().with_cancel_token(cancel_token.clone());
+        let app_state = Arc::new(WebState {
+            settings: Default::default(),
+            registry: tokio::sync::RwLock::new(None),
+            comms: crate::handlers::CommsManager::new(),
+            flows_file_path: tokio::sync::RwLock::new(None),
+            restart_callback: tokio::sync::RwLock::new(None),
+            engine: tokio::sync::RwLock::new(None),
+            cancel_token: tokio::sync::RwLock::new(Some(cancel_token.clone())),
+            static_dir: static_dir.into(),
+            web_handlers: edgelink_core::web::WebHandlerRegistry::new(),
+        });
 
         // Start heartbeat task
         tokio::spawn({
@@ -26,26 +37,35 @@ impl WebServer {
             }
         });
 
-        Self { static_dir: static_dir.into(), app_state }
+        Self { static_dir: app_state.static_dir.clone(), app_state }
     }
 
-    pub fn with_registry(mut self, registry: RegistryHandle) -> Self {
-        self.app_state = self.app_state.with_registry(registry);
+    pub async fn with_registry(self, registry: RegistryHandle) -> Self {
+        {
+            let mut reg = self.app_state.registry.write().await;
+            *reg = Some(registry);
+        }
         self
     }
 
-    pub fn with_flows_file_path(mut self, path: PathBuf) -> Self {
-        self.app_state = self.app_state.with_flows_file_path(path);
+    pub async fn with_flows_file_path(self, path: PathBuf) -> Self {
+        {
+            let mut f = self.app_state.flows_file_path.write().await;
+            *f = Some(path);
+        }
         self
     }
 
-    pub fn with_restart_callback(mut self, callback: FlowEngineRestartCallback) -> Self {
-        self.app_state = self.app_state.with_restart_callback(callback);
+    pub async fn with_restart_callback(self, callback: FlowEngineRestartCallback) -> Self {
+        {
+            let mut cb = self.app_state.restart_callback.write().await;
+            *cb = Some(callback);
+        }
         self
     }
 
     pub async fn with_engine(
-        mut self,
+        self,
         engine: std::sync::Arc<tokio::sync::RwLock<edgelink_core::runtime::engine::Engine>>,
         cancel_token: CancellationToken,
     ) -> Self {
@@ -54,8 +74,10 @@ impl WebServer {
         let engine_inner = engine_guard.clone();
         drop(engine_guard); // Release read lock
 
-        // Set Engine into AppState
-        self.app_state = self.app_state.with_engine(std::sync::Arc::new(engine_inner));
+        {
+            let mut eng = self.app_state.engine.write().await;
+            *eng = Some(std::sync::Arc::new(engine_inner));
+        }
 
         // Start event listeners and debug listeners
         self.app_state.start_event_listeners(cancel_token).await;
@@ -70,7 +92,7 @@ impl WebServer {
         // Static file service - use the static directory from the instance
         let static_service = ServeDir::new(&self.static_dir);
 
-        Router::new().merge(api_routes).fallback_service(static_service).layer(Extension(self.app_state.clone()))
+        Router::new().merge(api_routes).fallback_service(static_service).layer(Extension(Arc::clone(&self.app_state)))
     }
 
     /// Start the web server and return a JoinHandle

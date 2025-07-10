@@ -459,12 +459,12 @@ impl CommsManager {
 }
 
 /// WebSocket upgrade handler
-pub async fn websocket_handler(ws: WebSocketUpgrade, Extension(state): Extension<WebState>) -> Response {
-    ws.on_upgrade(move |socket| handle_websocket(socket, state))
+pub async fn websocket_handler(ws: WebSocketUpgrade, Extension(state): Extension<Arc<WebState>>) -> Response {
+    ws.on_upgrade(move |socket| handle_websocket(socket, Arc::clone(&state)))
 }
 
 /// Handle WebSocket connection
-async fn handle_websocket(socket: WebSocket, state: WebState) {
+async fn handle_websocket(socket: WebSocket, state: Arc<WebState>) {
     let connection_id = uuid::Uuid::new_v4().to_string();
     log::info!("New WebSocket connection: {connection_id}");
 
@@ -477,8 +477,11 @@ async fn handle_websocket(socket: WebSocket, state: WebState) {
     // Split WebSocket sender and receiver
     let (mut sender, mut receiver) = socket.split();
 
-    // Get cancellation token
-    let cancel_token = state.cancel_token.clone();
+    // Get cancellation token (lock and clone Option)
+    let cancel_token = {
+        let guard = state.cancel_token.read().await;
+        guard.clone()
+    };
 
     // Handle broadcast messages in background task
     let tx_clone = tx.clone();
@@ -519,6 +522,7 @@ async fn handle_websocket(socket: WebSocket, state: WebState) {
     let connection_id_clone = connection_id.clone();
     let comms_manager_clone = state.comms.clone();
     let message_cancel_token = cancel_token.clone();
+    let state2 = Arc::clone(&state);
     let message_task = tokio::spawn(async move {
         loop {
             tokio::select! {
@@ -532,7 +536,9 @@ async fn handle_websocket(socket: WebSocket, state: WebState) {
 
                             // Parse message
                             if let Ok(parsed) = serde_json::from_str::<Value>(&text) {
-                                handle_websocket_message(parsed, &tx_clone, &connection_id_clone, &comms_manager_clone, state.engine.as_deref()).await;
+                                // Lock engine for read, pass as Option<&Engine>
+                                let engine_guard = state2.engine.read().await;
+                                handle_websocket_message(parsed, &tx_clone, &connection_id_clone, &comms_manager_clone, engine_guard.as_deref()).await;
                             }
                         }
                         Some(Ok(axum::extract::ws::Message::Pong(_))) => {

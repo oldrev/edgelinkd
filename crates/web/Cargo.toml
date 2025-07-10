@@ -4,6 +4,7 @@ version = "0.1.99"
 edition = "2024"
 
 [dependencies]
+inventory = { workspace = true }
 axum = { workspace = true, features = ["macros", "ws"] }
 tower = { version = "0.4", features = ["util"] }
 tower-http = { version = "0.6.6", features = ["fs", "cors"] }
@@ -19,4 +20,5 @@ chrono = { workspace = true, features = ["serde"] }
 anyhow = { workspace = true }
 sha2 = { workspace = true }
 tokio-tungstenite = { workspace = true, optional = true, features = ["rustls-tls-native-roots"] }
+
 edgelink-core = { path = "../core" }
