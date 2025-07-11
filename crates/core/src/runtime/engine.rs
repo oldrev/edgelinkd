@@ -69,7 +69,7 @@ struct InnerEngine {
     debug_channel: DebugChannel,
     status_channel: StatusChannel,
     event_bus: EngineEventBus,
-    flows_hash: std::sync::RwLock<Vec<u8>>,
+    flows_hash: tokio::sync::RwLock<Vec<u8>>,
 
     #[cfg(any(test, feature = "pymod"))]
     final_msgs_rx: MsgUnboundedReceiverHolder,
@@ -82,6 +82,8 @@ impl Engine {
     /// Calculate hash of flows JSON (Node-RED compatible - SHA256)
     fn calculate_flows_hash(json: &serde_json::Value) -> Vec<u8> {
         use sha2::{Digest, Sha256};
+        use std::fs;
+        use std::io::Write;
         let flows_json = serde_json::to_string(json).unwrap_or_default();
         let mut hasher = Sha256::new();
         hasher.update(flows_json.as_bytes());
@@ -89,8 +91,8 @@ impl Engine {
     }
 
     /// Get flows revision hash as hex string
-    pub fn flows_rev(&self) -> String {
-        let hash = self.inner.flows_hash.read().unwrap();
+    pub async fn flows_rev(&self) -> String {
+        let hash = self.inner.flows_hash.read().await;
         hex::encode(&*hash)
     }
 
@@ -147,7 +149,7 @@ impl Engine {
                 debug_channel: DebugChannel::new(1000),
                 status_channel: StatusChannel::new(1000),
                 event_bus: EngineEventBus::new(100),
-                flows_hash: std::sync::RwLock::new(flows_hash),
+                flows_hash: tokio::sync::RwLock::new(flows_hash.clone()),
 
                 #[cfg(any(test, feature = "pymod"))]
                 final_msgs_rx: MsgUnboundedReceiverHolder::new(final_msgs_channel.1),
@@ -160,6 +162,7 @@ impl Engine {
         engine.clone().load_global_nodes(json_values.global_nodes, reg.clone(), elcfg.as_ref())?;
         engine.clone().load_flows(json_values.flows, reg, elcfg.as_ref())?;
 
+        log::debug!("Loaded flow revision: {}", hex::encode(&flows_hash));
         Ok(engine)
     }
 
@@ -519,7 +522,7 @@ impl Engine {
 
         // Recalculate flows hash
         {
-            let mut hash = self.inner.flows_hash.write().unwrap();
+            let mut hash = self.inner.flows_hash.write().await;
             *hash = Self::calculate_flows_hash(&json);
         }
 

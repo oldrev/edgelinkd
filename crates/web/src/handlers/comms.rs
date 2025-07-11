@@ -408,13 +408,9 @@ impl CommsManager {
     }
 
     /// Send deploy notification
-    pub async fn send_deploy_notification(&self, success: bool, revision: &str) {
+    pub async fn send_deploy_notification(&self, success: bool, revision: Option<&str>) {
         let deploy_data = serde_json::json!({
-            "type": if success { "deploy" } else { "deploy-error" },
-            "level": if success { "success" } else { "error" },
-            "text": if success { "Successfully deployed" } else { "Deploy failed" },
             "revision": revision,
-            "timestamp": chrono::Utc::now().timestamp_millis()
         });
 
         self.send_to_topic("notification/runtime-deploy", &deploy_data).await;
@@ -426,17 +422,7 @@ impl CommsManager {
         connection_id: &str,
         engine: Option<&edgelink_core::runtime::engine::Engine>,
     ) {
-        let revision = if let Some(engine) = engine {
-            engine.flows_rev()
-        } else {
-            // Fallback: empty flows hash
-            use sha2::{Digest, Sha256};
-            let flows = serde_json::json!([]);
-            let flows_json = serde_json::to_string(&flows).unwrap_or_default();
-            let mut hasher = Sha256::new();
-            hasher.update(flows_json.as_bytes());
-            format!("{:x}", hasher.finalize())
-        };
+        let revision = if let Some(engine) = engine { Some(engine.flows_rev().await) } else { None };
 
         let deploy_data = serde_json::json!({
             "revision": revision
@@ -625,19 +611,9 @@ async fn handle_websocket_message(
                 let status_batch = vec![CommsManager::create_message(topic, &status_init_data)];
                 let _ = tx.send(CommsManager::serialize_batch(&status_batch));
             }
-            "notification/runtime-deploy" => {
+            "notification/#" => {
                 // Send runtime deploy notification with revision
-                let revision = if let Some(engine) = engine {
-                    engine.flows_rev()
-                } else {
-                    // Fallback: empty flows hash
-                    use sha2::{Digest, Sha256};
-                    let flows = serde_json::json!([]);
-                    let flows_json = serde_json::to_string(&flows).unwrap_or_default();
-                    let mut hasher = Sha256::new();
-                    hasher.update(flows_json.as_bytes());
-                    format!("{:x}", hasher.finalize())
-                };
+                let revision = if let Some(engine) = engine { Some(engine.flows_rev().await) } else { None };
                 let deploy_data = serde_json::json!({
                     "revision": revision
                 });
@@ -654,6 +630,12 @@ async fn handle_websocket_message(
                     CommsManager::create_message("notification/runtime-deploy", &deploy_data),
                 ];
                 let _ = tx.send(CommsManager::serialize_batch(&batch));
+            }
+            topic if topic == "notification/runtime-deploy" => {
+                // Send deploy notification for notification/# wildcard
+                let revision = if let Some(engine) = engine { Some(engine.flows_rev().await) } else { None };
+                // Send deploy notification (success = true)
+                comms_manager.send_deploy_notification(true, revision.as_deref()).await;
             }
             topic if topic.starts_with("notification/") => {
                 // Other notification topics - no initial data needed

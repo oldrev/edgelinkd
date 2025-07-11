@@ -115,16 +115,16 @@ pub async fn post_flows(
                             // Send deploy success notification with actual revision
                             let engine_guard2 = state.engine.read().await;
                             let revision = if let Some(ref engine) = engine_guard2.as_ref() {
-                                engine.flows_rev()
+                                Some(engine.flows_rev().await)
                             } else {
-                                "1".to_string()
+                                None
                             };
-                            state.comms.send_deploy_notification(true, &revision).await;
+                            state.comms.send_deploy_notification(true, revision.as_deref()).await;
                             // Note: other notifications will be sent automatically by event listeners
                         }
                         Err(e) => {
                             log::error!("Failed to redeploy flows: {e}");
-                            state.comms.send_deploy_notification(false, "0").await;
+                            state.comms.send_deploy_notification(false, Some("0")).await;
                             state.comms.send_notification("error", &format!("Failed to redeploy flows: {e}")).await;
                             return Err(StatusCode::INTERNAL_SERVER_ERROR);
                         }
@@ -133,7 +133,7 @@ pub async fn post_flows(
                     // Fall back to traditional restart method
                     log::warn!("Engine not available in AppState, falling back to traditional restart");
                     // Send deploy success notification with fallback revision
-                    state.comms.send_deploy_notification(true, "1").await;
+                    state.comms.send_deploy_notification(true, Some("1")).await;
                     state
                         .comms
                         .send_notification(
@@ -146,7 +146,7 @@ pub async fn post_flows(
             }
             Err(e) => {
                 log::error!("Failed to save flows to file: {e}");
-                state.comms.send_deploy_notification(false, "0").await;
+                state.comms.send_deploy_notification(false, Some("0")).await;
                 state.comms.send_notification("error", &format!("Failed to save flows: {e}")).await;
                 return Err(StatusCode::INTERNAL_SERVER_ERROR);
             }
