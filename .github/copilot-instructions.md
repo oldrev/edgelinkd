@@ -1,6 +1,8 @@
-# EdgeLinkd Coding Guidelines
+# Project Overview
 
-These instructions define how GitHub Copilot should assist with this project. The goal is to ensure consistent, high-quality code generation aligned with our conventions, stack, and best practices.
+This project is a Rust-based backend implementation compatible with Node-RED, and reuses the Node-RED UI. Maintaining Node-RED compatibility is very important. The Node-RED source code repository is located at `3rd-party/node-red`.
+
+# EdgeLinkd Coding Guidelines
 
 ## PRIME DIRECTIVE
 - Avoid working on more than one file at a time.
@@ -17,8 +19,8 @@ These instructions define how GitHub Copilot should assist with this project. Th
   *. Format your plan as:
 
 ## PROPOSED EDIT PLAN
-	Working with: [filename]
-	Total planned edits: [number]
+  Working with: [filename]
+  Total planned edits: [number]
 
 ### ✅ Patterns to Follow
 

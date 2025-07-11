@@ -251,8 +251,8 @@ mod inject_web {
     use crate::runtime::model::{ElementId, json::deser::parse_red_id_str};
     use crate::runtime::nodes::CancellationToken;
     use crate::web::StaticWebHandler;
+    use axum::extract::Path;
     use axum::{http::StatusCode, response::IntoResponse};
-
     // POST /inject/:id
     // Now accepts Extension<Arc<dyn WebStateCore>> for state access
     use crate::runtime::web_state_trait::WebStateCore;
@@ -260,17 +260,17 @@ mod inject_web {
     use std::sync::Arc;
 
     async fn inject_post_handler(
+        Path(id_str): Path<String>,
         Extension(state): Extension<Arc<dyn WebStateCore + Send + Sync>>,
         req: axum::extract::Request,
     ) -> axum::response::Response {
         // Extract node id from path
-        let id_str = req.uri().path().trim_start_matches("/inject/");
         if id_str.is_empty() {
             return StatusCode::BAD_REQUEST.into_response();
         }
 
         // Convert id_str to ElementId (hex string)
-        let eid = parse_red_id_str(id_str).unwrap();
+        let eid = parse_red_id_str(id_str.as_str()).unwrap();
 
         // Find the node by id via Engine from state
         let engine_guard = state.engine().read().await;
@@ -293,7 +293,7 @@ mod inject_web {
             let id = id_str.to_string();
             if let Some(inject_node) = node.as_any().downcast_ref::<InjectNode>() {
                 if let Err(e) = inject_node.inject_msg(stop_token).await {
-                    log::error!("InjectNode /inject/{id} failed: {e}");
+                    log::error!("InjectNode /inject/:node_id_str failed: {e}");
                 }
             } else {
                 log::warn!("Node with id '{id}' is not an InjectNode");
@@ -311,7 +311,7 @@ mod inject_web {
 
     inventory::submit! {
         StaticWebHandler {
-            type_: "/inject/{id_str}",
+            type_: "/inject/{node_id_str}",
             // Handler is registered with Extension extractor for Arc<dyn WebStateCore>
             router: _inject_post_router,
         }
