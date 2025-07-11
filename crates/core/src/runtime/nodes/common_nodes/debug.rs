@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::{self, Deserialize};
 
@@ -8,7 +9,7 @@ use crate::runtime::model::json::RedFlowNodeConfig;
 use crate::runtime::nodes::*;
 use edgelink_macro::*;
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 struct DebugNodeConfig {
     #[serde(default)]
     console: bool,
@@ -22,6 +23,12 @@ struct DebugNodeConfig {
     #[serde(default)]
     #[allow(dead_code)]
     target_type: DebugTargetType,
+    #[serde(default = "default_active")]
+    active: bool,
+}
+
+fn default_active() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -67,6 +74,7 @@ where
 struct DebugNode {
     base: BaseFlowNodeState,
     _config: DebugNodeConfig,
+    is_active: AtomicBool,
 }
 
 impl DebugNode {
@@ -93,7 +101,8 @@ impl DebugNode {
         //     // The tosidebar default should be handled in the deserializer
         // }
 
-        let node = DebugNode { base: state, _config: debug_config };
+        let active = debug_config.active;
+        let node = DebugNode { base: state, _config: debug_config, is_active: AtomicBool::new(active) };
         Ok(Box::new(node))
     }
 
@@ -123,7 +132,7 @@ impl FlowNodeBehavior for DebugNode {
 
     async fn run(self: Arc<Self>, stop_token: CancellationToken) {
         while !stop_token.is_cancelled() {
-            if self.base.active {
+            if self.is_active.load(Ordering::Relaxed) {
                 match self.recv_msg(stop_token.child_token()).await {
                     Ok(msg) => {
                         let msg = msg.unwrap_async().await;
@@ -184,6 +193,72 @@ impl FlowNodeBehavior for DebugNode {
             } else {
                 stop_token.cancelled().await;
             }
+        }
+    }
+}
+
+// --- Web handler for enable/disable ---
+mod debug_web {
+    use super::*;
+    use crate::runtime::model::json::deser::parse_red_id_str;
+    use crate::runtime::web_state_trait::WebStateCore;
+    use crate::web::StaticWebHandler;
+    use axum::Extension;
+    use axum::extract::Path;
+    use axum::{http::StatusCode, response::IntoResponse};
+    use std::sync::Arc;
+
+    // POST /debug/{node_id_str}/{action}
+    pub async fn debug_action_handler(
+        Path((id_str, action)): Path<(String, String)>,
+        Extension(state): Extension<Arc<dyn WebStateCore + Send + Sync>>,
+    ) -> axum::response::Response {
+        if id_str.is_empty() {
+            return StatusCode::BAD_REQUEST.into_response();
+        }
+        let eid = match parse_red_id_str(id_str.as_str()) {
+            Some(eid) => eid,
+            None => return StatusCode::BAD_REQUEST.into_response(),
+        };
+        let engine_guard = state.engine().read().await;
+        let engine = match engine_guard.as_ref() {
+            Some(engine) => engine.clone(),
+            None => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        };
+        let node = engine.find_flow_node_by_id(&eid);
+        if let Some(node) = node {
+            if node.type_str() != "debug" {
+                return StatusCode::NOT_FOUND.into_response();
+            }
+            let node = node.clone();
+            if let Some(debug_node) = node.as_any().downcast_ref::<DebugNode>() {
+                match action.as_str() {
+                    "enable" => {
+                        debug_node.is_active.store(true, Ordering::Relaxed);
+                        return (StatusCode::OK, "OK").into_response();
+                    }
+                    "disable" => {
+                        debug_node.is_active.store(false, Ordering::Relaxed);
+                        return (StatusCode::OK, "OK").into_response();
+                    }
+                    _ => return StatusCode::BAD_REQUEST.into_response(),
+                }
+            } else {
+                return StatusCode::NOT_FOUND.into_response();
+            }
+        } else {
+            StatusCode::NOT_FOUND.into_response()
+        }
+    }
+
+    fn debug_action_router() -> axum::routing::MethodRouter {
+        axum::routing::post(debug_action_handler)
+    }
+
+    inventory::submit! {
+        StaticWebHandler {
+            type_: "/debug/{id_str}/{action}",
+            router: debug_action_router,
         }
     }
 }

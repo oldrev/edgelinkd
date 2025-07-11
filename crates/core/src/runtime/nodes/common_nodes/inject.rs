@@ -248,7 +248,7 @@ fn handle_legacy_json(orig: &Value) -> Value {
 
 mod inject_web {
     use super::*;
-    use crate::runtime::model::{ElementId, json::deser::parse_red_id_str};
+    use crate::runtime::model::json::deser::parse_red_id_str;
     use crate::runtime::nodes::CancellationToken;
     use crate::web::StaticWebHandler;
     use axum::extract::Path;
@@ -262,7 +262,6 @@ mod inject_web {
     async fn inject_post_handler(
         Path(id_str): Path<String>,
         Extension(state): Extension<Arc<dyn WebStateCore + Send + Sync>>,
-        req: axum::extract::Request,
     ) -> axum::response::Response {
         // Extract node id from path
         if id_str.is_empty() {
@@ -270,7 +269,10 @@ mod inject_web {
         }
 
         // Convert id_str to ElementId (hex string)
-        let eid = parse_red_id_str(id_str.as_str()).unwrap();
+        let eid = match parse_red_id_str(id_str.as_str()) {
+            Some(eid) => eid,
+            None => return StatusCode::BAD_REQUEST.into_response(),
+        };
 
         // Find the node by id via Engine from state
         let engine_guard = state.engine().read().await;
@@ -293,12 +295,12 @@ mod inject_web {
             let id = id_str.to_string();
             if let Some(inject_node) = node.as_any().downcast_ref::<InjectNode>() {
                 if let Err(e) = inject_node.inject_msg(stop_token).await {
-                    log::error!("InjectNode /inject/:node_id_str failed: {e}");
+                    log::error!("InjectNode `/inject/:node_id_str` failed: {e}");
                 }
             } else {
                 log::warn!("Node with id '{id}' is not an InjectNode");
             }
-            StatusCode::OK.into_response()
+            (StatusCode::OK, "OK").into_response()
         } else {
             StatusCode::NOT_FOUND.into_response()
         }

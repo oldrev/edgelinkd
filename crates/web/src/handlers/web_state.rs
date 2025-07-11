@@ -92,11 +92,6 @@ impl WebState {
     /// Register all web_handlers routes into the given axum Router and return the new Router.
     /// Passes a reference to self (as WebStateCore) to each handler's router registration if supported.
     pub fn register_web_routes(&self, mut router: Router) -> Router {
-        // If your MethodRouter or handler registration supports passing state, adapt here.
-        // For now, we assume each WebHandlerDescriptor.router is a MethodRouter that can be extended to accept state.
-        // If you want to pass state to handlers, you should wrap the handler with an Extension or similar extractor.
-        use edgelink_core::runtime::web_state_trait::WebStateCore;
-        // let state: &dyn WebStateCore = self;
         for desc in self.web_handlers.routes_handle().lock().unwrap().iter() {
             log::info!("Registering dynamic route: {}", desc.path);
             router = router.route(&desc.path, desc.router.clone());
