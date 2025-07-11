@@ -408,7 +408,7 @@ impl CommsManager {
     }
 
     /// Send deploy notification
-    pub async fn send_deploy_notification(&self, success: bool, revision: Option<&str>) {
+    pub async fn send_deploy_notification(&self, _success: bool, revision: Option<&str>) {
         let deploy_data = serde_json::json!({
             "revision": revision,
         });

@@ -4,6 +4,7 @@ use dashmap::DashMap;
 use runtime::flow::*;
 use runtime::registry::RegistryHandle;
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
 
 use super::context::{Context, ContextManager, ContextManagerBuilder};
@@ -81,9 +82,6 @@ struct InnerEngine {
 impl Engine {
     /// Calculate hash of flows JSON (Node-RED compatible - SHA256)
     fn calculate_flows_hash(json: &serde_json::Value) -> Vec<u8> {
-        use sha2::{Digest, Sha256};
-        use std::fs;
-        use std::io::Write;
         let flows_json = serde_json::to_string(json).unwrap_or_default();
         let mut hasher = Sha256::new();
         hasher.update(flows_json.as_bytes());
