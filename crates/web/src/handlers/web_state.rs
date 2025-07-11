@@ -95,18 +95,11 @@ impl WebState {
         // If your MethodRouter or handler registration supports passing state, adapt here.
         // For now, we assume each WebHandlerDescriptor.router is a MethodRouter that can be extended to accept state.
         // If you want to pass state to handlers, you should wrap the handler with an Extension or similar extractor.
-        use axum::Extension;
         use edgelink_core::runtime::web_state_trait::WebStateCore;
-        let state: &dyn WebStateCore = self;
+        // let state: &dyn WebStateCore = self;
         for desc in self.web_handlers.routes_handle().lock().unwrap().iter() {
-            // Here, we wrap the handler with Extension(state) if needed.
-            // This requires that the handler is written to accept Extension<T> as an argument.
-            // If not, you may need to refactor the handler registration to support it.
-            // Example: router = router.route(&desc.path, desc.router.clone().layer(Extension(state)));
-            // But axum::Extension requires 'static, so we use Arc<dyn WebStateCore> if needed.
-            // For now, just register as before, but document the pattern:
+            log::info!("Registering dynamic route: {}", desc.path);
             router = router.route(&desc.path, desc.router.clone());
-            // TODO: Refactor handler registration to accept state via Extension<Arc<dyn WebStateCore>> if needed.
         }
         router
     }

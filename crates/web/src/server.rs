@@ -1,4 +1,4 @@
-use crate::api::create_api_routes;
+use crate::api::create_all_routes;
 use crate::handlers::{FlowEngineRestartCallback, WebState};
 use axum::serve;
 use axum::{Extension, Router};
@@ -11,7 +11,7 @@ use tower_http::services::ServeDir;
 
 pub struct WebServer {
     pub static_dir: PathBuf,
-    pub app_state: Arc<WebState>,
+    pub state: Arc<WebState>,
 }
 
 impl WebServer {
@@ -37,12 +37,12 @@ impl WebServer {
             }
         });
 
-        Self { static_dir: app_state.static_dir.clone(), app_state }
+        Self { static_dir: app_state.static_dir.clone(), state: app_state }
     }
 
     pub async fn with_registry(self, registry: RegistryHandle) -> Self {
         {
-            let mut reg = self.app_state.registry.write().await;
+            let mut reg = self.state.registry.write().await;
             *reg = Some(registry);
         }
         self
@@ -50,7 +50,7 @@ impl WebServer {
 
     pub async fn with_flows_file_path(self, path: PathBuf) -> Self {
         {
-            let mut f = self.app_state.flows_file_path.write().await;
+            let mut f = self.state.flows_file_path.write().await;
             *f = Some(path);
         }
         self
@@ -58,7 +58,7 @@ impl WebServer {
 
     pub async fn with_restart_callback(self, callback: FlowEngineRestartCallback) -> Self {
         {
-            let mut cb = self.app_state.restart_callback.write().await;
+            let mut cb = self.state.restart_callback.write().await;
             *cb = Some(callback);
         }
         self
@@ -75,24 +75,32 @@ impl WebServer {
         drop(engine_guard); // Release read lock
 
         {
-            let mut eng = self.app_state.engine.write().await;
+            let mut eng = self.state.engine.write().await;
             *eng = Some(std::sync::Arc::new(engine_inner));
         }
 
         // Start event listeners and debug listeners
-        self.app_state.start_event_listeners(cancel_token).await;
+        self.state.start_event_listeners(cancel_token).await;
 
         self
     }
 
     pub fn router(&self) -> Router {
         // Create API routes (directly under root path, compatible with Node-RED frontend)
-        let api_routes = create_api_routes();
+        let api_routes = create_all_routes(&self.state);
 
         // Static file service - use the static directory from the instance
         let static_service = ServeDir::new(&self.static_dir);
 
-        Router::new().merge(api_routes).fallback_service(static_service).layer(Extension(Arc::clone(&self.app_state)))
+        // Use trait object for Extension so handlers using Extension<Arc<dyn WebStateCore + Send + Sync>> work
+        Router::new()
+            .merge(api_routes)
+            // 先注入 Arc<WebState>，再注入 trait object，两种 Extension 都可用
+            .layer(Extension(self.state.clone()))
+            .layer(Extension(
+                self.state.clone() as Arc<dyn edgelink_core::runtime::web_state_trait::WebStateCore + Send + Sync>
+            ))
+            .fallback_service(static_service)
     }
 
     /// Start the web server and return a JoinHandle

@@ -291,15 +291,13 @@ mod inject_web {
             let stop_token = CancellationToken::new();
             // Spawn the inject_msg as a background task
             let id = id_str.to_string();
-            tokio::spawn(async move {
-                if let Some(inject_node) = node.as_any().downcast_ref::<InjectNode>() {
-                    if let Err(e) = inject_node.inject_msg(stop_token).await {
-                        log::error!("InjectNode /inject/:id failed: {e}");
-                    }
-                } else {
-                    log::warn!("Node with id '{}' is not an InjectNode", id);
+            if let Some(inject_node) = node.as_any().downcast_ref::<InjectNode>() {
+                if let Err(e) = inject_node.inject_msg(stop_token).await {
+                    log::error!("InjectNode /inject/{id} failed: {e}");
                 }
-            });
+            } else {
+                log::warn!("Node with id '{id}' is not an InjectNode");
+            }
             StatusCode::OK.into_response()
         } else {
             StatusCode::NOT_FOUND.into_response()
@@ -307,15 +305,15 @@ mod inject_web {
     }
     // (已移除重复/旧 handler 实现)
 
-    fn inject_post_router() -> axum::routing::MethodRouter {
+    fn _inject_post_router() -> axum::routing::MethodRouter {
         axum::routing::post(inject_post_handler)
     }
 
     inventory::submit! {
         StaticWebHandler {
-            type_: "/inject/:id",
+            type_: "/inject/{id_str}",
             // Handler is registered with Extension extractor for Arc<dyn WebStateCore>
-            router: inject_post_router,
+            router: _inject_post_router,
         }
     }
 }

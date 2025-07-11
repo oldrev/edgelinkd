@@ -33,9 +33,11 @@ impl WebHandlerRegistry {
 
     /// Register all statically registered StaticWebHandler via inventory into this registry.
     fn register_static_handlers(&mut self) {
+        log::info!("Collecting static HTTP request handlers...");
         for static_handler in inventory::iter::<StaticWebHandler> {
             let desc =
                 WebHandlerDescriptor { path: static_handler.type_.to_string(), router: (static_handler.router)() };
+            log::info!("  - {}", desc.path);
             self.register_route(desc);
         }
     }
