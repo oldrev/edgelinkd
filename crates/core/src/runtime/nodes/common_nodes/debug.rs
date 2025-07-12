@@ -1,3 +1,14 @@
+use std::sync::atomic::AtomicUsize;
+use std::time::{Duration, Instant};
+use tokio::sync::{Mutex as TokioMutex, Notify};
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum DebugStatusType {
+    Auto,
+    Counter,
+    Property(String),
+    Jsonata(String),
+}
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -75,6 +86,12 @@ struct DebugNode {
     base: BaseFlowNodeState,
     _config: DebugNodeConfig,
     is_active: AtomicBool,
+    old_status: tokio::sync::Mutex<Option<StatusObject>>,
+    status_type: DebugStatusType,
+    counter: AtomicUsize,
+    last_time: TokioMutex<Instant>,
+    notify: Arc<Notify>,
+    has_delay_task: AtomicBool,
 }
 
 impl DebugNode {
@@ -95,15 +112,69 @@ impl DebugNode {
         }
         let debug_config: DebugNodeConfig = DebugNodeConfig::deserialize(&json)?;
 
-        // Sidebar output is enabled by default
-        // if !config.rest.as_object().map(|obj| obj.contains_key("tosidebar")).unwrap_or(false) {
-        //     // Note: We can't modify debug_config here since it's not mutable
-        //     // The tosidebar default should be handled in the deserializer
-        // }
+        // Parse statusType/statusVal
+        let status_type = if let Some(status_type_val) = json.get("statusType").and_then(|v| v.as_str()) {
+            match status_type_val {
+                "counter" => DebugStatusType::Counter,
+                "jsonata" => {
+                    let expr = json.get("statusVal").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    DebugStatusType::Jsonata(expr)
+                }
+                "auto" | "" => DebugStatusType::Auto,
+                other => {
+                    // Treat other values as navigation paths
+                    DebugStatusType::Property(other.to_string())
+                }
+            }
+        } else {
+            DebugStatusType::Auto
+        };
 
         let active = debug_config.active;
-        let node = DebugNode { base: state, _config: debug_config, is_active: AtomicBool::new(active) };
+        let now = Instant::now();
+        let node = DebugNode {
+            base: state,
+            _config: debug_config,
+            is_active: AtomicBool::new(active),
+            old_status: tokio::sync::Mutex::new(None),
+            status_type,
+            counter: AtomicUsize::new(0),
+            last_time: TokioMutex::new(now),
+            notify: Arc::new(Notify::new()),
+            has_delay_task: AtomicBool::new(false),
+        };
         Ok(Box::new(node))
+    }
+    /// 构造 Node-RED 兼容的 StatusObject
+    fn make_status_object(&self, msg: &crate::runtime::model::Msg) -> StatusObject {
+        match &self.status_type {
+            DebugStatusType::Counter => {
+                let count = self.counter.load(Ordering::Relaxed);
+                StatusObject {
+                    fill: Some(StatusFill::Blue),
+                    shape: Some(StatusShape::Ring),
+                    text: Some(count.to_string()),
+                }
+            }
+            DebugStatusType::Property(path) => {
+                // Navigation path
+                let value = msg.get_nav(path).map(|v| format!("{v:?}")).unwrap_or_default();
+                StatusObject { fill: Some(StatusFill::Grey), shape: Some(StatusShape::Dot), text: Some(value) }
+            }
+            DebugStatusType::Jsonata(expr) => StatusObject {
+                fill: Some(StatusFill::Red),
+                shape: Some(StatusShape::Ring),
+                text: Some(format!("jsonata statusType not implemented: {expr}")),
+            },
+            DebugStatusType::Auto => StatusObject {
+                fill: Some(StatusFill::Grey),
+                shape: Some(StatusShape::Dot),
+                text: match &self._config.complete {
+                    DebugComplete::Full => Some("debug".to_string()),
+                    DebugComplete::Property(prop) => msg.get(prop).map(|v| format!("{v:?}")).or(Some("".to_string())),
+                },
+            },
+        }
     }
 
     /// Extract the message property value
@@ -145,6 +216,77 @@ impl FlowNodeBehavior for DebugNode {
                                 }
                                 Err(err) => {
                                     log::error!("[debug:{}] {:#?}", self.name(), err);
+                                }
+                            }
+                        }
+
+                        // Status reporting (Node-RED old_status logic)
+                        if self._config.tostatus {
+                            match &self.status_type {
+                                DebugStatusType::Counter => {
+                                    let now = Instant::now();
+                                    let mut last_time_guard = self.last_time.lock().await;
+                                    let diff = now.duration_since(*last_time_guard);
+                                    *last_time_guard = now;
+                                    let count = self.counter.fetch_add(1, Ordering::Relaxed) + 1;
+                                    if diff > Duration::from_millis(100) {
+                                        // Report immediately
+                                        let status_obj = self.make_status_object(&msg);
+                                        let mut old_status_guard = self.old_status.lock().await;
+                                        if old_status_guard.as_ref() != Some(&status_obj) {
+                                            self.report_status(status_obj.clone(), stop_token.clone());
+                                            *old_status_guard = Some(status_obj);
+                                        }
+                                    } else {
+                                        // Only allow one delayed task
+                                        if !self.has_delay_task.swap(true, Ordering::SeqCst) {
+                                            let this = self.clone();
+                                            let stop_token2 = stop_token.clone();
+                                            let notify = this.notify.clone();
+                                            tokio::spawn(async move {
+                                                loop {
+                                                    tokio::select! {
+                                                        _ = notify.notified() => {
+                                                            // New event, reset the wait
+                                                        }
+                                                        _ = tokio::time::sleep(Duration::from_millis(200)) => {
+                                                            // Timeout reached, refresh status
+                                                            let peeked_msg_handle = this.base.msg_rx.peek_msg().await.unwrap_or_default();
+                                                            let peeked_msg_guard = peeked_msg_handle.read().await;
+                                                            let status_obj = this.make_status_object(&peeked_msg_guard);
+                                                            let mut old_status_guard = this.old_status.lock().await;
+                                                            if old_status_guard.as_ref() != Some(&status_obj) {
+                                                                this.report_status(status_obj.clone(), stop_token2.clone());
+                                                                *old_status_guard = Some(status_obj);
+                                                            }
+                                                            this.has_delay_task.store(false, Ordering::SeqCst);
+                                                            break;
+                                                        }
+                                                    }
+                                                }
+                                            });
+                                        } else {
+                                            // Notify the existing delayed task to reset the wait
+                                            self.notify.notify_one();
+                                        }
+                                    }
+                                }
+                                DebugStatusType::Jsonata(expr) => {
+                                    let status_obj = self.make_status_object(&msg);
+                                    let mut old_status_guard = self.old_status.lock().await;
+                                    if old_status_guard.as_ref() != Some(&status_obj) {
+                                        self.report_status(status_obj.clone(), stop_token.clone());
+                                        *old_status_guard = Some(status_obj);
+                                    }
+                                    log::error!("[debug:{}] statusType=jsonata not implemented: {expr}", self.name());
+                                }
+                                _ => {
+                                    let status_obj = self.make_status_object(&msg);
+                                    let mut old_status_guard = self.old_status.lock().await;
+                                    if old_status_guard.as_ref() != Some(&status_obj) {
+                                        self.report_status(status_obj.clone(), stop_token.clone());
+                                        *old_status_guard = Some(status_obj);
+                                    }
                                 }
                             }
                         }

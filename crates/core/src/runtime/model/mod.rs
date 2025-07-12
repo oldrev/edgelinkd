@@ -80,14 +80,43 @@ pub type MsgReceiver = mpsc::Receiver<MsgHandle>;
 #[derive(Debug)]
 pub struct MsgReceiverHolder {
     pub rx: Mutex<MsgReceiver>,
+    peeked: Mutex<Option<MsgHandle>>,
 }
 
 impl MsgReceiverHolder {
     pub fn new(rx: MsgReceiver) -> Self {
-        MsgReceiverHolder { rx: Mutex::new(rx) }
+        MsgReceiverHolder { rx: Mutex::new(rx), peeked: Mutex::new(None) }
+    }
+
+    /// Peek the next message without removing it from the queue. If no message, returns None.
+    pub async fn peek_msg(&self) -> Option<MsgHandle> {
+        // Prefer returning the cached peeked message if available
+        {
+            let peeked_guard = self.peeked.lock().await;
+            if let Some(msg) = peeked_guard.as_ref() {
+                return Some(msg.clone());
+            }
+        }
+        // If no cached message, try to get one from rx
+        let mut rx_guard = self.rx.lock().await;
+        match rx_guard.recv().await {
+            Some(msg) => {
+                let mut peeked_guard = self.peeked.lock().await;
+                *peeked_guard = Some(msg.clone());
+                Some(msg)
+            }
+            None => None,
+        }
     }
 
     pub async fn recv_msg_forever(&self) -> crate::Result<MsgHandle> {
+        // 优先返回 peeked
+        {
+            let mut peeked_guard = self.peeked.lock().await;
+            if let Some(msg) = peeked_guard.take() {
+                return Ok(msg);
+            }
+        }
         let rx = &mut self.rx.lock().await;
         match rx.recv().await {
             Some(msg) => Ok(msg),
@@ -99,8 +128,21 @@ impl MsgReceiverHolder {
     }
 
     pub async fn recv_msg(&self, stop_token: CancellationToken) -> crate::Result<MsgHandle> {
+        // 优先返回 peeked
+        {
+            let mut peeked_guard = self.peeked.lock().await;
+            if let Some(msg) = peeked_guard.take() {
+                return Ok(msg);
+            }
+        }
         tokio::select! {
-            result = self.recv_msg_forever() => {
+            result = async {
+                let rx = &mut self.rx.lock().await;
+                rx.recv().await.ok_or_else(|| {
+                    log::error!("Failed to receive message");
+                    EdgelinkError::InvalidOperation("No message in the bounded channel!".to_owned()).into()
+                })
+            } => {
                 result
             }
 

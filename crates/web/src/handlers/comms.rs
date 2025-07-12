@@ -66,7 +66,7 @@ impl CommsManager {
                         match result {
                             Ok(status_msg) => {
                                 let jv = serde_json::to_value(status_msg.status).unwrap(); // FIXME
-                                comms_manager.send_node_status_json("status", jv).await;
+                                comms_manager.send_node_status_json(format!("{}", status_msg.sender_id).as_ref(), jv).await;
                             }
                             Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
                                 log::warn!("Status message receiver lagged, skipped {skipped} messages");
@@ -91,7 +91,7 @@ impl CommsManager {
                                     Ok(status_msg) => {
                                         log::debug!("Received final status message: {status_msg:?}");
                                         let jv = serde_json::to_value(status_msg.status).unwrap(); // FIXME
-                                        comms_manager.send_node_status_json("status", jv).await;
+                                        comms_manager.send_node_status_json(format!("{}", status_msg.sender_id).as_ref(), jv).await;
                                     }
                                     Err(_) => {
                                         log::debug!("Status channel closed during shutdown");
@@ -201,15 +201,14 @@ impl CommsManager {
     }
 
     /// Send message to subscribers of a specific topic (Node-RED format)
-    pub async fn send_raw_json(&self, root_topic: &str, data: serde_json::Value) {
-        let sub_topic = format!("{root_topic}/#");
-        let batch = vec![NodeRedMessage { topic: sub_topic.to_string(), data }];
+    pub async fn send_raw_json(&self, sub_topic: &str, rep_topic: &str, data: serde_json::Value) {
+        let batch = vec![NodeRedMessage { topic: rep_topic.to_string(), data }];
         let message_str = Self::serialize_batch(&batch);
-        log::debug!("Sending message to topic '{sub_topic}': {message_str}");
+        log::debug!("Sending raw JSON message to topic '{rep_topic}': {message_str}");
         let connections = self.connections.read().await;
         for connection in connections.values() {
             let subscriptions = connection.subscriptions.read().await;
-            if subscriptions.contains(sub_topic.as_str()) {
+            if subscriptions.contains(sub_topic) {
                 let _ = connection.tx.send(message_str.clone());
             }
         }
@@ -383,7 +382,7 @@ impl CommsManager {
 
     /// Send node status update
     pub async fn send_node_status_json(&self, node_id: &str, status_json: serde_json::Value) {
-        self.send_raw_json(&format!("status/{node_id}"), status_json).await;
+        self.send_raw_json("status/#", &format!("status/{node_id}"), status_json).await;
     }
 
     /// Send notification message

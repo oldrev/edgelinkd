@@ -341,6 +341,8 @@ pub enum StatusFill {
     Yellow,
 
     Grey,
+
+    Blue,
 }
 
 impl fmt::Display for StatusFill {
@@ -350,6 +352,7 @@ impl fmt::Display for StatusFill {
             StatusFill::Green => write!(f, "green"),
             StatusFill::Yellow => write!(f, "yellow"),
             StatusFill::Grey => write!(f, "grey"),
+            StatusFill::Blue => write!(f, "blue"),
         }
     }
 }
@@ -373,7 +376,7 @@ impl fmt::Display for StatusShape {
     }
 }
 
-#[derive(Deserialize, Debug, Clone, Serialize)]
+#[derive(Deserialize, Debug, Clone, Serialize, PartialEq)]
 pub struct StatusObject {
     #[serde(skip_serializing_if = "Option::is_none", serialize_with = "to_string_opt")]
     pub fill: Option<StatusFill>,
