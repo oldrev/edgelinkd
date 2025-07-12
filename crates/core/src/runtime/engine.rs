@@ -17,7 +17,8 @@ use super::model::*;
 use super::nodes::FlowNodeBehavior;
 use super::status_channel::StatusChannel;
 use crate::runtime::model::Variant;
-use crate::runtime::nodes::{GlobalNodeBehavior, NodeFactory, wellknown_names};
+use crate::runtime::nodes::{GlobalNodeBehavior, NodeFactory, StatusObject, wellknown_names};
+use crate::runtime::status_channel::StatusMessage;
 use crate::*;
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -96,10 +97,6 @@ impl Engine {
 
     pub fn downgrade(&self) -> WeakEngine {
         WeakEngine { inner: Arc::downgrade(&self.inner) }
-    }
-
-    pub fn status_channel(&self) -> &StatusChannel {
-        &self.inner.status_channel
     }
 
     pub fn with_json(
@@ -434,6 +431,15 @@ impl Engine {
 
     pub fn debug_channel(&self) -> &DebugChannel {
         &self.inner.debug_channel
+    }
+
+    pub fn status_channel(&self) -> &StatusChannel {
+        &self.inner.status_channel
+    }
+
+    pub fn report_node_status(&self, from: ElementId, status: StatusObject, cancel: CancellationToken) {
+        let to_send = StatusMessage { sender_id: from, status };
+        self.inner.status_channel.send(to_send);
     }
 
     /// 检查引擎是否正在运行

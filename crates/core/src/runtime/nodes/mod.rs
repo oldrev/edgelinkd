@@ -4,6 +4,9 @@ use std::sync::{Arc, Weak};
 use async_trait::async_trait;
 use runtime::engine::Engine;
 use runtime::group::{Group, WeakGroup};
+use serde::Serialize;
+use serde::Serializer;
+use serde::{self, Deserialize};
 use smallvec::SmallVec;
 use tokio::select;
 use tokio_util::sync::CancellationToken;
@@ -222,7 +225,16 @@ pub trait FlowNodeBehavior: Send + Sync + FlowsElement {
 
     // events
     fn on_loaded(&self) {}
+
     async fn on_starting(&self) {}
+
+    fn report_status(&self, status: StatusObject, cancel: CancellationToken) {
+        if let Some(engine) = self.engine() {
+            engine.report_node_status(self.id(), status, cancel);
+        } else {
+            log::error!("Failed to get engine instance!");
+        }
+    }
 }
 
 impl dyn GlobalNodeBehavior {
@@ -315,4 +327,84 @@ pub trait LinkCallNodeBehavior: Send + Sync + FlowNodeBehavior {
         return_from_flow_id: ElementId,
         cancel: CancellationToken,
     ) -> crate::Result<()>;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+#[derive(Default)]
+pub enum StatusFill {
+    #[default]
+    Red,
+
+    Green,
+
+    Yellow,
+
+    Grey,
+}
+
+impl fmt::Display for StatusFill {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            StatusFill::Red => write!(f, "red"),
+            StatusFill::Green => write!(f, "green"),
+            StatusFill::Yellow => write!(f, "yellow"),
+            StatusFill::Grey => write!(f, "grey"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+#[derive(Default)]
+pub enum StatusShape {
+    Ring,
+
+    #[default]
+    Dot,
+}
+
+impl fmt::Display for StatusShape {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            StatusShape::Ring => write!(f, "ring"),
+            StatusShape::Dot => write!(f, "dot"),
+        }
+    }
+}
+
+#[derive(Deserialize, Debug, Clone, Serialize)]
+pub struct StatusObject {
+    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "to_string_opt")]
+    pub fill: Option<StatusFill>,
+
+    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "to_string_opt")]
+    pub shape: Option<StatusShape>,
+
+    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "to_string_opt")]
+    pub text: Option<String>,
+}
+
+fn to_string_opt<S, T>(x: &Option<T>, s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+    T: std::fmt::Display,
+{
+    match x {
+        Some(v) => s.serialize_some(&v.to_string()),
+        None => s.serialize_none(),
+    }
+}
+
+impl StatusObject {
+    fn empty() -> Self {
+        Self { fill: None, shape: None, text: None }
+    }
+
+    fn is_empty(&self) -> bool {
+        match self {
+            &StatusObject { fill: None, shape: None, text: None } => true,
+            _ => false,
+        }
+    }
 }

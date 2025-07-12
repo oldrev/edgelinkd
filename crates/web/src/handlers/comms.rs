@@ -65,15 +65,8 @@ impl CommsManager {
                     result = status_rx.recv() => {
                         match result {
                             Ok(status_msg) => {
-                                log::debug!("Received status message from channel: {status_msg:?}");
-                                // Node-RED compatible format
-                                let node_red_data = serde_json::json!({
-                                    "text": status_msg.text,
-                                    "fill": status_msg.fill,
-                                    "shape": status_msg.shape
-                                });
-                                // Usually status is associated with node id, can adjust topic as needed
-                                comms_manager.send_to_topic("status", &node_red_data).await;
+                                let jv = serde_json::to_value(status_msg.status).unwrap(); // FIXME
+                                comms_manager.send_node_status_json("status", jv).await;
                             }
                             Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
                                 log::warn!("Status message receiver lagged, skipped {skipped} messages");
@@ -97,12 +90,8 @@ impl CommsManager {
                                 match result {
                                     Ok(status_msg) => {
                                         log::debug!("Received final status message: {status_msg:?}");
-                                        let node_red_data = serde_json::json!({
-                                            "text": status_msg.text,
-                                            "fill": status_msg.fill,
-                                            "shape": status_msg.shape
-                                        });
-                                        comms_manager.send_to_topic("status", &node_red_data).await;
+                                        let jv = serde_json::to_value(status_msg.status).unwrap(); // FIXME
+                                        comms_manager.send_node_status_json("status", jv).await;
                                     }
                                     Err(_) => {
                                         log::debug!("Status channel closed during shutdown");
@@ -206,6 +195,21 @@ impl CommsManager {
             if subscriptions.contains(topic)
                 || subscriptions.contains(&format!("{}/#", topic.split('/').next().unwrap_or("")))
             {
+                let _ = connection.tx.send(message_str.clone());
+            }
+        }
+    }
+
+    /// Send message to subscribers of a specific topic (Node-RED format)
+    pub async fn send_raw_json(&self, root_topic: &str, data: serde_json::Value) {
+        let sub_topic = format!("{root_topic}/#");
+        let batch = vec![NodeRedMessage { topic: sub_topic.to_string(), data }];
+        let message_str = Self::serialize_batch(&batch);
+        log::debug!("Sending message to topic '{sub_topic}': {message_str}");
+        let connections = self.connections.read().await;
+        for connection in connections.values() {
+            let subscriptions = connection.subscriptions.read().await;
+            if subscriptions.contains(sub_topic.as_str()) {
                 let _ = connection.tx.send(message_str.clone());
             }
         }
@@ -378,22 +382,8 @@ impl CommsManager {
     }
 
     /// Send node status update
-    pub async fn send_node_status(&self, node_id: &str, status: &str, text: Option<&str>) {
-        let status_data = serde_json::json!({
-            "status": {
-                "fill": match status {
-                    "green" => "green",
-                    "red" => "red",
-                    "yellow" => "yellow",
-                    "blue" => "blue",
-                    _ => "grey"
-                },
-                "shape": "dot",
-                "text": text.unwrap_or("")
-            }
-        });
-
-        self.send_to_topic(&format!("status/{node_id}"), &status_data).await;
+    pub async fn send_node_status_json(&self, node_id: &str, status_json: serde_json::Value) {
+        self.send_raw_json(&format!("status/{node_id}"), status_json).await;
     }
 
     /// Send notification message

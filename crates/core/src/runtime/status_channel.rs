@@ -1,12 +1,13 @@
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 
+use crate::runtime::{model::ElementId, nodes::StatusObject};
+
 /// Status 消息结构，匹配 Node-RED 的格式
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StatusMessage {
-    pub text: String,
-    pub fill: String,
-    pub shape: String,
+    pub sender_id: ElementId,
+    pub status: StatusObject,
 }
 
 /// Status 消息通道
@@ -39,9 +40,4 @@ impl StatusChannel {
     pub fn subscribe(&self) -> broadcast::Receiver<StatusMessage> {
         self.sender.subscribe()
     }
-}
-
-/// 创建 Status 消息的便捷函数
-pub fn create_status_message(text: &str, fill: &str, shape: &str) -> StatusMessage {
-    StatusMessage { text: text.to_string(), fill: fill.to_string(), shape: shape.to_string() }
 }

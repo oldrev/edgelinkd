@@ -101,6 +101,7 @@ struct InnerFlow {
     pub(crate) groups: DashMap<ElementId, Group>,
     pub(crate) nodes: DashMap<ElementId, Arc<dyn FlowNodeBehavior>>,
     pub(crate) complete_nodes_map: DashMap<ElementId, Vec<Arc<dyn FlowNodeBehavior>>>,
+    pub(crate) status_nodes_map: DashMap<ElementId, Vec<Arc<dyn FlowNodeBehavior>>>,
     pub(crate) catch_nodes: std::sync::RwLock<Vec<Arc<dyn FlowNodeBehavior>>>,
     pub(crate) _context: RwLock<Variant>,
     pub(crate) node_tasks: Mutex<JoinSet<()>>,
@@ -264,6 +265,7 @@ impl Flow {
             groups: DashMap::new(),
             nodes: DashMap::new(),
             complete_nodes_map: DashMap::new(),
+            status_nodes_map: DashMap::new(),
             catch_nodes: std::sync::RwLock::new(Vec::new()),
             _context: RwLock::new(Variant::empty_object()),
             node_tasks: Mutex::new(JoinSet::new()),
@@ -436,12 +438,11 @@ impl Flow {
     ) -> crate::Result<()> {
         match node.get_base().type_str {
             "complete" => self.register_complete_node(node, node_config)?,
-
+            "status" => self.register_status_node(node, node_config)?,
             "catch" => {
                 let mut catch_nodes = self.inner.catch_nodes.write().expect("`catch_nodes` write lock");
                 catch_nodes.push(node.clone());
             }
-
             // ignore normal nodes
             &_ => {}
         }
@@ -473,6 +474,34 @@ impl Flow {
             Ok(())
         } else {
             Err(EdgelinkError::BadFlowsJson(format!("CompleteNode has no 'scope' property: {node}")).into())
+        }
+    }
+
+    fn register_status_node(
+        &self,
+        node: Arc<dyn FlowNodeBehavior>,
+        node_config: &RedFlowNodeConfig,
+    ) -> crate::Result<()> {
+        if let Some(scope) = node_config.rest.get("scope").and_then(|x| x.as_array()) {
+            for src_id in scope {
+                if let Some(src_id) = crate::runtime::model::json::deser::parse_red_id_value(src_id) {
+                    if let Some(ref mut status_nodes) = self.inner.status_nodes_map.get_mut(&src_id) {
+                        if !status_nodes.iter().any(|x| x.id() == node.id()) {
+                            status_nodes.push(node.clone());
+                        } else {
+                            return Err(EdgelinkError::InvalidOperation(format!(
+                                "The connection of the {node} to the `status` node already existed!"
+                            ))
+                            .into());
+                        }
+                    } else {
+                        self.inner.status_nodes_map.insert(src_id, Vec::from([node.clone()]));
+                    }
+                }
+            }
+            Ok(())
+        } else {
+            Err(EdgelinkError::BadFlowsJson(format!("StatusNode has no 'scope' property: {node}")).into())
         }
     }
 
