@@ -27,39 +27,11 @@ EdgeLinkd now includes the complete Node-RED web editor, allowing you to design 
 
 Only the `function` node uses the lightweight QuickJS JS interpreter to run JavaScript code; all other functionalities are implemented in native Rust code for maximum performance.
 
-## Features
+## A Short Demo
 
-![Memory Usage](assets/memory.png)
+<video src="https://raw.githubusercontent.com/oldrev/edgelinkd/refs/heads/master/assets/short-demo.mp4" title="assets/short-demo.mp4"></video>" controls style="max-width: 100%; height: auto; border: 1px solid #ccc; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 1em;" title="EdgeLinkd Short Demo"></video>
 
-**Integrated Web Interface**
-- **Node-RED UI**: Full web-based flow editor built-in
-- **Standalone operation**: No external Node-RED installation required
-- **Real-time flow editing**: Design and modify flows directly in the browser
-- **Unified experience**: Single application for design, deployment, and execution
-
-**High Performance & Efficiency**
-- **Ultra-low memory footprint**: Uses only 10% of Node-RED's memory
-- **Native speed**: Rust's performance without JavaScript overhead
-- **Selective web UI**: Can run headless for production deployments
-- **Lightweight**: Optional web UI with minimal overhead
-
-**Compatibility & Migration**
-- **Node-RED compatible**: Run existing `flows.json` files without modification
-- **Easy migration**: Drop-in replacement for Node-RED runtime
-- **Function node support**: JavaScript execution via QuickJS interpreter
-- **API compatibility**: REST API endpoints compatible with Node-RED
-
-**Edge Computing Ready**
-- **Resource-constrained devices**: Perfect for IoT gateways and embedded systems
-- **Flexible deployment**: Web UI for development, headless for production
-- **Cross-platform**: Supports ARM, x86, and various Linux distributions
-- **Container-friendly**: Minimal Docker images for edge deployment
-
-**Extensibility**
-- **Plugin system**: Support for custom nodes (statically linked)
-- **Future-ready**: WebAssembly and JavaScript plugin support planned
-
-## Use Cases
+### Use Cases
 
 - **Flow Development**: Design and test flows directly in the integrated web editor
 - **Rapid Prototyping**: Full Node-RED UI for quick flow development and iteration
@@ -70,11 +42,6 @@ Only the `function` node uses the lightweight QuickJS JS interpreter to run Java
 - **Cloud-to-Edge Migration**: Move Node-RED flows from cloud to edge with unified interface
 - **Container Deployments**: Lightweight containers for edge computing with optional web UI
 - **Remote Management**: Access and modify flows remotely through the web interface
-
-
-## A Short Demo
-
-<video src="assets/short-demo.mp4" controls style="max-width: 100%; height: auto; border: 1px solid #ccc; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 1em;" title="EdgeLinkd Short Demo"></video>
 
 
 ## Quick Start

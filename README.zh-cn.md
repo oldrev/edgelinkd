@@ -27,37 +27,9 @@ EdgeLinkd 现在包含完整的 Node-RED Web 编辑器，允许您直接在浏�
 
 仅 `function` 节点使用轻量级的 QuickJS JS 解释器来运行 JavaScript 代码；所有其他功能都用原生 Rust 代码实现，以获得最佳性能。
 
-### 特性
+## A Short Demo
 
-![Memory Usage](assets/memory.png)
-
-**集成 Web 界面**
-- **完整的 Node-RED UI**: 内置完整的基于 Web 的流程编辑器
-- **独立运行**: 无需外部 Node-RED 安装
-- **实时流程编辑**: 直接在浏览器中设计和修改流程
-- **统一体验**: 设计、部署和执行一体化应用
-
-**高性能与效率**
-- **超低内存占用**: 仅使用 Node-RED 10% 的内存
-- **原生速度**: Rust 性能，无 JavaScript 开销
-- **可选 Web UI**: 生产环境可无头运行
-- **轻量级**: 可选的 Web UI，开销最小
-
-**兼容性与迁移**
-- **Node-RED 兼容**: 可运行现有的 `flows.json` 文件而无需修改
-- **简单迁移**: Node-RED 运行时的直接替代品
-- **Function 节点支持**: 通过 QuickJS 解释器执行 JavaScript
-- **API 兼容**: REST API 端点与 Node-RED 兼容
-
-**边缘计算就绪**
-- **资源受限设备**: 适合物联网网关和嵌入式系统
-- **灵活部署**: 开发时使用 Web UI，生产环境无头运行
-- **跨平台**: 支持 ARM、x86 和各种 Linux 发行版
-- **容器友好**: 适用于边缘部署的最小 Docker 镜像
-
-**可扩展性**
-- **插件系统**: 支持自定义节点（静态链接）
-- **面向未来**: 计划支持 WebAssembly 和 JavaScript 插件
+<video src="https://raw.githubusercontent.com/oldrev/edgelinkd/refs/heads/master/assets/short-demo.mp4" title="assets/short-demo.mp4"></video>" controls style="max-width: 100%; height: auto; border: 1px solid #ccc; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 1em;" title="EdgeLinkd Short Demo"></video>
 
 ## 快速开始
 
@@ -73,14 +45,14 @@ git clone --recursive https://github.com/oldrev/edgelinkd.git
 
 ```bash
 git clone https://github.com/oldrev/edgelinkd.git
-cd edgelink
+cd edgelinkd
 git submodule update --init --recursive
 ```
 
 ### 1. 构建
 
 ```bash
-cargo build -r
+cargo build --release
 ```
 
 
@@ -104,7 +76,7 @@ cargo build -r
 **使用集成 Web UI 启动（推荐）：**
 
 ```bash
-cargo run -- run
+cargo run --release -- run
 # 或编译后
 ./target/release/edgelinkd run
 ```
