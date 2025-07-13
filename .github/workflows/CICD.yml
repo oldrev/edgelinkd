@@ -37,7 +37,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+  packages: write
 
 env:
   RUSTFLAGS: ${{ (github.ref == 'refs/heads/master' || github.base_ref == 'master') && '-Dwarnings' || '' }}
@@ -423,10 +424,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Delete old nightly releases (keep 30 days)
+      - name: Delete old nightly releases (keep 10 builds)
         uses: dev-drprasad/delete-older-releases@v0.3.3
         with:
-          keep_latest: 30
+          keep_latest: 10
           delete_tags: true
           delete_prerelease_only: true
         env:
