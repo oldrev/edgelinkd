@@ -23,6 +23,12 @@ pub struct WebHandlerRegistry {
     routes: Arc<Mutex<Vec<WebHandlerDescriptor>>>,
 }
 
+impl Default for WebHandlerRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WebHandlerRegistry {
     /// Create a new empty registry.
     pub fn new() -> Self {

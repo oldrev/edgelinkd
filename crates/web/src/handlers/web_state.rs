@@ -134,7 +134,7 @@ impl WebState {
     /// Start event listeners and debug message handling
     pub async fn start_event_listeners(&self, cancel_token: tokio_util::sync::CancellationToken) {
         let engine_guard = self.engine.read().await;
-        if let Some(ref engine) = engine_guard.as_ref() {
+        if let Some(engine) = engine_guard.as_ref() {
             // Start debug message listener
             let debug_rx = engine.debug_channel().subscribe();
             self.comms.start_debug_listener(debug_rx, cancel_token.clone()).await;

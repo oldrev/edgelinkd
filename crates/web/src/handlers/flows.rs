@@ -55,7 +55,7 @@ async fn restart_engine_if_available(state: &WebState) {
 /// Get all flows (Node-RED compatible)
 pub async fn get_flows(Extension(state): Extension<Arc<WebState>>) -> Result<Json<Value>, StatusCode> {
     let flows_path_guard = state.flows_file_path.read().await;
-    let flows = if let Some(ref flows_path) = flows_path_guard.as_ref() {
+    let flows = if let Some(flows_path) = flows_path_guard.as_ref() {
         match load_flows_from_file(flows_path).await {
             Ok(flows) => flows,
             Err(e) => {
@@ -100,21 +100,21 @@ pub async fn post_flows(
 
     // Save flows to file if path is available
     let flows_path_guard = state.flows_file_path.read().await;
-    if let Some(ref flows_path) = flows_path_guard.as_ref() {
+    if let Some(flows_path) = flows_path_guard.as_ref() {
         match save_flows_to_file(&parsed_payload.flows, flows_path).await {
             Ok(_) => {
                 log::info!("Flows saved to file: {}", flows_path.display());
 
                 // Redeploy flows using event-driven approach
                 let engine_guard = state.engine.read().await;
-                if let Some(ref _engine) = engine_guard.as_ref() {
+                if let Some(_engine) = engine_guard.as_ref() {
                     let flows_json = serde_json::Value::Array(parsed_payload.flows);
                     match state.redeploy_flows(flows_json).await {
                         Ok(_) => {
                             log::info!("Flows redeployed successfully!");
                             // Send deploy success notification with actual revision
                             let engine_guard2 = state.engine.read().await;
-                            let revision = if let Some(ref engine) = engine_guard2.as_ref() {
+                            let revision = if let Some(engine) = engine_guard2.as_ref() {
                                 Some(engine.flows_rev().await)
                             } else {
                                 None
@@ -167,7 +167,7 @@ pub async fn post_flows(
 pub async fn get_flows_state(Extension(state): Extension<Arc<WebState>>) -> Result<Json<Value>, StatusCode> {
     // Check if engine is available and its running state
     let engine_guard = state.engine.read().await;
-    let (started, state_str) = if let Some(ref engine) = engine_guard.as_ref() {
+    let (started, state_str) = if let Some(engine) = engine_guard.as_ref() {
         let is_running = engine.is_running();
         if is_running { (true, "started") } else { (false, "stopped") }
     } else {
@@ -195,7 +195,7 @@ pub async fn post_flows_state(
     let (started, state_str) = match payload.state.as_str() {
         "start" => {
             // Start flows
-            if let Some(ref engine) = engine_guard.as_ref() {
+            if let Some(engine) = engine_guard.as_ref() {
                 match engine.start().await {
                     Ok(_) => {
                         log::info!("Engine started successfully");
@@ -216,7 +216,7 @@ pub async fn post_flows_state(
         }
         "stop" => {
             // Stop flows
-            if let Some(ref engine) = engine_guard.as_ref() {
+            if let Some(engine) = engine_guard.as_ref() {
                 match engine.stop().await {
                     Ok(_) => {
                         log::info!("Engine stopped successfully");
@@ -254,7 +254,7 @@ pub async fn get_flow(
     Path(id): Path<String>,
 ) -> Result<Json<Value>, StatusCode> {
     let flows_path_guard = state.flows_file_path.read().await;
-    let flows = if let Some(ref flows_path) = flows_path_guard.as_ref() {
+    let flows = if let Some(flows_path) = flows_path_guard.as_ref() {
         match load_flows_from_file(flows_path).await {
             Ok(flows) => flows,
             Err(e) => {
@@ -287,7 +287,7 @@ pub async fn post_flow(
     Json(payload): Json<serde_json::Value>,
 ) -> Result<Json<Value>, StatusCode> {
     let flows_path_guard = state.flows_file_path.read().await;
-    let mut flows = if let Some(ref flows_path) = flows_path_guard.as_ref() {
+    let mut flows = if let Some(flows_path) = flows_path_guard.as_ref() {
         match load_flows_from_file(flows_path).await {
             Ok(flows) => flows,
             Err(e) => {
@@ -303,14 +303,14 @@ pub async fn post_flow(
     flows.push(payload.clone());
 
     // Save back to file
-    if let Some(ref flows_path) = flows_path_guard.as_ref() {
+    if let Some(flows_path) = flows_path_guard.as_ref() {
         if let Err(e) = save_flows_to_file(&flows, flows_path).await {
             log::error!("Failed to save flows to file: {e}");
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
 
         // Restart engine after modification
-        restart_engine_if_available(&*state).await;
+        restart_engine_if_available(&state).await;
     }
 
     Ok(Json(payload))
@@ -323,7 +323,7 @@ pub async fn put_flow(
     Json(payload): Json<serde_json::Value>,
 ) -> Result<Json<Value>, StatusCode> {
     let flows_path_guard = state.flows_file_path.read().await;
-    let mut flows = if let Some(ref flows_path) = flows_path_guard.as_ref() {
+    let mut flows = if let Some(flows_path) = flows_path_guard.as_ref() {
         match load_flows_from_file(flows_path).await {
             Ok(flows) => flows,
             Err(e) => {
@@ -353,14 +353,14 @@ pub async fn put_flow(
     }
 
     // Save back to file
-    if let Some(ref flows_path) = flows_path_guard.as_ref() {
+    if let Some(flows_path) = flows_path_guard.as_ref() {
         if let Err(e) = save_flows_to_file(&flows, flows_path).await {
             log::error!("Failed to save flows to file: {e}");
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
 
         // Restart engine after modification
-        restart_engine_if_available(&*state).await;
+        restart_engine_if_available(&state).await;
     }
 
     Ok(Json(payload))
@@ -372,7 +372,7 @@ pub async fn delete_flow(
     Path(id): Path<String>,
 ) -> Result<StatusCode, StatusCode> {
     let flows_path_guard = state.flows_file_path.read().await;
-    let mut flows = if let Some(ref flows_path) = flows_path_guard.as_ref() {
+    let mut flows = if let Some(flows_path) = flows_path_guard.as_ref() {
         match load_flows_from_file(flows_path).await {
             Ok(flows) => flows,
             Err(e) => {
@@ -391,14 +391,14 @@ pub async fn delete_flow(
 
     if flows.len() < initial_len {
         // Save back to file
-        if let Some(ref flows_path) = flows_path_guard.as_ref() {
+        if let Some(flows_path) = flows_path_guard.as_ref() {
             if let Err(e) = save_flows_to_file(&flows, flows_path).await {
                 log::error!("Failed to save flows to file: {e}");
                 return Err(StatusCode::INTERNAL_SERVER_ERROR);
             }
 
             // Restart engine after modification
-            restart_engine_if_available(&*state).await;
+            restart_engine_if_available(&state).await;
         }
 
         Ok(StatusCode::NO_CONTENT)

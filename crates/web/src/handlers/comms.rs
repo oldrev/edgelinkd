@@ -620,7 +620,7 @@ async fn handle_websocket_message(
                 ];
                 let _ = tx.send(CommsManager::serialize_batch(&batch));
             }
-            topic if topic == "notification/runtime-deploy" => {
+            "notification/runtime-deploy" => {
                 // Send deploy notification for notification/# wildcard
                 let revision = if let Some(engine) = engine { Some(engine.flows_rev().await) } else { None };
                 // Send deploy notification (success = true)

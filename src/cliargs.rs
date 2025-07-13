@@ -92,10 +92,8 @@ impl CliArgs {
     ) -> Result<config::ConfigBuilder<config::builder::DefaultState>, config::ConfigError> {
         let mut builder = builder;
         // flows_path (from subcommand Run)
-        if let Some(Commands::Run { flows_path, .. }) = &self.command {
-            if let Some(fp) = flows_path {
-                builder = builder.set_override("flows_path", fp.clone())?;
-            }
+        if let Some(Commands::Run { flows_path: Some(fp), .. }) = &self.command {
+            builder = builder.set_override("flows_path", fp.clone())?;
         }
         // verbose
         builder = builder.set_override("verbose", self.verbose as i64)?;

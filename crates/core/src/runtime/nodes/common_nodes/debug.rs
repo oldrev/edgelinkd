@@ -386,16 +386,16 @@ mod debug_web {
                 match action.as_str() {
                     "enable" => {
                         debug_node.is_active.store(true, Ordering::Relaxed);
-                        return (StatusCode::OK, "OK").into_response();
+                        (StatusCode::OK, "OK").into_response()
                     }
                     "disable" => {
                         debug_node.is_active.store(false, Ordering::Relaxed);
-                        return (StatusCode::OK, "OK").into_response();
+                        (StatusCode::OK, "OK").into_response()
                     }
-                    _ => return StatusCode::BAD_REQUEST.into_response(),
+                    _ => StatusCode::BAD_REQUEST.into_response(),
                 }
             } else {
-                return StatusCode::NOT_FOUND.into_response();
+                StatusCode::NOT_FOUND.into_response()
             }
         } else {
             StatusCode::NOT_FOUND.into_response()

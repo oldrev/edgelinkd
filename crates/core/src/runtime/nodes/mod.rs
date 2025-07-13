@@ -408,9 +408,6 @@ impl StatusObject {
     }
 
     fn is_empty(&self) -> bool {
-        match self {
-            &StatusObject { fill: None, shape: None, text: None } => true,
-            _ => false,
-        }
+        matches!(self, &StatusObject { fill: None, shape: None, text: None })
     }
 }

@@ -19,7 +19,7 @@ pub async fn serve_core_lib_resource(
     let file_path = static_dir.join("core").join(&resource_path);
 
     // Security check - ensure we're not escaping the static directory
-    if !file_path.starts_with(&static_dir) {
+    if !file_path.starts_with(static_dir) {
         return (StatusCode::FORBIDDEN, "Access denied").into_response();
     }
 
@@ -38,7 +38,7 @@ pub async fn serve_debug_view_resource(
     let file_path = static_dir.join("core/common/lib/debug").join(&resource_path);
 
     // Security check - ensure we're not escaping the static directory
-    if !file_path.starts_with(&static_dir) {
+    if !file_path.starts_with(static_dir) {
         return (StatusCode::FORBIDDEN, "Access denied").into_response();
     }
 
@@ -94,9 +94,6 @@ pub async fn serve_debug_utils_js(Extension(state): Extension<Arc<WebState>>) ->
         Err(_) => (StatusCode::NOT_FOUND, "File not found").into_response(),
     }
 }
-
-/// Get the static directory path - try OUT_DIR first, fallback to current directory
-// get_static_dir moved to utils.rs
 
 /// Serve a static file with appropriate content type
 async fn serve_static_file(file_path: &std::path::Path, resource_path: &str) -> axum::response::Response {

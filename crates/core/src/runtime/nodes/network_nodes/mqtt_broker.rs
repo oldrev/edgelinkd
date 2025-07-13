@@ -147,7 +147,7 @@ impl MqttBrokerNode {
             .config
             .clientid
             .clone()
-            .unwrap_or_else(|| format!("nodered_{}", uuid::Uuid::new_v4().to_string()[..8].to_string()));
+            .unwrap_or_else(|| format!("nodered_{}", &uuid::Uuid::new_v4().to_string()[..8]));
         let mut opts = MqttOptions::new(client_id.clone(), self.parse_host(), self.parse_port());
         opts.set_keep_alive(Duration::from_secs(self.config.keepalive as u64));
         opts.set_clean_session(self.config.clean);
