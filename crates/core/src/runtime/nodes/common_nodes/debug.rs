@@ -357,8 +357,8 @@ impl FlowNodeBehavior for DebugNode {
 mod debug_web {
     use super::*;
     use crate::runtime::model::json::deser::parse_red_id_str;
-    use crate::runtime::web_state_trait::WebStateCore;
     use crate::web::StaticWebHandler;
+    use crate::web::web_state_trait::WebStateCore;
     use axum::Extension;
     use axum::extract::Path;
     use axum::{http::StatusCode, response::IntoResponse};

@@ -95,10 +95,9 @@ impl WebServer {
         // Use trait object for Extension so handlers using Extension<Arc<dyn WebStateCore + Send + Sync>> work
         Router::new()
             .merge(api_routes)
-            // 先注入 Arc<WebState>，再注入 trait object，两种 Extension 都可用
             .layer(Extension(self.state.clone()))
             .layer(Extension(
-                self.state.clone() as Arc<dyn edgelink_core::runtime::web_state_trait::WebStateCore + Send + Sync>
+                self.state.clone() as Arc<dyn edgelink_core::web::web_state_trait::WebStateCore + Send + Sync>
             ))
             .fallback_service(static_service)
     }

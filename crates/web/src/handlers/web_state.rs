@@ -14,7 +14,7 @@ use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
 // --- WebStateCore trait implementation ---
-use edgelink_core::runtime::web_state_trait::WebStateCore;
+use edgelink_core::web::web_state_trait::WebStateCore;
 
 /// Callback type for restarting the flow engine
 pub type FlowEngineRestartCallback = Arc<dyn Fn(PathBuf) -> tokio::task::JoinHandle<()> + Send + Sync>;

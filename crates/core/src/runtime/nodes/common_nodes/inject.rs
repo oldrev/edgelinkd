@@ -255,7 +255,7 @@ mod inject_web {
     use axum::{http::StatusCode, response::IntoResponse};
     // POST /inject/:id
     // Now accepts Extension<Arc<dyn WebStateCore>> for state access
-    use crate::runtime::web_state_trait::WebStateCore;
+    use crate::web::web_state_trait::WebStateCore;
     use axum::Extension;
     use std::sync::Arc;
 
