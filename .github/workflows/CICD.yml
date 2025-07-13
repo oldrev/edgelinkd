@@ -322,10 +322,10 @@ jobs:
         run: cargo install cross --git https://github.com/cross-rs/cross
 
       - name: Cross build
-        run: cross build --profile ci --workspace --target ${{ matrix.target }} --features full --exclude edgelink-pymod
+        run: cross build --workspace --profile ci --target ${{ matrix.target }} --features full --exclude edgelink-pymod
 
       - name: Cross build tests without running
-        run: cross test --profile ci --target ${{ matrix.target }} --features full --exclude edgelink-pymod --no-run --message-format=json | tee ./target/${{ matrix.target }}/ci/cargo-build-test.json
+        run: cross test --workspace --profile ci --target ${{ matrix.target }} --features full --exclude edgelink-pymod --no-run --message-format=json | tee ./target/${{ matrix.target }}/ci/cargo-build-test.json
 
       - name: Run unit tests in QEMU ARM
         run: python3 ./scripts/cross-unittest.py ${{ env.EDGELINK_QEMU_CMD }}  ${{ env.EDGELINK_TOOLCHAIN_TRIPLE }} ./target/${{ matrix.target }}/ci/cargo-build-test.json
