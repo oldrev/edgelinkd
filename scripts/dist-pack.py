@@ -7,7 +7,15 @@ import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
+
 import zipfile
+
+EXCLUDE_PREFIXES = [
+    "libedgelink_pymod.so",
+    "libedgelink_macro.so",
+    "edgelink_pymod.dll",
+    "edgelink_macro.dll"
+]
 
 try:
     import tomlkit
@@ -117,6 +125,8 @@ def main():
             for f in target_dir.glob("edgelinkd.exe"):
                 shutil.copy(f, bin_dir / f.name)
             for dll in target_dir.glob("*.dll"):
+                if any(dll.name.startswith(prefix) for prefix in EXCLUDE_PREFIXES):
+                    continue
                 shutil.copy(dll, bin_dir / dll.name)
 
             # 5. bin/ui_static
@@ -138,7 +148,7 @@ def main():
             outdir.mkdir(parents=True, exist_ok=True)
             archive_path = outdir / out_name
             if out_name.endswith(".zip"):
-                with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
                     for path in tmp.rglob("*"):
                         print(f"Adding to archive: {path.relative_to(tmp)}", file=sys.stderr)
                         zf.write(path, path.relative_to(tmp))

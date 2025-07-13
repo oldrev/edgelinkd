@@ -7,6 +7,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::{Html, IntoResponse, Json},
 };
+use edgelink_core::runtime::paths;
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -81,7 +82,7 @@ pub async fn get_nodes(
 /// Generate HTML config for all nodes
 async fn generate_nodes_html() -> String {
     // Dynamically generate node HTML at runtime - read and merge all HTML files under Node-RED node directory
-    let node_red_nodes_dir = std::path::PathBuf::from("3rd-party/node-red/packages/node_modules/@node-red/nodes");
+    let node_red_nodes_dir = paths::ui_static_dir().join("nodes");
 
     if !node_red_nodes_dir.exists() {
         return get_fallback_nodes_html();

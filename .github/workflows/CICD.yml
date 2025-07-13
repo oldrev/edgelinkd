@@ -404,11 +404,13 @@ jobs:
         run: pip install -r ./tests/requirements.txt
 
       - name: Package nightly build
-        run: python ./scripts/dist-pack.py
+        run: python ./scripts/dist-pack.py --branch dev --mode release
 
-      - name: Get current date
+      - name: Get git commit date
         id: date
-        run: echo "date=$(date +'%Y%m%d')" >> $GITHUB_OUTPUT
+        run: |
+          git fetch --unshallow || true
+          echo "date=$(git log -1 --format=%cd --date=format:%Y%m%d%H%M)" >> $GITHUB_OUTPUT
         shell: bash
 
       - name: Create GitHub Release
