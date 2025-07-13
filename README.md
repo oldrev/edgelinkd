@@ -71,25 +71,11 @@ Only the `function` node uses the lightweight QuickJS JS interpreter to run Java
 - **Container Deployments**: Lightweight containers for edge computing with optional web UI
 - **Remote Management**: Access and modify flows remotely through the web interface
 
-## Quick Demo
 
-```bash
-# 1. Build EdgeLinkd
-cargo build --release
+## A Short Demo
 
-# 2. Start EdgeLinkd with integrated web UI
-./target/release/edgelinkd
+<video src="assets/short-demo.mp4" controls style="max-width: 100%; height: auto; border: 1px solid #ccc; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 1em;" title="EdgeLinkd Short Demo"></video>
 
-# 3. Open your browser and go to http://127.0.0.1:1888
-# 4. Design your flows directly in the browser using the built-in Node-RED editor
-# 5. Deploy and run your flows with 90% less memory usage than Node-RED
-
-# Alternative: Run with existing flows.json
-./target/release/edgelinkd ~/.node-red/flows.json
-
-# Or run in headless mode for production deployment
-./target/release/edgelinkd --headless
-```
 
 ## Quick Start
 
@@ -105,7 +91,7 @@ Or if you've already cloned without submodules:
 
 ```bash
 git clone https://github.com/oldrev/edgelinkd.git
-cd edgelink
+cd edgelinkd
 git submodule update --init --recursive
 ```
 
@@ -136,9 +122,9 @@ cargo build --release
 **Start EdgeLinkd with integrated web UI (recommended):**
 
 ```bash
-cargo run -- run
+cargo run --release --
 # or after build
-./target/release/edgelinkd run
+./target/release/edgelinkd
 ```
 
 By default, your browser will open the Node-RED frontend at [http://127.0.0.1:1888](http://127.0.0.1:1888).
