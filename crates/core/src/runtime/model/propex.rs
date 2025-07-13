@@ -4,6 +4,8 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
+use smallvec::SmallVec;
+
 use thiserror::Error;
 
 use crate::text::nom_parsers;
@@ -41,7 +43,7 @@ pub enum PropexSegment<'a> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum PropexPath<'a> {
     Single(PropexSegment<'a>),
-    Multiple(Vec<PropexSegment<'a>>),
+    Multiple(SmallVec<[PropexSegment<'a>; 4]>),
 }
 
 impl<'a> PropexPath<'a> {
@@ -228,7 +230,7 @@ fn expression(input: &str) -> IResult<&str, PropexPath, nom::error::Error<&str>>
     .parse(input)?;
 
     if let Some(rest) = rest {
-        let mut result = Vec::with_capacity(rest.len() + 1);
+        let mut result = SmallVec::with_capacity(rest.len() + 1);
         result.push(first);
         result.extend(rest);
         Ok((input, PropexPath::Multiple(result)))
