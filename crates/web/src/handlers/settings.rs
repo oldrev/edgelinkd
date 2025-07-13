@@ -6,6 +6,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::{Html, IntoResponse, Json},
 };
+use edgelink_core::runtime::paths;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -58,11 +59,7 @@ pub async fn get_icon_file(
     log::debug!("Requesting icon: {icon} from module: {module}");
 
     // Get static file directory
-    let static_dir = if let Ok(out_dir) = std::env::var("OUT_DIR") {
-        std::path::PathBuf::from(out_dir).join("ui_static")
-    } else {
-        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")).join("ui_static")
-    };
+    let static_dir = paths::ui_static_dir();
 
     // Build icon file path
     let icon_path = static_dir.join("icons").join(&module).join(&icon);

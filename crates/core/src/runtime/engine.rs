@@ -10,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 use super::context::{Context, ContextManager, ContextManagerBuilder};
 use super::debug_channel::DebugChannel;
 use super::engine_events::{EngineEvent, EngineEventBus};
-use super::env::*;
+use super::red_env::*;
 use super::http_registry::HttpResponseRegistry;
 use super::model::json::{RedFlowConfig, RedGlobalNodeConfig};
 use super::model::*;
@@ -59,7 +59,7 @@ struct InnerEngine {
     shutdown: tokio::sync::RwLock<bool>,
     stop_token: CancellationToken,
     _args: EngineArgs,
-    envs: Envs,
+    envs: RedEnvs,
     context_manager: Arc<ContextManager>,
     context: Context,
 
@@ -109,7 +109,7 @@ impl Engine {
             e
         })?;
 
-        let envs = EnvStoreBuilder::default().with_process_env().build();
+        let envs = RedEnvStoreBuilder::default().with_process_env().build();
 
         let mut ctx_builder = ContextManagerBuilder::new();
         if let Some(ref cfg) = elcfg {
@@ -409,7 +409,7 @@ impl Engine {
         node.inject_msg(msg, cancel).await
     }
 
-    pub fn get_envs(&self) -> Envs {
+    pub fn get_envs(&self) -> RedEnvs {
         self.inner.envs.clone()
     }
 

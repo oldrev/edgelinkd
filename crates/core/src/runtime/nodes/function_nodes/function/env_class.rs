@@ -1,12 +1,12 @@
 use rquickjs::{Ctx, IntoJs, Result, Value, class::Trace};
 
-use crate::runtime::env::*;
+use crate::runtime::red_env::*;
 
 #[derive(Clone, Trace)]
 #[rquickjs::class(frozen)]
 pub(super) struct EnvClass {
     #[qjs(skip_trace)]
-    pub envs: Envs,
+    pub envs: RedEnvs,
 }
 
 unsafe impl<'js> rquickjs::JsLifetime<'js> for EnvClass {
@@ -17,7 +17,7 @@ unsafe impl<'js> rquickjs::JsLifetime<'js> for EnvClass {
 #[rquickjs::methods]
 impl<'js> EnvClass {
     #[qjs(skip)]
-    pub fn new(envs: &Envs) -> Self {
+    pub fn new(envs: &RedEnvs) -> Self {
         EnvClass { envs: envs.clone() }
     }
 

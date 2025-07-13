@@ -16,7 +16,7 @@ use super::group::{Group, GroupParent};
 use super::registry::RegistryHandle;
 use super::subflow::SubflowState;
 use crate::EdgelinkError;
-use crate::runtime::env::*;
+use crate::runtime::red_env::*;
 use crate::runtime::model::json::*;
 use crate::runtime::model::*;
 use crate::runtime::nodes::*;
@@ -108,7 +108,7 @@ struct InnerFlow {
 
     subflow_state: Option<SubflowState>,
 
-    envs: Envs,
+    envs: RedEnvs,
     context: Context,
 }
 
@@ -203,7 +203,7 @@ impl Flow {
 
         let subflow_instance = flow_config.subflow_node_id.and_then(|x| engine.find_flow_node_by_id(&x));
 
-        let mut envs_builder = EnvStoreBuilder::default();
+        let mut envs_builder = RedEnvStoreBuilder::default();
         envs_builder = match flow_kind {
             FlowKind::GlobalFlow => envs_builder.with_parent(&engine.get_envs()),
             FlowKind::Subflow => {
@@ -533,7 +533,7 @@ impl Flow {
         self.inner.engine.upgrade()
     }
 
-    pub fn get_envs(&self) -> &Envs {
+    pub fn get_envs(&self) -> &RedEnvs {
         &self.inner.envs
     }
 
@@ -676,7 +676,7 @@ impl Flow {
             None => None,
         };
 
-        let mut envs_builder = EnvStoreBuilder::default();
+        let mut envs_builder = RedEnvStoreBuilder::default();
         if let Some(ref g) = group {
             envs_builder = envs_builder.with_parent(&g.get_envs());
         } else {

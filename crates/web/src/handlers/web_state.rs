@@ -1,5 +1,6 @@
 // REMOVED: clone_for_update. All mutation must use interior mutability (Mutex/RwLock) on fields.
 use axum::Router;
+use edgelink_core::runtime::paths;
 
 use crate::handlers::CommsManager;
 use crate::models::RuntimeSettings;
@@ -75,16 +76,7 @@ impl WebState {
 impl WebState {
     /// Helper to determine the default static directory path
     fn default_static_dir() -> PathBuf {
-        if let Ok(out_dir) = std::env::var("OUT_DIR") {
-            PathBuf::from(out_dir).join("ui_static")
-        } else {
-            // Use the directory of the current executable
-            let exe_dir = std::env::current_exe()
-                .ok()
-                .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-                .unwrap_or_else(|| PathBuf::from("."));
-            exe_dir.join("ui_static")
-        }
+        paths::ui_static_dir()
     }
 }
 

@@ -16,7 +16,6 @@ fn main() {
 fn gen_use_plugins_file() {
     let out_dir = env::var_os("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("__use_node_plugins.rs");
-
     let plugins_dir = Path::new("node-plugins");
     let mut plugin_names = Vec::new();
 
@@ -84,8 +83,7 @@ fn build_static_files() {
     println!("cargo:rerun-if-changed=3rd-party/node-red/package.json");
     println!("cargo:rerun-if-changed=3rd-party/node-red/package-lock.json");
 
-    let out_dir = env::var_os("OUT_DIR").unwrap();
-    let static_dir = Path::new(&out_dir).join("ui_static");
+    let static_dir = PathBuf::from("target/ui_static");
     let public_dir = PathBuf::from("crates/web/public");
     let node_red_dir = PathBuf::from("3rd-party/node-red/packages/node_modules/@node-red/editor-client/public");
     let node_red_nodes_dir = PathBuf::from("3rd-party/node-red/packages/node_modules/@node-red/nodes");

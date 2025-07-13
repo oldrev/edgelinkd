@@ -1,3 +1,4 @@
+use edgelink_core::runtime::paths;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
@@ -12,55 +13,6 @@ use crate::consts;
 use crate::env::EdgelinkEnv;
 use crate::logging;
 use crate::registry::list_available_nodes;
-
-/// Determine the static directory path at runtime with fallback strategies
-fn determine_static_directory() -> PathBuf {
-    if let Ok(cargo_target_dir) = std::env::var("CARGO_TARGET_DIR") {
-        // If CARGO_TARGET_DIR is set, use it
-        return PathBuf::from(cargo_target_dir).join("debug/ui_static");
-    }
-
-    if let Ok(out_dir) = std::env::var("OUT_DIR") {
-        // If in build environment, use OUT_DIR
-        return PathBuf::from(out_dir).join("ui_static");
-    }
-
-    // Runtime fallback: try to find build output directory
-    let exe_path = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("./target/debug/edgelinkd.exe"));
-
-    let target_debug_fallback = PathBuf::from("./target/debug");
-    let target_dir = exe_path.parent().unwrap_or(&target_debug_fallback);
-
-    let target_fallback = PathBuf::from("./target");
-    let build_dir = target_dir.parent().unwrap_or(&target_fallback).join("build");
-
-    if let Ok(entries) = std::fs::read_dir(&build_dir) {
-        let mut latest_build: Option<PathBuf> = None;
-        let mut latest_time = std::time::SystemTime::UNIX_EPOCH;
-
-        for entry in entries.flatten() {
-            if entry.file_name().to_string_lossy().starts_with("edgelink-app-") {
-                if let Ok(metadata) = entry.metadata() {
-                    if let Ok(modified) = metadata.modified() {
-                        if modified > latest_time {
-                            latest_time = modified;
-                            latest_build = Some(entry.path().join("out/ui_static"));
-                        }
-                    }
-                }
-            }
-        }
-
-        if let Some(path) = latest_build {
-            if path.exists() {
-                return path;
-            }
-        }
-    }
-
-    // Final fallback to project root static directory
-    PathBuf::from("ui_static")
-}
 
 pub async fn run_app(cli_args: Arc<CliArgs>) -> anyhow::Result<()> {
     match &cli_args.command {
@@ -130,7 +82,7 @@ async fn start_web_server(
     cancel: CancellationToken,
 ) -> anyhow::Result<JoinHandle<()>> {
     // Determine static directory at runtime
-    let static_dir = determine_static_directory();
+    let static_dir = paths::ui_static_dir();
     log::info!("Using static directory: {}", static_dir.display());
 
     let flows_path = cfg.get_string("flows_path").expect("Config must provide flows_path after normalization");

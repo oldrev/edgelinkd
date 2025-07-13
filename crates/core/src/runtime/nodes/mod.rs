@@ -13,7 +13,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::context::Context;
 use crate::EdgelinkError;
-use crate::runtime::env::*;
+use crate::runtime::red_env::*;
 use crate::runtime::flow::*;
 use crate::runtime::model::json::{RedFlowNodeConfig, RedGlobalNodeConfig};
 use crate::runtime::model::*;
@@ -106,7 +106,7 @@ pub struct BaseFlowNodeState {
     pub msg_rx: MsgReceiverHolder,
     pub ports: Vec<Port>,
     pub group: Option<WeakGroup>,
-    pub envs: Envs,
+    pub envs: RedEnvs,
     pub context: Context,
 
     pub on_received: MsgEventSender,
@@ -143,7 +143,7 @@ pub trait FlowNodeBehavior: Send + Sync + FlowsElement {
         self.get_base().flow.upgrade()
     }
 
-    fn envs(&self) -> &Envs {
+    fn envs(&self) -> &RedEnvs {
         &self.get_base().envs
     }
 

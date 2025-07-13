@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::sync::Weak;
 
-use super::env::*;
+use super::red_env::*;
 use super::flow::*;
 use super::model::json::*;
 use super::model::*;
@@ -71,7 +71,7 @@ struct InnerGroup {
     pub name: String,
     pub disabled: bool,
     pub parent: GroupParent,
-    pub envs: Envs,
+    pub envs: RedEnvs,
 }
 
 impl Group {
@@ -80,7 +80,7 @@ impl Group {
     }
 
     pub(crate) fn new_flow_group(config: &RedGroupConfig, flow: &Flow) -> crate::Result<Self> {
-        let envs_builder = EnvStoreBuilder::default().with_parent(flow.get_envs());
+        let envs_builder = RedEnvStoreBuilder::default().with_parent(flow.get_envs());
 
         let inner = InnerGroup {
             id: config.id,
@@ -93,7 +93,7 @@ impl Group {
     }
 
     pub(crate) fn new_subgroup(config: &RedGroupConfig, parent: &Group) -> crate::Result<Self> {
-        let envs_builder = EnvStoreBuilder::default().with_parent(&parent.inner.envs);
+        let envs_builder = RedEnvStoreBuilder::default().with_parent(&parent.inner.envs);
 
         let inner = InnerGroup {
             id: config.id,
@@ -109,7 +109,7 @@ impl Group {
         &self.inner.parent
     }
 
-    pub fn get_envs(&self) -> Envs {
+    pub fn get_envs(&self) -> RedEnvs {
         self.inner.envs.clone()
     }
 
@@ -118,7 +118,7 @@ impl Group {
     }
 }
 
-fn build_envs(mut envs_builder: EnvStoreBuilder, config: &RedGroupConfig) -> Envs {
+fn build_envs(mut envs_builder: RedEnvStoreBuilder, config: &RedGroupConfig) -> RedEnvs {
     if let Some(env_json) = config.rest.get("env") {
         envs_builder = envs_builder.load_json(env_json);
     }

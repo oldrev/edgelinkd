@@ -14,30 +14,30 @@ use crate::runtime::model::{RedPropertyType, Variant};
 use crate::*;
 
 #[derive(Debug, Clone)]
-pub struct Envs {
-    inner: Arc<EnvStore>,
+pub struct RedEnvs {
+    inner: Arc<RedEnvStore>,
 }
 
 #[derive(Debug, Clone)]
-pub struct WeakEnvs {
-    inner: Weak<EnvStore>,
+pub struct WeakRedEnvs {
+    inner: Weak<RedEnvStore>,
 }
 
-impl WeakEnvs {
-    pub fn upgrade(&self) -> Option<Envs> {
-        Weak::upgrade(&self.inner).map(|x| Envs { inner: x })
+impl WeakRedEnvs {
+    pub fn upgrade(&self) -> Option<RedEnvs> {
+        Weak::upgrade(&self.inner).map(|x| RedEnvs { inner: x })
     }
 }
 
 #[derive(Debug)]
-struct EnvStore {
-    parent: RwLock<Option<WeakEnvs>>,
+struct RedEnvStore {
+    parent: RwLock<Option<WeakRedEnvs>>,
     envs: DashMap<String, Variant>,
 }
 
-impl Envs {
-    pub fn downgrade(&self) -> WeakEnvs {
-        WeakEnvs { inner: Arc::downgrade(&self.inner) }
+impl RedEnvs {
+    pub fn downgrade(&self) -> WeakRedEnvs {
+        WeakRedEnvs { inner: Arc::downgrade(&self.inner) }
     }
 
     pub fn evalute_env(&self, env_expr: &str) -> Option<Variant> {
@@ -83,13 +83,13 @@ struct EnvEntry {
 }
 
 #[derive(Debug, Default, Clone)]
-pub struct EnvStoreBuilder {
-    parent: Option<WeakEnvs>,
+pub struct RedEnvStoreBuilder {
+    parent: Option<WeakRedEnvs>,
     envs: HashMap<String, Variant>,
 }
 
-impl EnvStoreBuilder {
-    pub fn with_parent(mut self, parent: &Envs) -> Self {
+impl RedEnvStoreBuilder {
+    pub fn with_parent(mut self, parent: &RedEnvs) -> Self {
         self.parent = Some(parent.downgrade());
         self
     }
@@ -148,7 +148,7 @@ impl EnvStoreBuilder {
         self
     }
 
-    pub fn extends_with(mut self, other: &Envs) -> Self {
+    pub fn extends_with(mut self, other: &RedEnvs) -> Self {
         for it in other.inner.envs.iter() {
             if !self.envs.contains_key(it.key()) {
                 self.envs.insert(it.key().clone(), it.value().clone());
@@ -157,18 +157,18 @@ impl EnvStoreBuilder {
         self
     }
 
-    pub fn update_with(mut self, other: &Envs) -> Self {
+    pub fn update_with(mut self, other: &RedEnvs) -> Self {
         for guard in other.inner.envs.iter() {
             self.envs.insert(guard.key().clone(), guard.value().clone());
         }
         self
     }
 
-    pub fn build(self) -> Envs {
-        let mut inner = EnvStore { parent: RwLock::new(self.parent), envs: DashMap::with_capacity(self.envs.len()) };
+    pub fn build(self) -> RedEnvs {
+        let mut inner = RedEnvStore { parent: RwLock::new(self.parent), envs: DashMap::with_capacity(self.envs.len()) };
         inner.envs.extend(self.envs);
 
-        Envs { inner: Arc::new(inner) }
+        RedEnvs { inner: Arc::new(inner) }
     }
 
     fn evaluate(&self, value: &str, type_: RedPropertyType) -> crate::Result<Variant> {
@@ -288,7 +288,7 @@ fn parse_complex_env_internal(input: &str) -> nom::IResult<&str, &str> {
 mod tests {
     use serde_json::json;
 
-    use super::EnvStoreBuilder;
+    use super::RedEnvStoreBuilder;
     use crate::runtime::model::*;
 
     #[test]
@@ -306,7 +306,7 @@ mod tests {
             },
         ]);
         let global =
-            EnvStoreBuilder::default().load_json(&json).extends([("FILE_SIZE".into(), Variant::from(123))]).build();
+            RedEnvStoreBuilder::default().load_json(&json).extends([("FILE_SIZE".into(), Variant::from(123))]).build();
         assert_eq!(global.evalute_env("FOO").unwrap().as_str().unwrap(), "foofoo");
         assert_eq!(global.evalute_env("AGE").unwrap().as_i64().unwrap(), 41);
 
@@ -317,7 +317,7 @@ mod tests {
                 "type": "str"
             },
         ]);
-        let flow = EnvStoreBuilder::default().with_parent(&global).load_json(&json).build();
+        let flow = RedEnvStoreBuilder::default().with_parent(&global).load_json(&json).build();
 
         let json = json!([
             {
@@ -341,7 +341,7 @@ mod tests {
                 "type": "str"
             }
         ]);
-        let node = EnvStoreBuilder::default().with_parent(&flow).load_json(&json).build();
+        let node = RedEnvStoreBuilder::default().with_parent(&flow).load_json(&json).build();
         assert_eq!(node.evalute_env("MY_FOO").unwrap().as_str().unwrap(), "aaa");
         assert_eq!(node.evalute_env("${MY_FOO}").unwrap().as_str().unwrap(), "aaa");
         assert_eq!(node.evalute_env("GLOBAL_FOO").unwrap().as_str().unwrap(), "foofoo");
