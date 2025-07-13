@@ -84,13 +84,13 @@ pub struct MetaNode {
     pub kind: NodeKind,
     pub type_: &'static str,
     pub factory: NodeFactory,
-    // Node-RED 相关的元数据
-    pub red_id: &'static str,   // 如 "node-red/inject"
-    pub red_name: &'static str, // 如 "inject"
-    pub module: &'static str,   // 如 "node-red"
-    pub version: &'static str,  // 如 "4.0.9"
-    pub local: bool,            // 通常为 false
-    pub user: bool,             // 通常为 false
+    // Node-RED related metadata
+    pub red_id: &'static str,   // Like "node-red/inject"
+    pub red_name: &'static str, // Like "inject"
+    pub module: &'static str,   // Like "node-red"
+    pub version: &'static str,  // Like"4.0.9"
+    pub local: bool,            // Default: false
+    pub user: bool,             // Default: false
 }
 
 #[derive(Debug)]
@@ -100,7 +100,6 @@ pub struct BaseFlowNodeState {
     pub type_str: &'static str,
     pub ordering: usize,
     pub disabled: bool,
-    pub active: bool,
     pub flow: WeakFlow,
     pub msg_tx: MsgSender,
     pub msg_rx: MsgReceiverHolder,

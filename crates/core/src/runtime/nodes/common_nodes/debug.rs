@@ -24,16 +24,21 @@ use edgelink_macro::*;
 struct DebugNodeConfig {
     #[serde(default)]
     console: bool,
+
     #[serde(default)]
     tosidebar: bool,
+
     #[serde(default)]
     #[allow(dead_code)]
     tostatus: bool,
+
     #[serde(default)]
     complete: DebugComplete,
+
     #[serde(default)]
     #[allow(dead_code)]
     target_type: DebugTargetType,
+
     #[serde(default = "default_active")]
     active: bool,
 }

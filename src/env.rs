@@ -26,6 +26,7 @@ impl EdgelinkEnv {
     /// Calculates the directory path for UI static files as a string, used for initialization.
     fn calc_ui_static_dir(exe_dir: &str) -> String {
         let mut static_dir = std::path::PathBuf::from("target").join("ui_static");
+        // If not found in target/ui_static, try to find next to the executable
         if !static_dir.exists() {
             let exe_dir = if !exe_dir.is_empty() {
                 Some(std::path::PathBuf::from(exe_dir))
@@ -48,10 +49,10 @@ impl EdgelinkEnv {
             self.config.get_string("flows_path").expect("Config must provide flows_path after normalization");
         let is_default = self.config.get_bool("flows_path_is_default").unwrap_or(false);
         if is_default {
-            // 默认 flows_path，自动创建
+            // If using the default flows_path, create it automatically if missing
             ensure_flows_file_exists(&flows_path).map_err(|e| EdgelinkError::Other(e.into()))?;
         } else {
-            // 用户指定 flows_path，必须存在
+            // If user specified flows_path, it must exist
             if !Path::new(&flows_path).exists() {
                 return Err(EdgelinkError::Other(
                     anyhow::anyhow!("The specified flows file does not exist: `{}`", flows_path).into(),

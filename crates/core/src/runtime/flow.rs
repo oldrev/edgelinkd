@@ -700,7 +700,6 @@ impl Flow {
             type_str: meta_node.type_,
             ordering: node_config.ordering,
             disabled: node_config.disabled,
-            active: node_config.active.unwrap_or(true),
             flow: self.downgrade(),
             msg_tx: tx_root,
             msg_rx: MsgReceiverHolder::new(rx),

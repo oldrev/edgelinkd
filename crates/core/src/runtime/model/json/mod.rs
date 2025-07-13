@@ -105,9 +105,6 @@ pub struct RedFlowNodeConfig {
     #[serde(default, deserialize_with = "deser::deser_red_optional_id")]
     pub g: Option<ElementId>,
 
-    #[serde(default)]
-    pub active: Option<bool>,
-
     #[serde(default, alias = "d")]
     pub disabled: bool,
 
