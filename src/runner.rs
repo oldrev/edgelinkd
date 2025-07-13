@@ -40,7 +40,7 @@ pub async fn run_app_internal(cli_args: Arc<CliArgs>) -> anyhow::Result<()> {
     log::info!("==========================================================\n");
 
     // Prepare the runtime environment (ensure flows file exists, etc.)
-    let env = EdgelinkEnv::new(&cfg);
+    let env = Arc::new(EdgelinkEnv::new(cfg));
     env.prepare()?;
 
     // Create cancellation token for graceful shutdown
@@ -57,11 +57,11 @@ pub async fn run_app_internal(cli_args: Arc<CliArgs>) -> anyhow::Result<()> {
     log::info!("Press CTRL+C to terminate.");
 
     // Create the App first to get flows data
-    let app = Arc::new(App::new(cli_args.clone(), cfg.clone(), None).await?);
+    let app = Arc::new(App::new(cli_args.clone(), env, None).await?);
 
-    let headless = cfg.get_bool("headless").unwrap_or(false);
+    let headless = app.env().config.get_bool("headless").unwrap_or(false);
     let web_server_handle: Option<JoinHandle<()>> =
-        if !headless { Some(start_web_server(app.clone(), &cfg, cancel.clone()).await?) } else { None };
+        if !headless { Some(start_web_server(app.clone(), &app.env().config, cancel.clone()).await?) } else { None };
 
     let app_result = app.run(cancel.child_token()).await;
 

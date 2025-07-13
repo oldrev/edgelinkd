@@ -9,6 +9,7 @@ use edgelink_core::runtime::model::*;
 use edgelink_core::*;
 
 use crate::cliargs::CliArgs;
+use crate::env::EdgelinkEnv;
 use crate::flows::ensure_flows_file_exists;
 use crate::registry::create_registry;
 
@@ -25,13 +26,13 @@ pub struct App {
     engine: Arc<RwLock<Engine>>,
     msgs_to_inject: Mutex<Vec<MsgInjectionEntry>>,
     flows_path: String, // Store the resolved flows path
-    app_config: Option<config::Config>,
+    env: Arc<EdgelinkEnv>,
 }
 
 impl App {
     pub async fn new(
         _elargs: Arc<CliArgs>,
-        app_config: config::Config,
+        env: Arc<EdgelinkEnv>,
         _flows_path: Option<String>,
     ) -> edgelink_core::Result<Self> {
         let reg = create_registry()?;
@@ -40,18 +41,18 @@ impl App {
 
         // flows_path 只从 config 获取，已统一默认值
         let flows_path =
-            app_config.get_string("flows_path").expect("Config must provide flows_path after normalization");
+            env.config.get_string("flows_path").expect("Config must provide flows_path after normalization");
         ensure_flows_file_exists(&flows_path)?;
 
         log::info!("Loading flows file: {flows_path}");
-        let engine = Engine::with_flows_file(&reg, &flows_path, Some(app_config.clone())).await?;
+        let engine = Engine::with_flows_file(&reg, &flows_path, Some(env.config.clone())).await?;
 
         Ok(App {
             _registry: reg,
             engine: Arc::new(RwLock::new(engine)),
             msgs_to_inject: Mutex::new(msgs_to_inject),
             flows_path: flows_path.clone(),
-            app_config: Some(app_config),
+            env,
         })
     }
 
@@ -116,6 +117,10 @@ impl App {
         &self.engine
     }
 
+    pub fn env(&self) -> &Arc<EdgelinkEnv> {
+        &self.env
+    }
+
     /// Restart the flow engine with updated flows from file
     pub async fn restart_engine(&self) -> crate::Result<()> {
         log::info!("Restarting flow engine...");
@@ -132,7 +137,7 @@ impl App {
         let flows_path = &self.flows_path;
         ensure_flows_file_exists(flows_path)?;
 
-        let new_engine = Engine::with_flows_file(&self._registry, flows_path, self.app_config.clone()).await?;
+        let new_engine = Engine::with_flows_file(&self._registry, flows_path, Some(self.env.config.clone())).await?;
 
         // Replace the engine
         {

@@ -647,6 +647,7 @@ dependencies = [
  "edgelink-web",
  "log 0.4.27",
  "log4rs",
+ "once_cell",
  "semver",
  "serde",
  "serde_json",

@@ -16,10 +16,10 @@ use super::group::{Group, GroupParent};
 use super::registry::RegistryHandle;
 use super::subflow::SubflowState;
 use crate::EdgelinkError;
-use crate::runtime::red_env::*;
 use crate::runtime::model::json::*;
 use crate::runtime::model::*;
 use crate::runtime::nodes::*;
+use crate::runtime::red_env::*;
 use crate::runtime::registry::Registry;
 
 const NODE_MSG_CHANNEL_CAPACITY: usize = 32;
