@@ -26,7 +26,7 @@ impl DebugChannel {
         Self { sender }
     }
 
-    /// 发送 Debug 消息
+    /// Send a Debug message
     pub fn send(&self, message: DebugMessage) {
         log::debug!("Sending debug message to channel: {message:?}");
         match self.sender.send(message) {
@@ -39,7 +39,7 @@ impl DebugChannel {
         }
     }
 
-    /// 获取 Debug 消息接收器
+    /// Get a Debug message receiver
     pub fn subscribe(&self) -> broadcast::Receiver<DebugMessage> {
         self.sender.subscribe()
     }
@@ -65,7 +65,7 @@ pub fn format_message_for_display(value: &serde_json::Value) -> (String, String)
     }
 }
 
-/// 创建 Debug 消息的便捷函数
+/// Convenience function to create a Debug message
 pub fn create_debug_message(
     node_id: &str,
     node_name: Option<&str>,

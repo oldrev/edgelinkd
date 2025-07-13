@@ -202,6 +202,16 @@ impl FlowNodeBehavior for DebugNode {
     }
 
     async fn run(self: Arc<Self>, stop_token: CancellationToken) {
+        if self._config.tostatus {
+            self.report_status(StatusObject {
+                fill: Some(StatusFill::Grey),
+                shape: Some(StatusShape::Ring),
+                text: None,
+            });
+            let mut old_status_guard = self.old_status.lock().await;
+            *old_status_guard = Some(StatusObject::empty());
+        }
+
         while !stop_token.is_cancelled() {
             if self.is_active.load(Ordering::Relaxed) {
                 match self.recv_msg(stop_token.child_token()).await {
@@ -228,20 +238,19 @@ impl FlowNodeBehavior for DebugNode {
                                     let mut last_time_guard = self.last_time.lock().await;
                                     let diff = now.duration_since(*last_time_guard);
                                     *last_time_guard = now;
-                                    let count = self.counter.fetch_add(1, Ordering::Relaxed) + 1;
+                                    let _ = self.counter.fetch_add(1, Ordering::Relaxed);
                                     if diff > Duration::from_millis(100) {
                                         // Report immediately
                                         let status_obj = self.make_status_object(&msg);
                                         let mut old_status_guard = self.old_status.lock().await;
                                         if old_status_guard.as_ref() != Some(&status_obj) {
-                                            self.report_status(status_obj.clone(), stop_token.clone());
+                                            self.report_status(status_obj.clone());
                                             *old_status_guard = Some(status_obj);
                                         }
                                     } else {
                                         // Only allow one delayed task
                                         if !self.has_delay_task.swap(true, Ordering::SeqCst) {
                                             let this = self.clone();
-                                            let stop_token2 = stop_token.clone();
                                             let notify = this.notify.clone();
                                             tokio::spawn(async move {
                                                 loop {
@@ -256,7 +265,7 @@ impl FlowNodeBehavior for DebugNode {
                                                             let status_obj = this.make_status_object(&peeked_msg_guard);
                                                             let mut old_status_guard = this.old_status.lock().await;
                                                             if old_status_guard.as_ref() != Some(&status_obj) {
-                                                                this.report_status(status_obj.clone(), stop_token2.clone());
+                                                                this.report_status(status_obj.clone());
                                                                 *old_status_guard = Some(status_obj);
                                                             }
                                                             this.has_delay_task.store(false, Ordering::SeqCst);
@@ -275,7 +284,7 @@ impl FlowNodeBehavior for DebugNode {
                                     let status_obj = self.make_status_object(&msg);
                                     let mut old_status_guard = self.old_status.lock().await;
                                     if old_status_guard.as_ref() != Some(&status_obj) {
-                                        self.report_status(status_obj.clone(), stop_token.clone());
+                                        self.report_status(status_obj.clone());
                                         *old_status_guard = Some(status_obj);
                                     }
                                     log::error!("[debug:{}] statusType=jsonata not implemented: {expr}", self.name());
@@ -284,7 +293,7 @@ impl FlowNodeBehavior for DebugNode {
                                     let status_obj = self.make_status_object(&msg);
                                     let mut old_status_guard = self.old_status.lock().await;
                                     if old_status_guard.as_ref() != Some(&status_obj) {
-                                        self.report_status(status_obj.clone(), stop_token.clone());
+                                        self.report_status(status_obj.clone());
                                         *old_status_guard = Some(status_obj);
                                     }
                                 }

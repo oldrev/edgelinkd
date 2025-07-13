@@ -24,9 +24,11 @@ mod function_nodes;
 
 mod parser_nodes;
 mod sequence_nodes;
+
+#[cfg(feature = "nodes_storage")]
 mod storage_nodes;
 
-#[cfg(feature = "net")]
+#[cfg(feature = "nodes_network")]
 mod network_nodes;
 
 pub const NODE_MSG_CHANNEL_CAPACITY: usize = 16;
@@ -228,9 +230,9 @@ pub trait FlowNodeBehavior: Send + Sync + FlowsElement {
 
     async fn on_starting(&self) {}
 
-    fn report_status(&self, status: StatusObject, cancel: CancellationToken) {
+    fn report_status(&self, status: StatusObject) {
         if let Some(engine) = self.engine() {
-            engine.report_node_status(self.id(), status, cancel);
+            engine.report_node_status(self.id(), status);
         } else {
             log::error!("Failed to get engine instance!");
         }
@@ -399,6 +401,7 @@ where
     }
 }
 
+#[allow(dead_code)]
 impl StatusObject {
     fn empty() -> Self {
         Self { fill: None, shape: None, text: None }

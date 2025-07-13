@@ -286,6 +286,7 @@ Refer [REDNODES-SPECS-DIFF.md](tests/REDNODES-SPECS-DIFF.md) to view the details
     - Network nodes:
         - [x] MQTT In
         - [x] MQTT Out
+        - [ ] MQTT Broker
         - [x] HTTP In
         - [x] HTTP Out
         - [x] HTTP Request

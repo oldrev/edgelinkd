@@ -28,6 +28,9 @@ mod mqtt_out;
 #[cfg(feature = "nodes_mqtt")]
 mod mqtt_in;
 
+#[cfg(feature = "nodes_mqtt")]
+mod mqtt_broker;
+
 #[cfg(feature = "nodes_websocket")]
 mod websocket_listener;
 

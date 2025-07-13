@@ -104,11 +104,25 @@ log4rs = { version = "1", features = [
 ctor = "^0.2"
 sha2 = "0.10"
 hex = "0.4"
-reqwest = { version = "0.11", features = ["json", "blocking", "rustls-tls"], default-features = false }
-tokio-tungstenite = { version = "0.26.2", features = ["rustls-tls-native-roots"] }
+reqwest = { version = "0.11", features = [
+    "json",
+    "rustls-tls",
+], default-features = false }
+tokio-tungstenite = { version = "0.26.2", features = [
+    "rustls-tls-native-roots",
+] }
 serde-xml-rs = { version = "0.8.1" }
 quick-xml = { version = "0.36", features = ["serialize"] }
-axum = { version = "0.8.4", features = ["macros", "ws"] }
+axum = { version = "0.8.4", default-features = false, features = [
+    "http1",
+    "json",
+    "matched-path",
+    "ws",
+    "tokio",
+    "ws",
+    "query",
+] }
+rumqttc = { version = "0.24" }
 
 [dependencies]
 clap.workspace = true
@@ -144,9 +158,9 @@ identifier = "com.github.oldrev.edgelink"
 
 [features]
 full = ["default", "rqjs_bindgen"]
-default = ["core", "js", "net", "storage"]
+default = ["core", "js", "nodes_network", "nodes_storage"]
 core = ["edgelink-core/core"]
 js = ["edgelink-core/js"]
-net = ["edgelink-core/net"]
-storage = ["edgelink-core/storage"]
+nodes_network = ["edgelink-core/nodes_network"]
+nodes_storage = ["edgelink-core/nodes_storage"]
 rqjs_bindgen = ["js", "edgelink-core/rqjs_bindgen"]

@@ -437,7 +437,7 @@ impl Engine {
         &self.inner.status_channel
     }
 
-    pub fn report_node_status(&self, from: ElementId, status: StatusObject, cancel: CancellationToken) {
+    pub fn report_node_status(&self, from: ElementId, status: StatusObject) {
         let to_send = StatusMessage { sender_id: from, status };
         self.inner.status_channel.send(to_send);
     }
