@@ -29,7 +29,7 @@ EdgeLinkd 现在包含完整的 Node-RED Web 编辑器，允许您直接在浏�
 
 ## A Short Demo
 
-<video src="https://raw.githubusercontent.com/oldrev/edgelinkd/master/assets/short-demo.mp4" controls width="100%"></video>
+<video src="https://github.com/user-attachments/assets/5841db63-513a-4b36-8566-57c74adb7b60" controls width="100%"></video>
 
 ## 快速开始
 
