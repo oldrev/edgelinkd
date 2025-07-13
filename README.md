@@ -29,7 +29,7 @@ Only the `function` node uses the lightweight QuickJS JS interpreter to run Java
 
 ## A Short Demo
 
-<video src="https://raw.githubusercontent.com/oldrev/edgelinkd/refs/heads/master/assets/short-demo.mp4" title="assets/short-demo.mp4"></video>" controls style="max-width: 100%; height: auto; border: 1px solid #ccc; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 1em;" title="EdgeLinkd Short Demo"></video>
+<video src="https://raw.githubusercontent.com/oldrev/edgelinkd/refs/heads/master/assets/short-demo.mp4" title="assets/short-demo.mp4" controls style="max-width: 100%; height: auto;" title="EdgeLinkd Short Demo"></video>
 
 ### Use Cases
 
