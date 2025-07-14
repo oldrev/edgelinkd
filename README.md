@@ -311,7 +311,8 @@ Please refer to [ISSUES.md](docs/ISSUES.md) for a list of known issues and worka
 
 We welcome your feedback! If you encounter any issues or have suggestions, please open an [issue](https://github.com/edge-link/edgelinkd/issues).
 
-E-mail: oldrev(at)gmail.com
+* Contact me: E-mail: oldrev(at)gmail.com
+* Discord: [https://discord.gg/XJstgANe26](https://discord.gg/XJstgANe26)
 
 ## License
 
