@@ -7,14 +7,14 @@ use edgelink_macro::*;
 #[derive(Debug, Default, Deserialize)]
 struct StatusNodeConfig {
     #[serde(default)]
-    scope: NodeScope,
+    scope: FlowNodeScope,
 }
 
 #[flow_node("status", red_name = "status")]
 pub struct StatusNode {
     base: BaseFlowNodeState,
 
-    pub scope: NodeScope,
+    pub scope: FlowNodeScope,
 }
 
 impl StatusNode {

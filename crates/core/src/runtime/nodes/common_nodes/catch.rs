@@ -10,14 +10,14 @@ use edgelink_macro::*;
 #[derive(Debug)]
 pub struct CatchNode {
     base: BaseFlowNodeState,
-    pub scope: NodeScope,
+    pub scope: FlowNodeScope,
     pub uncaught: bool,
 }
 
 #[derive(Debug, Default, Deserialize)]
 struct CatchNodeConfig {
     #[serde(default)]
-    scope: NodeScope,
+    scope: FlowNodeScope,
 
     #[serde(default)]
     uncaught: bool,

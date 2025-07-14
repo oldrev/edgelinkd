@@ -722,14 +722,14 @@ impl Flow {
             for status_node_behavior in status_nodes.iter() {
                 let status_node = status_node_behavior.as_any().downcast_ref::<StatusNode>().expect("StatusNode");
                 if status_node.group().is_some()
-                    && status_node.scope == NodeScope::SameGroup
+                    && status_node.scope == FlowNodeScope::SameGroup
                     && reporting_node.group().is_none()
                 {
                     // Status node inside a group, reporting node not in a group - skip it
                     return Ok(());
                 }
 
-                if let NodeScope::Nodes(ref scope) = status_node.scope {
+                if let FlowNodeScope::Nodes(ref scope) = status_node.scope {
                     // Status node has a scope set and it doesn't include the reporting node
                     if !scope.contains(&reporting_node.id()) {
                         return Ok(());
@@ -755,7 +755,7 @@ impl Flow {
                     }
                     if containing_group_id.is_none()
                         && status_node.group().is_some()
-                        && status_node.scope == NodeScope::SameGroup
+                        && status_node.scope == FlowNodeScope::SameGroup
                     {
                         // This status node is in a group, but not in the same hierachy
                         // the reporting node is in
@@ -796,14 +796,14 @@ impl Flow {
             for catch_node_behavior in catch_nodes.iter() {
                 let catch_node = catch_node_behavior.as_any().downcast_ref::<CatchNode>().expect("CatchNode");
                 if catch_node.group().is_some()
-                    && catch_node.scope == NodeScope::SameGroup
+                    && catch_node.scope == FlowNodeScope::SameGroup
                     && reporting_node.group().is_none()
                 {
                     // Catch node inside a group, reporting node not in a group - skip it
                     return Ok(true);
                 }
 
-                if let NodeScope::Nodes(ref scope) = catch_node.scope {
+                if let FlowNodeScope::Nodes(ref scope) = catch_node.scope {
                     // Catch node has a scope set and it doesn't include the reporting node
                     if !scope.contains(&reporting_node.id()) {
                         return Ok(true);
@@ -829,7 +829,7 @@ impl Flow {
                     }
                     if containing_group_id.is_none()
                         && catch_node.group().is_some()
-                        && catch_node.scope == NodeScope::SameGroup
+                        && catch_node.scope == FlowNodeScope::SameGroup
                     {
                         // This catch node is in a group, but not in the same hierachy
                         // the reporting node is in

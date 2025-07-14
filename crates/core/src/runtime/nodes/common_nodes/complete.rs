@@ -8,7 +8,7 @@ use edgelink_macro::*;
 #[derive(Debug, Default, Deserialize)]
 struct CompleteNodeConfig {
     #[serde(default)]
-    scope: NodeScope,
+    scope: FlowNodeScope,
 
     #[serde(default)]
     uncaught: bool,
@@ -19,7 +19,7 @@ struct CompleteNodeConfig {
 #[allow(dead_code)]
 pub struct CompleteNode {
     base: BaseFlowNodeState,
-    pub scope: NodeScope,
+    pub scope: FlowNodeScope,
     pub uncaught: bool,
 }
 

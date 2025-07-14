@@ -421,20 +421,20 @@ impl StatusObject {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub enum NodeScope {
+pub enum FlowNodeScope {
     #[default]
     All,
     SameGroup,
     Nodes(Vec<ElementId>),
 }
 
-impl NodeScope {
+impl FlowNodeScope {
     pub fn as_bool(&self) -> bool {
-        !matches!(self, NodeScope::All)
+        !matches!(self, FlowNodeScope::All)
     }
 }
 
-impl<'de> Deserialize<'de> for NodeScope {
+impl<'de> Deserialize<'de> for FlowNodeScope {
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
@@ -442,35 +442,35 @@ impl<'de> Deserialize<'de> for NodeScope {
         struct NodeScopeVisitor;
 
         impl<'de> serde::de::Visitor<'de> for NodeScopeVisitor {
-            type Value = NodeScope;
+            type Value = FlowNodeScope;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
                 formatter.write_str("a string, null, or an array of strings")
             }
 
-            fn visit_unit<E>(self) -> Result<NodeScope, E>
+            fn visit_unit<E>(self) -> Result<FlowNodeScope, E>
             where
                 E: serde::de::Error,
             {
-                Ok(NodeScope::All)
+                Ok(FlowNodeScope::All)
             }
 
-            fn visit_str<E>(self, value: &str) -> Result<NodeScope, E>
+            fn visit_str<E>(self, value: &str) -> Result<FlowNodeScope, E>
             where
                 E: serde::de::Error,
             {
                 match value {
-                    "group" => Ok(NodeScope::SameGroup),
+                    "group" => Ok(FlowNodeScope::SameGroup),
                     _ => Err(serde::de::Error::invalid_value(serde::de::Unexpected::Str(value), &self)),
                 }
             }
 
-            fn visit_seq<A>(self, seq: A) -> Result<NodeScope, A::Error>
+            fn visit_seq<A>(self, seq: A) -> Result<FlowNodeScope, A::Error>
             where
                 A: serde::de::SeqAccess<'de>,
             {
                 let vec: Vec<ElementId> = Deserialize::deserialize(serde::de::value::SeqAccessDeserializer::new(seq))?;
-                Ok(NodeScope::Nodes(vec))
+                Ok(FlowNodeScope::Nodes(vec))
             }
         }
 
