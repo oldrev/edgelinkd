@@ -405,7 +405,7 @@ jobs:
         run: pip install -r ./tests/requirements.txt
 
       - name: Package nightly build
-        run: python ./scripts/dist-pack.py --branch dev --mode release
+        run: python ./scripts/dist-pack.py --branch dev --mode release --target x86_64-pc-windows-msvc
 
       - name: Get git commit date
         id: date
