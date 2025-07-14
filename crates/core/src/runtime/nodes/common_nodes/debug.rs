@@ -208,11 +208,11 @@ impl FlowNodeBehavior for DebugNode {
 
     async fn run(self: Arc<Self>, stop_token: CancellationToken) {
         if self._config.tostatus {
-            self.report_status(StatusObject {
-                fill: Some(StatusFill::Grey),
-                shape: Some(StatusShape::Ring),
-                text: None,
-            });
+            self.report_status(
+                StatusObject { fill: Some(StatusFill::Grey), shape: Some(StatusShape::Ring), text: None },
+                stop_token.clone(),
+            )
+            .await;
             let mut old_status_guard = self.old_status.lock().await;
             *old_status_guard = Some(StatusObject::empty());
         }
@@ -249,7 +249,7 @@ impl FlowNodeBehavior for DebugNode {
                                         let status_obj = self.make_status_object(&msg);
                                         let mut old_status_guard = self.old_status.lock().await;
                                         if old_status_guard.as_ref() != Some(&status_obj) {
-                                            self.report_status(status_obj.clone());
+                                            self.report_status(status_obj.clone(), stop_token.clone()).await;
                                             *old_status_guard = Some(status_obj);
                                         }
                                     } else {
@@ -257,6 +257,7 @@ impl FlowNodeBehavior for DebugNode {
                                         if !self.has_delay_task.swap(true, Ordering::SeqCst) {
                                             let this = self.clone();
                                             let notify = this.notify.clone();
+                                            let stop_token2 = stop_token.clone();
                                             tokio::spawn(async move {
                                                 loop {
                                                     tokio::select! {
@@ -270,7 +271,7 @@ impl FlowNodeBehavior for DebugNode {
                                                             let status_obj = this.make_status_object(&peeked_msg_guard);
                                                             let mut old_status_guard = this.old_status.lock().await;
                                                             if old_status_guard.as_ref() != Some(&status_obj) {
-                                                                this.report_status(status_obj.clone());
+                                                                this.report_status(status_obj.clone(), stop_token2.clone()).await;
                                                                 *old_status_guard = Some(status_obj);
                                                             }
                                                             this.has_delay_task.store(false, Ordering::SeqCst);
@@ -289,7 +290,7 @@ impl FlowNodeBehavior for DebugNode {
                                     let status_obj = self.make_status_object(&msg);
                                     let mut old_status_guard = self.old_status.lock().await;
                                     if old_status_guard.as_ref() != Some(&status_obj) {
-                                        self.report_status(status_obj.clone());
+                                        self.report_status(status_obj.clone(), stop_token.clone()).await;
                                         *old_status_guard = Some(status_obj);
                                     }
                                     log::error!("[debug:{}] statusType=jsonata not implemented: {expr}", self.name());
@@ -298,7 +299,7 @@ impl FlowNodeBehavior for DebugNode {
                                     let status_obj = self.make_status_object(&msg);
                                     let mut old_status_guard = self.old_status.lock().await;
                                     if old_status_guard.as_ref() != Some(&status_obj) {
-                                        self.report_status(status_obj.clone());
+                                        self.report_status(status_obj.clone(), stop_token.clone()).await;
                                         *old_status_guard = Some(status_obj);
                                     }
                                 }

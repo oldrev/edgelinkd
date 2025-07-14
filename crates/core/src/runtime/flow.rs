@@ -2,10 +2,12 @@ use std::cmp::Ordering;
 use std::str::FromStr;
 use std::sync::{Arc, Weak};
 
-use common_nodes::catch::{CatchNode, CatchNodeScope};
+use common_nodes::catch::CatchNode;
+use common_nodes::status::StatusNode;
 use dashmap::DashMap;
 use itertools::Itertools;
 use serde::Deserialize;
+use smallvec::SmallVec;
 use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
@@ -101,7 +103,7 @@ struct InnerFlow {
     pub(crate) groups: DashMap<ElementId, Group>,
     pub(crate) nodes: DashMap<ElementId, Arc<dyn FlowNodeBehavior>>,
     pub(crate) complete_nodes_map: DashMap<ElementId, Vec<Arc<dyn FlowNodeBehavior>>>,
-    pub(crate) status_nodes_map: DashMap<ElementId, Vec<Arc<dyn FlowNodeBehavior>>>,
+    pub(crate) status_nodes: std::sync::RwLock<Vec<Arc<dyn FlowNodeBehavior>>>,
     pub(crate) catch_nodes: std::sync::RwLock<Vec<Arc<dyn FlowNodeBehavior>>>,
     pub(crate) _context: RwLock<Variant>,
     pub(crate) node_tasks: Mutex<JoinSet<()>>,
@@ -265,7 +267,7 @@ impl Flow {
             groups: DashMap::new(),
             nodes: DashMap::new(),
             complete_nodes_map: DashMap::new(),
-            status_nodes_map: DashMap::new(),
+            status_nodes: std::sync::RwLock::new(Vec::new()),
             catch_nodes: std::sync::RwLock::new(Vec::new()),
             _context: RwLock::new(Variant::empty_object()),
             node_tasks: Mutex::new(JoinSet::new()),
@@ -428,6 +430,24 @@ impl Flow {
             });
         }
 
+        // Sort the `status` nodes
+        {
+            let mut status_nodes = self.inner.status_nodes.write().expect("`status_nodes` write lock");
+            status_nodes.sort_by(|a, b| {
+                let a = a.as_any().downcast_ref::<StatusNode>().unwrap();
+                let b = b.as_any().downcast_ref::<StatusNode>().unwrap();
+                if a.scope.as_bool() && !b.scope.as_bool() {
+                    Ordering::Greater
+                } else if !a.scope.as_bool() && b.scope.as_bool() {
+                    Ordering::Less
+                } else if a.scope.as_bool() && b.scope.as_bool() {
+                    Ordering::Equal
+                } else {
+                    Ordering::Equal
+                }
+            });
+        }
+
         Ok(())
     }
 
@@ -438,7 +458,10 @@ impl Flow {
     ) -> crate::Result<()> {
         match node.get_base().type_str {
             "complete" => self.register_complete_node(node, node_config)?,
-            "status" => self.register_status_node(node, node_config)?,
+            "status" => {
+                let mut status_nodes = self.inner.status_nodes.write().expect("`status_nodes` write lock");
+                status_nodes.push(node.clone());
+            }
             "catch" => {
                 let mut catch_nodes = self.inner.catch_nodes.write().expect("`catch_nodes` write lock");
                 catch_nodes.push(node.clone());
@@ -474,34 +497,6 @@ impl Flow {
             Ok(())
         } else {
             Err(EdgelinkError::BadFlowsJson(format!("CompleteNode has no 'scope' property: {node}")).into())
-        }
-    }
-
-    fn register_status_node(
-        &self,
-        node: Arc<dyn FlowNodeBehavior>,
-        node_config: &RedFlowNodeConfig,
-    ) -> crate::Result<()> {
-        if let Some(scope) = node_config.rest.get("scope").and_then(|x| x.as_array()) {
-            for src_id in scope {
-                if let Some(src_id) = crate::runtime::model::json::deser::parse_red_id_value(src_id) {
-                    if let Some(ref mut status_nodes) = self.inner.status_nodes_map.get_mut(&src_id) {
-                        if !status_nodes.iter().any(|x| x.id() == node.id()) {
-                            status_nodes.push(node.clone());
-                        } else {
-                            return Err(EdgelinkError::InvalidOperation(format!(
-                                "The connection of the {node} to the `status` node already existed!"
-                            ))
-                            .into());
-                        }
-                    } else {
-                        self.inner.status_nodes_map.insert(src_id, Vec::from([node.clone()]));
-                    }
-                }
-            }
-            Ok(())
-        } else {
-            Err(EdgelinkError::BadFlowsJson(format!("StatusNode has no 'scope' property: {node}")).into())
         }
     }
 
@@ -713,6 +708,79 @@ impl Flow {
         })
     }
 
+    pub async fn handle_status(
+        &self,
+        node: &dyn FlowNodeBehavior,
+        status_obj: &StatusObject,
+        reporting_node: Option<&dyn FlowNodeBehavior>,
+        cancel: CancellationToken,
+    ) -> crate::Result<()> {
+        let reporting_node = if let Some(rn) = reporting_node { rn } else { node };
+        let mut candidates = SmallVec::<[(usize, Arc<dyn FlowNodeBehavior>); 8]>::new();
+        {
+            let status_nodes = self.inner.status_nodes.read().expect("`status_nodes` read lock").clone();
+            for status_node_behavior in status_nodes.iter() {
+                let status_node = status_node_behavior.as_any().downcast_ref::<StatusNode>().expect("StatusNode");
+                if status_node.group().is_some()
+                    && status_node.scope == NodeScope::SameGroup
+                    && reporting_node.group().is_none()
+                {
+                    // Status node inside a group, reporting node not in a group - skip it
+                    return Ok(());
+                }
+
+                if let NodeScope::Nodes(ref scope) = status_node.scope {
+                    // Status node has a scope set and it doesn't include the reporting node
+                    if !scope.contains(&reporting_node.id()) {
+                        return Ok(());
+                    }
+                }
+                let mut distance: usize = 0;
+                let status_node_group_id = status_node.group().map(|x| x.id());
+                if let Some(ref reporting_node_group_id) = reporting_node.group().map(|x| x.id()) {
+                    // Reporting node inside a group. Calculate the distance between it and the status node
+                    let mut containing_group_id = Some(*reporting_node_group_id);
+                    while containing_group_id.is_some() && containing_group_id != status_node_group_id {
+                        distance += 1;
+                        let containing_group_parent = self
+                            .inner
+                            .groups
+                            .get(&containing_group_id.unwrap())
+                            .map(|x| x.value().get_parent().clone());
+                        containing_group_id = if let Some(GroupParent::Group(g)) = containing_group_parent {
+                            Some(g.upgrade().expect("Group").id())
+                        } else {
+                            None
+                        };
+                    }
+                    if containing_group_id.is_none()
+                        && status_node.group().is_some()
+                        && status_node.scope == NodeScope::SameGroup
+                    {
+                        // This status node is in a group, but not in the same hierachy
+                        // the reporting node is in
+                        return Ok(());
+                    }
+                }
+                candidates.push((distance, status_node_behavior.clone()))
+            }
+        }
+        candidates.sort_by(|a, b| a.0.cmp(&b.0));
+
+        for candidate in candidates.iter() {
+            let status_node = candidate.1.as_any().downcast_ref::<StatusNode>().unwrap();
+            // TODO FIXME
+            let mut msg = Msg::default();
+            let status_var = Variant::from(serde_json::json!({
+                "text": status_obj.text.clone(),
+            }));
+            msg.set("status".into(), status_var);
+            let to_inject = MsgHandle::new(msg);
+            status_node.inject_msg(to_inject, cancel.clone()).await?;
+        }
+        Ok(())
+    }
+
     pub async fn handle_error(
         &self,
         node: &dyn FlowNodeBehavior,
@@ -722,22 +790,20 @@ impl Flow {
         cancel: CancellationToken,
     ) -> crate::Result<bool> {
         let reporting_node = if let Some(rn) = reporting_node { rn } else { node };
-
-        // TODO: use SmallVec
-        let mut candidates = Vec::new();
+        let mut candidates = SmallVec::<[(usize, Arc<dyn FlowNodeBehavior>); 8]>::new();
         {
             let catch_nodes = self.inner.catch_nodes.read().expect("`catch_nodes` read lock").clone();
             for catch_node_behavior in catch_nodes.iter() {
                 let catch_node = catch_node_behavior.as_any().downcast_ref::<CatchNode>().expect("CatchNode");
                 if catch_node.group().is_some()
-                    && catch_node.scope == CatchNodeScope::Group
+                    && catch_node.scope == NodeScope::SameGroup
                     && reporting_node.group().is_none()
                 {
                     // Catch node inside a group, reporting node not in a group - skip it
                     return Ok(true);
                 }
 
-                if let CatchNodeScope::Nodes(ref scope) = catch_node.scope {
+                if let NodeScope::Nodes(ref scope) = catch_node.scope {
                     // Catch node has a scope set and it doesn't include the reporting node
                     if !scope.contains(&reporting_node.id()) {
                         return Ok(true);
@@ -763,7 +829,7 @@ impl Flow {
                     }
                     if containing_group_id.is_none()
                         && catch_node.group().is_some()
-                        && catch_node.scope == CatchNodeScope::Group
+                        && catch_node.scope == NodeScope::SameGroup
                     {
                         // This catch node is in a group, but not in the same hierachy
                         // the reporting node is in

@@ -10,28 +10,14 @@ use edgelink_macro::*;
 #[derive(Debug)]
 pub struct CatchNode {
     base: BaseFlowNodeState,
-    pub scope: CatchNodeScope,
+    pub scope: NodeScope,
     pub uncaught: bool,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub enum CatchNodeScope {
-    #[default]
-    All,
-    Group,
-    Nodes(Vec<ElementId>),
-}
-
-impl CatchNodeScope {
-    pub fn as_bool(&self) -> bool {
-        !matches!(self, CatchNodeScope::All)
-    }
 }
 
 #[derive(Debug, Default, Deserialize)]
 struct CatchNodeConfig {
     #[serde(default)]
-    scope: CatchNodeScope,
+    scope: NodeScope,
 
     #[serde(default)]
     uncaught: bool,
@@ -65,49 +51,5 @@ impl FlowNodeBehavior for CatchNode {
             })
             .await;
         }
-    }
-}
-
-impl<'de> Deserialize<'de> for CatchNodeScope {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct CatchNodeScopeVisitor;
-
-        impl<'de> serde::de::Visitor<'de> for CatchNodeScopeVisitor {
-            type Value = CatchNodeScope;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("a string, null, or an array of strings")
-            }
-
-            fn visit_unit<E>(self) -> Result<CatchNodeScope, E>
-            where
-                E: serde::de::Error,
-            {
-                Ok(CatchNodeScope::All)
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<CatchNodeScope, E>
-            where
-                E: serde::de::Error,
-            {
-                match value {
-                    "group" => Ok(CatchNodeScope::Group),
-                    _ => Err(serde::de::Error::invalid_value(serde::de::Unexpected::Str(value), &self)),
-                }
-            }
-
-            fn visit_seq<A>(self, seq: A) -> Result<CatchNodeScope, A::Error>
-            where
-                A: serde::de::SeqAccess<'de>,
-            {
-                let vec: Vec<ElementId> = Deserialize::deserialize(serde::de::value::SeqAccessDeserializer::new(seq))?;
-                Ok(CatchNodeScope::Nodes(vec))
-            }
-        }
-
-        deserializer.deserialize_any(CatchNodeScopeVisitor)
     }
 }

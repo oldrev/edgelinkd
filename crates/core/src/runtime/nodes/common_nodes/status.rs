@@ -4,9 +4,17 @@ use crate::runtime::flow::Flow;
 use crate::runtime::nodes::*;
 use edgelink_macro::*;
 
+#[derive(Debug, Default, Deserialize)]
+struct StatusNodeConfig {
+    #[serde(default)]
+    scope: NodeScope,
+}
+
 #[flow_node("status", red_name = "status")]
-struct StatusNode {
+pub struct StatusNode {
     base: BaseFlowNodeState,
+
+    pub scope: NodeScope,
 }
 
 impl StatusNode {
@@ -16,7 +24,8 @@ impl StatusNode {
         _config: &RedFlowNodeConfig,
         _options: Option<&config::Config>,
     ) -> crate::Result<Box<dyn FlowNodeBehavior>> {
-        let node = StatusNode { base: state };
+        let status_config = StatusNodeConfig::deserialize(&_config.rest)?;
+        let node = StatusNode { base: state, scope: status_config.scope };
         Ok(Box::new(node))
     }
 }

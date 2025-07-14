@@ -5,10 +5,22 @@ use crate::runtime::model::*;
 use crate::runtime::nodes::*;
 use edgelink_macro::*;
 
+#[derive(Debug, Default, Deserialize)]
+struct CompleteNodeConfig {
+    #[serde(default)]
+    scope: NodeScope,
+
+    #[serde(default)]
+    uncaught: bool,
+}
+
 #[derive(Debug)]
 #[flow_node("complete", red_name = "complete")]
-struct CompleteNode {
+#[allow(dead_code)]
+pub struct CompleteNode {
     base: BaseFlowNodeState,
+    pub scope: NodeScope,
+    pub uncaught: bool,
 }
 
 impl CompleteNode {
@@ -18,7 +30,8 @@ impl CompleteNode {
         _config: &RedFlowNodeConfig,
         _options: Option<&config::Config>,
     ) -> crate::Result<Box<dyn FlowNodeBehavior>> {
-        let node = CompleteNode { base: state };
+        let config = CompleteNodeConfig::deserialize(&_config.rest)?;
+        let node = CompleteNode { base: state, scope: config.scope, uncaught: config.uncaught };
         Ok(Box::new(node))
     }
 }

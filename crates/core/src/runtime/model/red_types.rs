@@ -1,9 +1,11 @@
+use std::fmt;
+use std::ops::{Deref, DerefMut};
+
+use anyhow::Context as _;
+use serde::{self, Deserialize, Deserializer};
+
 use crate::runtime::model::json::red_desers;
 use crate::runtime::model::*;
-use anyhow::Context as _;
-
-use serde::{self, Deserialize, Deserializer};
-use std::ops::{Deref, DerefMut};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct RedBool(pub bool);
@@ -268,5 +270,57 @@ impl RedPropertyValue {
             }
         };
         Ok(Self::Constant(res))
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum RedNodeScope {
+    #[default]
+    All,
+    Group,
+    Nodes(Vec<String>),
+}
+
+impl<'de> Deserialize<'de> for RedNodeScope {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct RedNodeScopeVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for RedNodeScopeVisitor {
+            type Value = RedNodeScope;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a string, null, or an array of strings")
+            }
+
+            fn visit_unit<E>(self) -> Result<RedNodeScope, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(RedNodeScope::All)
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<RedNodeScope, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "group" => Ok(RedNodeScope::Group),
+                    _ => Err(serde::de::Error::invalid_value(serde::de::Unexpected::Str(value), &self)),
+                }
+            }
+
+            fn visit_seq<A>(self, seq: A) -> Result<RedNodeScope, A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                let vec: Vec<String> = Deserialize::deserialize(serde::de::value::SeqAccessDeserializer::new(seq))?;
+                Ok(RedNodeScope::Nodes(vec))
+            }
+        }
+
+        deserializer.deserialize_any(RedNodeScopeVisitor)
     }
 }

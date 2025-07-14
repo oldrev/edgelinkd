@@ -229,7 +229,9 @@ impl serde::Serialize for Msg {
         S: serde::Serializer,
     {
         let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry(wellknown::LINK_SOURCE_PROPERTY, &self.link_call_stack)?;
+        if self.link_call_stack.is_some() {
+            map.serialize_entry(wellknown::LINK_SOURCE_PROPERTY, &self.link_call_stack)?;
+        }
         for (k, v) in self.body.as_object().unwrap().iter() {
             map.serialize_entry(k, v)?;
         }
@@ -352,7 +354,7 @@ impl<'js> js::IntoJs<'js> for Msg {
             let msgid_atom = wellknown::MSG_ID_PROPERTY.into_js(ctx)?;
             obj.set(msgid_atom, msg_id.to_string().into_js(ctx))?;
         }
-        {
+        if self.link_call_stack.is_some() {
             let link_source_atom = wellknown::LINK_SOURCE_PROPERTY.into_js(ctx)?;
             let link_source_bytes =
                 bincode::serde::encode_to_vec(&self.link_call_stack, bincode::config::legacy()).map_err(|e| {

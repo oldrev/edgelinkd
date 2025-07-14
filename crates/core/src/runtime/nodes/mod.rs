@@ -212,6 +212,23 @@ pub trait FlowNodeBehavior: Send + Sync + FlowsElement {
         Ok(())
     }
 
+    async fn report_status(&self, status: StatusObject, cancel: CancellationToken) {
+        // Report to flow
+        if let Some(flow) = self.flow() {
+            let node = self.flow().unwrap().get_node_by_id(&self.id()).unwrap();
+            if let Err(e) = flow.handle_status(node.as_ref(), &status, None, cancel.clone()).await {
+                log::warn!("Failed to handle status: {e}");
+            }
+        }
+
+        // Report to engine
+        if let Some(engine) = self.engine() {
+            engine.report_node_status(self.id(), status);
+        } else {
+            log::error!("Failed to get engine instance!");
+        }
+    }
+
     async fn report_error(&self, log_message: String, msg: MsgHandle, cancel: CancellationToken) {
         let handled = if let Some(flow) = self.flow() {
             let node = self.as_any().downcast_ref::<Arc<dyn FlowNodeBehavior>>().unwrap(); // FIXME
@@ -228,14 +245,6 @@ pub trait FlowNodeBehavior: Send + Sync + FlowsElement {
     fn on_loaded(&self) {}
 
     async fn on_starting(&self) {}
-
-    fn report_status(&self, status: StatusObject) {
-        if let Some(engine) = self.engine() {
-            engine.report_node_status(self.id(), status);
-        } else {
-            log::error!("Failed to get engine instance!");
-        }
-    }
 }
 
 impl dyn GlobalNodeBehavior {
@@ -408,5 +417,63 @@ impl StatusObject {
 
     fn is_empty(&self) -> bool {
         matches!(self, &StatusObject { fill: None, shape: None, text: None })
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum NodeScope {
+    #[default]
+    All,
+    SameGroup,
+    Nodes(Vec<ElementId>),
+}
+
+impl NodeScope {
+    pub fn as_bool(&self) -> bool {
+        !matches!(self, NodeScope::All)
+    }
+}
+
+impl<'de> Deserialize<'de> for NodeScope {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct NodeScopeVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for NodeScopeVisitor {
+            type Value = NodeScope;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a string, null, or an array of strings")
+            }
+
+            fn visit_unit<E>(self) -> Result<NodeScope, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(NodeScope::All)
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<NodeScope, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "group" => Ok(NodeScope::SameGroup),
+                    _ => Err(serde::de::Error::invalid_value(serde::de::Unexpected::Str(value), &self)),
+                }
+            }
+
+            fn visit_seq<A>(self, seq: A) -> Result<NodeScope, A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                let vec: Vec<ElementId> = Deserialize::deserialize(serde::de::value::SeqAccessDeserializer::new(seq))?;
+                Ok(NodeScope::Nodes(vec))
+            }
+        }
+
+        deserializer.deserialize_any(NodeScopeVisitor)
     }
 }
