@@ -1,6 +1,6 @@
 # EdgeLinkd：Rust 重新实现的 Node-RED
 
-[![Build Status]][actions]
+![Build Status](actions)
 ![GitHub Release](https://img.shields.io/github/v/release/oldrev/edgelinkd?include_prereleases)
 ![GitHub Downloads (all assets, all releases)](https://img.shields.io/github/downloads/oldrev/edgelinkd/total)
 
