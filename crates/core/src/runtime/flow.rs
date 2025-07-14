@@ -715,65 +715,14 @@ impl Flow {
         reporting_node: Option<&dyn FlowNodeBehavior>,
         cancel: CancellationToken,
     ) -> crate::Result<()> {
-        let reporting_node = if let Some(rn) = reporting_node { rn } else { node };
-        let mut candidates = SmallVec::<[(usize, Arc<dyn FlowNodeBehavior>); 8]>::new();
-        {
-            let status_nodes = self.inner.status_nodes.read().expect("`status_nodes` read lock").clone();
-            for status_node_behavior in status_nodes.iter() {
-                let status_node = status_node_behavior.as_any().downcast_ref::<StatusNode>().expect("StatusNode");
-                if status_node.group().is_some()
-                    && status_node.scope == FlowNodeScope::SameGroup
-                    && reporting_node.group().is_none()
-                {
-                    // Status node inside a group, reporting node not in a group - skip it
-                    return Ok(());
-                }
-
-                if let FlowNodeScope::Nodes(ref scope) = status_node.scope {
-                    // Status node has a scope set and it doesn't include the reporting node
-                    if !scope.contains(&reporting_node.id()) {
-                        return Ok(());
-                    }
-                }
-                let mut distance: usize = 0;
-                let status_node_group_id = status_node.group().map(|x| x.id());
-                if let Some(ref reporting_node_group_id) = reporting_node.group().map(|x| x.id()) {
-                    // Reporting node inside a group. Calculate the distance between it and the status node
-                    let mut containing_group_id = Some(*reporting_node_group_id);
-                    while containing_group_id.is_some() && containing_group_id != status_node_group_id {
-                        distance += 1;
-                        let containing_group_parent = self
-                            .inner
-                            .groups
-                            .get(&containing_group_id.unwrap())
-                            .map(|x| x.value().get_parent().clone());
-                        containing_group_id = if let Some(GroupParent::Group(g)) = containing_group_parent {
-                            Some(g.upgrade().expect("Group").id())
-                        } else {
-                            None
-                        };
-                    }
-                    if containing_group_id.is_none()
-                        && status_node.group().is_some()
-                        && status_node.scope == FlowNodeScope::SameGroup
-                    {
-                        // This status node is in a group, but not in the same hierachy
-                        // the reporting node is in
-                        return Ok(());
-                    }
-                }
-                candidates.push((distance, status_node_behavior.clone()))
-            }
-        }
-        candidates.sort_by(|a, b| a.0.cmp(&b.0));
+        let status_nodes = self.inner.status_nodes.read().expect("`status_nodes` read lock").clone();
+        let candidates = self.find_candidate_nodes::<StatusNode>(node, reporting_node.clone(), &status_nodes)?;
 
         for candidate in candidates.iter() {
             let status_node = candidate.1.as_any().downcast_ref::<StatusNode>().unwrap();
             // TODO FIXME
             let mut msg = Msg::default();
-            let status_var = Variant::from(serde_json::json!({
-                "text": status_obj.text.clone(),
-            }));
+            let status_var = Variant::from(serde_json::to_value(status_obj)?);
             msg.set("status".into(), status_var);
             let to_inject = MsgHandle::new(msg);
             status_node.inject_msg(to_inject, cancel.clone()).await?;
@@ -789,7 +738,9 @@ impl Flow {
         reporting_node: Option<&dyn FlowNodeBehavior>,
         cancel: CancellationToken,
     ) -> crate::Result<bool> {
-        let reporting_node = if let Some(rn) = reporting_node { rn } else { node };
+        let catch_nodes = self.inner.catch_nodes.read().expect("`catch_nodes` read lock").clone();
+        let candidates = self.find_candidate_nodes::<CatchNode>(node, reporting_node.clone(), &catch_nodes)?;
+        /*
         let mut candidates = SmallVec::<[(usize, Arc<dyn FlowNodeBehavior>); 8]>::new();
         {
             let catch_nodes = self.inner.catch_nodes.read().expect("`catch_nodes` read lock").clone();
@@ -840,6 +791,7 @@ impl Flow {
             }
         }
         candidates.sort_by(|a, b| a.0.cmp(&b.0));
+        */
 
         let mut handled = false;
         let mut handled_by_uncaught = false;
@@ -873,5 +825,67 @@ impl Flow {
             handled = true;
         }
         Ok(handled)
+    }
+
+    pub fn find_candidate_nodes<TScopedNode>(
+        &self,
+        node: &dyn FlowNodeBehavior,
+        reporting_node: Option<&dyn FlowNodeBehavior>,
+        scoped_nodes: &Vec<Arc<dyn FlowNodeBehavior>>,
+    ) -> crate::Result<SmallVec<[(usize, Arc<dyn FlowNodeBehavior>); 8]>>
+    where
+        TScopedNode: FlowNodeBehavior + ScopedNodeBehavior + 'static,
+    {
+        let reporting_node = if let Some(rn) = reporting_node { rn } else { node };
+        let mut candidates = SmallVec::<[(usize, Arc<dyn FlowNodeBehavior>); 8]>::new();
+        {
+            for scoped_node_behavior in scoped_nodes.iter() {
+                let scoped_node = scoped_node_behavior.as_any().downcast_ref::<TScopedNode>().expect("ScopedNode");
+                if scoped_node.group().is_some()
+                    && *scoped_node.get_scope() == FlowNodeScope::SameGroup
+                    && reporting_node.group().is_none()
+                {
+                    // Scoped node inside a group, reporting node not in a group - skip it
+                    continue;
+                }
+
+                if let FlowNodeScope::Nodes(scope) = scoped_node.get_scope() {
+                    // Scoped node has a scope set and it doesn't include the reporting node
+                    if !scope.contains(&reporting_node.id()) {
+                        continue;
+                    }
+                }
+                let mut distance: usize = 0;
+                let scoped_node_group_id = scoped_node.group().map(|x| x.id());
+                if let Some(ref reporting_node_group_id) = reporting_node.group().map(|x| x.id()) {
+                    // Reporting node inside a group. Calculate the distance between it and the scoped node
+                    let mut containing_group_id = Some(*reporting_node_group_id);
+                    while containing_group_id.is_some() && containing_group_id != scoped_node_group_id {
+                        distance += 1;
+                        let containing_group_parent = self
+                            .inner
+                            .groups
+                            .get(&containing_group_id.unwrap())
+                            .map(|x| x.value().get_parent().clone());
+                        containing_group_id = if let Some(GroupParent::Group(g)) = containing_group_parent {
+                            Some(g.upgrade().expect("Group").id())
+                        } else {
+                            None
+                        };
+                    }
+                    if containing_group_id.is_none()
+                        && scoped_node.group().is_some()
+                        && *scoped_node.get_scope() == FlowNodeScope::SameGroup
+                    {
+                        // This scoped node is in a group, but not in the same hierachy
+                        // the reporting node is in
+                        continue;
+                    }
+                }
+                candidates.push((distance, scoped_node_behavior.clone()))
+            }
+        }
+        candidates.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(candidates)
     }
 }

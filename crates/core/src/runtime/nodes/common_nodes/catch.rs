@@ -53,3 +53,9 @@ impl FlowNodeBehavior for CatchNode {
         }
     }
 }
+
+impl ScopedNodeBehavior for CatchNode {
+    fn get_scope(&self) -> &FlowNodeScope {
+        &self.scope
+    }
+}

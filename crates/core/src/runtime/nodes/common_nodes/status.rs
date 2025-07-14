@@ -47,3 +47,9 @@ impl FlowNodeBehavior for StatusNode {
         }
     }
 }
+
+impl ScopedNodeBehavior for StatusNode {
+    fn get_scope(&self) -> &FlowNodeScope {
+        &self.scope
+    }
+}

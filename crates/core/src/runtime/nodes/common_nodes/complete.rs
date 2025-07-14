@@ -65,3 +65,9 @@ impl FlowNodeBehavior for CompleteNode {
         }
     }
 }
+
+impl ScopedNodeBehavior for CompleteNode {
+    fn get_scope(&self) -> &FlowNodeScope {
+        &self.scope
+    }
+}

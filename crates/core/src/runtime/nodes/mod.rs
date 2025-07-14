@@ -123,6 +123,10 @@ pub struct BaseGlobalNodeState {
     pub disabled: bool,
 }
 
+pub trait ScopedNodeBehavior {
+    fn get_scope(&self) -> &FlowNodeScope;
+}
+
 #[async_trait]
 pub trait GlobalNodeBehavior: Send + Sync + FlowsElement {
     fn get_base(&self) -> &BaseGlobalNodeState;
