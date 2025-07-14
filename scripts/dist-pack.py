@@ -121,7 +121,7 @@ def main():
             bin_dir = tmp / "bin"
             bin_dir.mkdir()
             # Executable and DLLs
-            target_dir = ROOT / "target" / args.mode
+            target_dir = ROOT / "target" / args.target / args.mode
             for f in target_dir.glob("edgelinkd.exe"):
                 shutil.copy(f, bin_dir / f.name)
             for dll in target_dir.glob("*.dll"):

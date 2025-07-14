@@ -2,9 +2,8 @@ use std::{
     borrow::Cow,
     fmt::Display,
     ops::{Deref, DerefMut},
+    vec::Vec,
 };
-
-use smallvec::SmallVec;
 
 use thiserror::Error;
 
@@ -43,7 +42,7 @@ pub enum PropexSegment<'a> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum PropexPath<'a> {
     Single(PropexSegment<'a>),
-    Multiple(SmallVec<[PropexSegment<'a>; 4]>),
+    Multiple(Vec<PropexSegment<'a>>),
 }
 
 impl<'a> PropexPath<'a> {
@@ -230,7 +229,7 @@ fn expression(input: &str) -> IResult<&str, PropexPath, nom::error::Error<&str>>
     .parse(input)?;
 
     if let Some(rest) = rest {
-        let mut result = SmallVec::with_capacity(rest.len() + 1);
+        let mut result = Vec::with_capacity(rest.len() + 1);
         result.push(first);
         result.extend(rest);
         Ok((input, PropexPath::Multiple(result)))
