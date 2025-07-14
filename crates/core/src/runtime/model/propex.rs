@@ -42,7 +42,7 @@ pub enum PropexSegment<'a> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum PropexPath<'a> {
     Single(PropexSegment<'a>),
-    Multiple(Vec<[PropexSegment<'a>; 4]>),
+    Multiple(Vec<PropexSegment<'a>>),
 }
 
 impl<'a> PropexPath<'a> {
