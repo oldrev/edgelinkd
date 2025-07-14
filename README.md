@@ -1,7 +1,8 @@
 # EdgeLinkd: Node-RED Reimplemented in Rust
 
 [![Build Status]][actions]
-[![Releases](https://img.shields.io/github/release/oldrev/edgelinkd.svg)](https://github.com/oldrev/edgelinkd/releases)
+![GitHub Release](https://img.shields.io/github/v/release/oldrev/edgelinkd?include_prereleases)
+![GitHub Downloads (all assets, all releases)](https://img.shields.io/github/downloads/oldrev/edgelinkd/total)
 
 [Build Status]: https://img.shields.io/github/actions/workflow/status/oldrev/edgelinkd/CICD.yml?branch=master
 [actions]: https://github.com/oldrev/edgelinkd/actions?query=branch%3Amaster
