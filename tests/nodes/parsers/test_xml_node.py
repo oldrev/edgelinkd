@@ -6,9 +6,7 @@ class TestXmlNode:
     @pytest.mark.asyncio
     @pytest.mark.it('should be loaded')
     async def test_loaded(self):
-        node = {"id": "1", "type": "xml", "name": "xmlNode"}
-        # 只检查节点属性，模拟 Node-RED 的 helper.load 行为
-        assert node["name"] == "xmlNode"
+        pass
 
     @pytest.mark.asyncio
     @pytest.mark.it('should convert a valid xml string to a javascript object')

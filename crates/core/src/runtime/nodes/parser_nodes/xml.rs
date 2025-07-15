@@ -6,13 +6,9 @@ use crate::runtime::model::*;
 use crate::runtime::nodes::*;
 use edgelink_macro::*;
 
-#[cfg(feature = "nodes_xml")]
 use quick_xml::events::{BytesEnd, BytesStart, BytesText, Event};
-#[cfg(feature = "nodes_xml")]
 use quick_xml::{Reader, Writer};
-#[cfg(feature = "nodes_xml")]
 use std::collections::BTreeMap;
-#[cfg(feature = "nodes_xml")]
 use std::io::Cursor;
 
 #[derive(Debug)]
@@ -84,25 +80,25 @@ impl XmlNode {
             return self.fan_out_one(Envelope { port: 0, msg }, CancellationToken::new()).await;
         }
 
-        let property_value = msg_guard.get(&self.config.property).cloned();
+        let property_value = msg_guard.get(&self.config.property);
 
         if let Some(value) = property_value {
             // Get options from message if present
-            let options = if msg_guard.contains("options") { msg_guard.get("options").cloned() } else { None };
+            let options = msg_guard.get("options").cloned();
 
-            let result = match &value {
+            let result = match value {
                 Variant::String(xml_string) => {
                     // String input: parse XML to object
-                    self.parse_xml_to_object(xml_string, options).await
+                    self.parse_xml_to_object(xml_string, options)
                 }
                 Variant::Object(_) | Variant::Array(_) => {
                     // Object input: convert to XML string
-                    self.convert_object_to_xml(&value, options).await
+                    self.convert_object_to_xml(&value, options)
                 }
                 _ => {
                     // For other types, issue a warning and pass through
                     log::warn!("XML node expects string or object input, got {value:?}");
-                    Ok(value)
+                    Ok(value.clone())
                 }
             };
 
@@ -121,7 +117,7 @@ impl XmlNode {
         self.fan_out_one(Envelope { port: 0, msg }, CancellationToken::new()).await
     }
 
-    async fn parse_xml_to_object(&self, xml_string: &str, options: Option<Variant>) -> crate::Result<Variant> {
+    fn parse_xml_to_object(&self, xml_string: &str, options: Option<Variant>) -> crate::Result<Variant> {
         // Extract options for parsing
         let (attr_key, char_key) = self.extract_parse_options(options);
 
@@ -130,8 +126,8 @@ impl XmlNode {
         reader.config_mut().trim_text(true);
 
         let mut buf = Vec::new();
-        let mut stack: Vec<(String, BTreeMap<String, Variant>)> = Vec::new();
-        let mut root: Option<BTreeMap<String, Variant>> = None;
+        let mut stack: Vec<(String, VariantObjectMap)> = Vec::new();
+        let mut root: Option<VariantObjectMap> = None;
 
         loop {
             match reader.read_event_into(&mut buf) {
@@ -218,7 +214,7 @@ impl XmlNode {
         if let Some(root) = root { Ok(Variant::Object(root)) } else { Ok(Variant::Object(BTreeMap::new())) }
     }
 
-    async fn convert_object_to_xml(&self, value: &Variant, options: Option<Variant>) -> crate::Result<Variant> {
+    fn convert_object_to_xml(&self, value: &Variant, options: Option<Variant>) -> crate::Result<Variant> {
         // Extract options for building
         let _pretty = self.extract_build_options(options);
 
@@ -425,15 +421,6 @@ impl XmlNode {
             }
         }
         false
-    }
-}
-
-#[cfg(not(feature = "nodes_xml"))]
-impl XmlNode {
-    async fn process_xml(&self, _msg: MsgHandle) -> crate::Result<()> {
-        log::error!("XML node is not available. Please enable the 'nodes_xml' feature.");
-        Err(crate::EdgelinkError::InvalidOperation("XML node requires 'nodes_xml' feature to be enabled".to_string())
-            .into())
     }
 }
 

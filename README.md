@@ -215,7 +215,7 @@ Refer [REDNODES-SPECS-DIFF.md](tests/REDNODES-SPECS-DIFF.md) to view the details
         - [x] Debug (WIP)
         - [x] :heavy_check_mark: Complete
         - [x] :heavy_check_mark: Catch
-        - [x] Status
+        - [x] :heavy_check_mark: Status
         - [x] :heavy_check_mark: Link In
         - [x] :heavy_check_mark: Link Call
         - [x] :heavy_check_mark: Link Out
