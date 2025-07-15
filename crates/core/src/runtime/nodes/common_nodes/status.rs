@@ -54,7 +54,6 @@ impl ScopedNodeBehavior for StatusNode {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -74,7 +73,8 @@ mod tests {
 
         let engine = crate::runtime::engine::build_test_engine(flows_json.clone()).unwrap();
         let msgs_to_inject = Vec::<(ElementId, Msg)>::deserialize(msgs_to_inject_json.clone()).unwrap();
-        let msgs = engine.run_once_with_inject(2, std::time::Duration::from_secs_f64(0.2), msgs_to_inject).await.unwrap();
+        let msgs =
+            engine.run_once_with_inject(2, std::time::Duration::from_secs_f64(0.2), msgs_to_inject).await.unwrap();
         assert_eq!(msgs.len(), 1);
     }
 
@@ -91,7 +91,8 @@ mod tests {
 
         let engine = crate::runtime::engine::build_test_engine(flows_json.clone()).unwrap();
         let msgs_to_inject = Vec::<(ElementId, Msg)>::deserialize(msgs_to_inject_json.clone()).unwrap();
-        let msgs = engine.run_once_with_inject(2, std::time::Duration::from_secs_f64(0.2), msgs_to_inject).await.unwrap();
+        let msgs =
+            engine.run_once_with_inject(2, std::time::Duration::from_secs_f64(0.2), msgs_to_inject).await.unwrap();
         assert_eq!(msgs.len(), 1);
     }
 
@@ -108,7 +109,8 @@ mod tests {
 
         let engine = crate::runtime::engine::build_test_engine(flows_json.clone()).unwrap();
         let msgs_to_inject = Vec::<(ElementId, Msg)>::deserialize(msgs_to_inject_json.clone()).unwrap();
-        let msgs = engine.run_once_with_inject(2, std::time::Duration::from_secs_f64(0.2), msgs_to_inject).await.unwrap();
+        let msgs =
+            engine.run_once_with_inject(2, std::time::Duration::from_secs_f64(0.2), msgs_to_inject).await.unwrap();
         assert_eq!(msgs.len(), 1);
     }
 }
