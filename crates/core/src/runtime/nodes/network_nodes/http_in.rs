@@ -198,7 +198,7 @@ impl HttpInNode {
         res.insert("statusCode".to_string(), Variant::Number(serde_json::Number::from(200)));
         msg_body.insert("res".to_string(), Variant::Object(res));
 
-        MsgHandle::with_body(msg_body)
+        MsgHandle::with_properties(msg_body)
     }
 
     fn is_text_content(&self, headers: &Map<String, Value>) -> bool {

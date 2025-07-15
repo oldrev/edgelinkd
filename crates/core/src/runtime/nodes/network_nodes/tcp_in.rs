@@ -119,7 +119,7 @@ impl TcpInNode {
         session.insert("id".to_string(), Variant::String(session_id));
         body.insert("_session".to_string(), Variant::Object(session));
 
-        MsgHandle::with_body(body)
+        MsgHandle::with_properties(body)
     }
 
     async fn handle_connection(&self, mut stream: TcpStream, session_id: String, stop_token: CancellationToken) {

@@ -379,7 +379,7 @@ impl TriggerNode {
                 };
                 let mut new_msg_data = new_msg_data;
                 new_msg_data.insert("payload".to_string(), payload);
-                let op1_msg = MsgHandle::with_body(new_msg_data);
+                let op1_msg = MsgHandle::with_properties(new_msg_data);
                 self.fan_out_one(Envelope { port: 0, msg: op1_msg }, cancel.clone()).await?;
             }
         }
@@ -425,7 +425,7 @@ impl TriggerNode {
                         if let Some(payload) = op2_payload {
                             let mut new_msg_data = msg_data.clone();
                             new_msg_data.insert("payload".to_string(), payload);
-                            let timer_msg = MsgHandle::with_body(new_msg_data);
+                            let timer_msg = MsgHandle::with_properties(new_msg_data);
                             let output_port = if outputs > 1 { 1 } else { 0 };
                             let _ = node.fan_out_one(Envelope { port: output_port, msg: timer_msg }, cancel_clone).await;
                         }

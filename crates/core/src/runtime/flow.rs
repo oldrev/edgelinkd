@@ -721,11 +721,14 @@ impl Flow {
         for candidate in candidates.iter() {
             let status_node = candidate.1.as_any().downcast_ref::<StatusNode>().unwrap();
             // TODO FIXME
-            let mut msg = Msg::default();
-            let status_var = Variant::from(serde_json::to_value(status_obj)?);
-            msg.set("status".into(), status_var);
-            let to_inject = MsgHandle::new(msg);
-            status_node.inject_msg(to_inject, cancel.clone()).await?;
+            let mut status_jv = serde_json::json!({ "status":  serde_json::to_value(&status_obj)? });
+            status_jv["status"]["source"] = serde_json::json!({
+                    "id": node.id(),
+                    "type": node.type_str().to_string(),
+                    "name": node.name(),
+            });
+            let msg = MsgHandle::with_body(Variant::from(status_jv));
+            status_node.inject_msg(msg, cancel.clone()).await?;
         }
         Ok(())
     }

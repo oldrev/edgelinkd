@@ -218,7 +218,7 @@ impl TcpGetNode {
         body.insert("payload".to_string(), payload);
         drop(original_guard);
 
-        MsgHandle::with_body(body)
+        MsgHandle::with_properties(body)
     }
 
     async fn read_response(&self, stream: &mut TcpStream, _split_count: u32, split_char: u8) -> crate::Result<Vec<u8>> {

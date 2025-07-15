@@ -156,7 +156,7 @@ impl InjectNode {
         }
         msg_body.insert(wellknown::MSG_ID_PROPERTY.to_string(), Variant::String(Msg::generate_id().to_string()));
 
-        let envelope = Envelope { port: 0, msg: MsgHandle::with_body(msg_body) };
+        let envelope = Envelope { port: 0, msg: MsgHandle::with_properties(msg_body) };
 
         self.notify_uow_completed(envelope.msg.clone(), stop_token.clone()).await;
 

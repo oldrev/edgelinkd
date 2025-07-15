@@ -161,7 +161,7 @@ impl WatchNode {
             body.insert("size".to_string(), Variant::Number(serde_json::Number::from(size)));
         }
 
-        MsgHandle::with_body(body)
+        MsgHandle::with_properties(body)
     }
 }
 

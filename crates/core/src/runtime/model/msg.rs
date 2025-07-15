@@ -385,8 +385,13 @@ impl MsgHandle {
         MsgHandle { inner: (Arc::new(RwLock::new(inner))) }
     }
 
-    pub fn with_body(body: BTreeMap<String, Variant>) -> Self {
-        let msg = Msg { link_call_stack: None, body: Variant::Object(body) };
+    pub fn with_properties(props: BTreeMap<String, Variant>) -> Self {
+        let msg = Msg { link_call_stack: None, body: Variant::Object(props) };
+        MsgHandle::new(msg)
+    }
+
+    pub fn with_body(body: Variant) -> Self {
+        let msg = Msg { link_call_stack: None, body };
         MsgHandle::new(msg)
     }
 

@@ -129,7 +129,7 @@ impl UdpInNode {
         body.insert("ip".to_string(), Variant::String(remote_addr.ip().to_string()));
         body.insert("port".to_string(), Variant::Number(serde_json::Number::from(remote_addr.port())));
 
-        MsgHandle::with_body(body)
+        MsgHandle::with_properties(body)
     }
 }
 

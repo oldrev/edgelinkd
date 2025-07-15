@@ -235,7 +235,7 @@ pub trait FlowNodeBehavior: Send + Sync + FlowsElement {
 
     async fn report_error(&self, log_message: String, msg: MsgHandle, cancel: CancellationToken) {
         let handled = if let Some(flow) = self.flow() {
-            let node = self.as_any().downcast_ref::<Arc<dyn FlowNodeBehavior>>().unwrap(); // FIXME
+            let node = self.flow().unwrap().get_node_by_id(&self.id()).unwrap();
             flow.handle_error(node.as_ref(), &log_message, Some(msg), None, cancel).await.unwrap_or(false)
         } else {
             false

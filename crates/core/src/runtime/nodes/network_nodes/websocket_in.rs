@@ -235,7 +235,7 @@ impl WebSocketInNode {
             body.insert("payload".to_string(), payload);
         }
 
-        let msg = MsgHandle::with_body(body);
+        let msg = MsgHandle::with_properties(body);
 
         if let Err(e) = self.fan_out_one(Envelope { port: 0, msg }, stop_token).await {
             log::error!("WebSocket in: Failed to send output message: {e}");
