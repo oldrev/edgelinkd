@@ -1,21 +1,45 @@
-use serde::Deserialize;
+use std::collections::BTreeMap;
+use std::io::Cursor;
 use std::sync::Arc;
+
+use quick_xml::events::{BytesEnd, BytesStart, BytesText, Event};
+use quick_xml::{Reader, Writer};
+use serde::Deserialize;
 
 use crate::runtime::flow::Flow;
 use crate::runtime::model::*;
 use crate::runtime::nodes::*;
 use edgelink_macro::*;
 
-use quick_xml::events::{BytesEnd, BytesStart, BytesText, Event};
-use quick_xml::{Reader, Writer};
-use std::collections::BTreeMap;
-use std::io::Cursor;
+#[derive(Debug, Clone)]
+pub struct Xml2jsOptions {
+    pub explicit_array: bool,
+    pub explicit_root: bool,
+    pub merge_attrs: bool,
+    pub explicit_charkey: bool,
+    pub charkey: String,
+    pub attrkey: String,
+}
+
+impl Default for Xml2jsOptions {
+    fn default() -> Self {
+        Xml2jsOptions {
+            explicit_array: true,
+            explicit_root: true,
+            merge_attrs: true,
+            explicit_charkey: false,
+            charkey: "_".to_string(),
+            attrkey: "$".to_string(),
+        }
+    }
+}
 
 #[derive(Debug)]
 #[flow_node("xml", red_name = "XML")]
 struct XmlNode {
     base: BaseFlowNodeState,
     config: XmlNodeConfig,
+    default_options: Xml2jsOptions,
 }
 
 impl XmlNode {
@@ -26,8 +50,7 @@ impl XmlNode {
         _options: Option<&config::Config>,
     ) -> crate::Result<Box<dyn FlowNodeBehavior>> {
         let xml_config = XmlNodeConfig::deserialize(&config.rest)?;
-
-        let node = XmlNode { base: state, config: xml_config };
+        let node = XmlNode { base: state, config: xml_config, default_options: Xml2jsOptions::default() };
         Ok(Box::new(node))
     }
 }
@@ -38,13 +61,13 @@ struct XmlNodeConfig {
     #[serde(default = "default_property")]
     property: String,
 
-    /// Attribute key name (default: "$")
-    #[serde(default = "default_attr_key")]
-    attr: String,
+    /// Attribute key name
+    #[serde(default)]
+    attr: Option<String>,
 
-    /// Character key name (default: "_")
-    #[serde(default = "default_char_key")]
-    chr: String,
+    /// Character key name
+    #[serde(default)]
+    chr: Option<String>,
 
     /// Number of outputs (usually 1)
     #[serde(default = "default_outputs")]
@@ -56,14 +79,6 @@ fn default_property() -> String {
     "payload".to_string()
 }
 
-fn default_attr_key() -> String {
-    "$".to_string()
-}
-
-fn default_char_key() -> String {
-    "_".to_string()
-}
-
 fn default_outputs() -> usize {
     1
 }
@@ -73,7 +88,6 @@ impl XmlNode {
     async fn process_xml(&self, msg: MsgHandle) -> crate::Result<()> {
         let mut msg_guard = msg.write().await;
 
-        // Get the value from the specified property
         if !msg_guard.contains(&self.config.property) {
             // If property doesn't exist, just pass through
             drop(msg_guard);
@@ -83,17 +97,21 @@ impl XmlNode {
         let property_value = msg_guard.get(&self.config.property);
 
         if let Some(value) = property_value {
-            // Get options from message if present
-            let options = msg_guard.get("options").cloned();
-
             let result = match value {
+                // String input: parse XML to object
                 Variant::String(xml_string) => {
-                    // String input: parse XML to object
-                    self.parse_xml_to_object(xml_string, options)
+                    let options = Xml2jsOptions::default(); //msg_guard.get("options").cloned();
+                    self.parse_xml_to_object(xml_string, &options)
                 }
-                Variant::Object(_) | Variant::Array(_) => {
-                    // Object input: convert to XML string
-                    self.convert_object_to_xml(&value, options)
+
+                // Object input: convert to XML string
+                Variant::Object(_) => {
+                    if let Some(options_var) = msg_guard.get("options") {
+                        let options = self.extract_known_options_properties(options_var);
+                        self.convert_object_to_xml(&value, &options)
+                    } else {
+                        self.convert_object_to_xml(&value, &self.default_options)
+                    }
                 }
                 _ => {
                     // For other types, issue a warning and pass through
@@ -117,106 +135,14 @@ impl XmlNode {
         self.fan_out_one(Envelope { port: 0, msg }, CancellationToken::new()).await
     }
 
-    fn parse_xml_to_object(&self, xml_string: &str, options: Option<Variant>) -> crate::Result<Variant> {
-        // Extract options for parsing
-        let (attr_key, char_key) = self.extract_parse_options(options);
-
-        // Use quick-xml for parsing with custom attribute and character keys
-        let mut reader = Reader::from_str(xml_string);
-        reader.config_mut().trim_text(true);
-
-        let mut buf = Vec::new();
-        let mut stack: Vec<(String, VariantObjectMap)> = Vec::new();
-        let mut root: Option<VariantObjectMap> = None;
-
-        loop {
-            match reader.read_event_into(&mut buf) {
-                Ok(Event::Start(ref e)) => {
-                    let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
-                    let mut element = BTreeMap::new();
-
-                    // Process attributes
-                    let mut attributes = BTreeMap::new();
-                    for attr_result in e.attributes() {
-                        match attr_result {
-                            Ok(attr) => {
-                                let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
-                                let value = String::from_utf8_lossy(&attr.value).to_string();
-                                attributes.insert(key, Variant::String(value));
-                            }
-                            Err(e) => {
-                                return Err(crate::EdgelinkError::InvalidOperation(format!(
-                                    "XML attribute parse error: {e}"
-                                ))
-                                .into());
-                            }
-                        }
-                    }
-
-                    if !attributes.is_empty() {
-                        element.insert(attr_key.clone(), Variant::Object(attributes));
-                    }
-
-                    stack.push((name, element));
-                }
-                Ok(Event::End(_)) => {
-                    if let Some((element_name, element)) = stack.pop() {
-                        if let Some((_, parent)) = stack.last_mut() {
-                            // Add to parent
-                            if let Some(existing) = parent.get_mut(&element_name) {
-                                // Convert to array if multiple elements with same name
-                                match existing {
-                                    Variant::Array(arr) => {
-                                        arr.push(Variant::Object(element));
-                                    }
-                                    _ => {
-                                        let old_value = existing.clone();
-                                        *existing = Variant::Array(vec![old_value, Variant::Object(element)]);
-                                    }
-                                }
-                            } else {
-                                parent.insert(element_name, Variant::Object(element));
-                            }
-                        } else {
-                            // This is the root element
-                            root = Some(BTreeMap::from([(element_name, Variant::Object(element))]));
-                        }
-                    }
-                }
-                Ok(Event::Text(e)) => {
-                    let text = e
-                        .unescape()
-                        .map_err(|e| crate::EdgelinkError::InvalidOperation(format!("XML text unescape error: {e}")))?
-                        .trim()
-                        .to_string();
-
-                    if !text.is_empty() {
-                        if let Some((_, element)) = stack.last_mut() {
-                            element.insert(char_key.clone(), Variant::String(text));
-                        }
-                    }
-                }
-                Ok(Event::CData(e)) => {
-                    let text = String::from_utf8_lossy(&e).to_string();
-                    if let Some((_, element)) = stack.last_mut() {
-                        element.insert(char_key.clone(), Variant::String(text));
-                    }
-                }
-                Ok(Event::Eof) => break,
-                Err(e) => {
-                    return Err(crate::EdgelinkError::InvalidOperation(format!("XML parse error: {e}")).into());
-                }
-                _ => {} // Ignore other events like comments, processing instructions
-            }
-            buf.clear();
-        }
-
-        if let Some(root) = root { Ok(Variant::Object(root)) } else { Ok(Variant::Object(BTreeMap::new())) }
+    fn parse_xml_to_object(&self, xml_string: &str, options: &Xml2jsOptions) -> crate::Result<Variant> {
+        xml_to_variant(xml_string, options)
     }
 
-    fn convert_object_to_xml(&self, value: &Variant, options: Option<Variant>) -> crate::Result<Variant> {
+    fn convert_object_to_xml(&self, value: &Variant, options: &Xml2jsOptions) -> crate::Result<Variant> {
         // Extract options for building
-        let _pretty = self.extract_build_options(options);
+        //let _pretty = self.extract_build_options(options);
+        let _pretty = true;
 
         let mut writer = Writer::new(Cursor::new(Vec::new()));
 
@@ -227,7 +153,7 @@ impl XmlNode {
 
         match value {
             Variant::Object(obj) => {
-                self.write_object_to_xml(&mut writer, obj, &self.config.attr, &self.config.chr)?;
+                self.write_object_to_xml(&mut writer, obj, options)?;
             }
             Variant::Array(arr) => {
                 // Wrap array in a root element
@@ -239,7 +165,7 @@ impl XmlNode {
                 for item in arr {
                     match item {
                         Variant::Object(obj) => {
-                            self.write_object_to_xml(&mut writer, obj, &self.config.attr, &self.config.chr)?;
+                            self.write_object_to_xml(&mut writer, obj, options)?;
                         }
                         _ => {
                             // Write primitive values as item elements
@@ -293,8 +219,7 @@ impl XmlNode {
         &self,
         writer: &mut Writer<W>,
         obj: &BTreeMap<String, Variant>,
-        attr_key: &str,
-        char_key: &str,
+        options: &Xml2jsOptions,
     ) -> crate::Result<()> {
         for (key, value) in obj {
             let mut start_elem = BytesStart::new(key);
@@ -304,7 +229,7 @@ impl XmlNode {
                 let mut text_content = None;
 
                 // Extract attributes
-                if let Some(Variant::Object(attrs)) = inner_obj.get(attr_key) {
+                if let Some(Variant::Object(attrs)) = inner_obj.get(&options.attrkey) {
                     for (attr_name, attr_value) in attrs {
                         let attr_val = self.variant_to_xml_text(attr_value);
                         start_elem.push_attribute((attr_name.as_bytes(), attr_val.as_bytes()));
@@ -312,7 +237,7 @@ impl XmlNode {
                 }
 
                 // Extract text content
-                if let Some(text_var) = inner_obj.get(char_key) {
+                if let Some(text_var) = inner_obj.get(&options.charkey) {
                     text_content = Some(self.variant_to_xml_text(text_var));
                 }
 
@@ -329,20 +254,20 @@ impl XmlNode {
 
                 // Write child elements (skip attribute and character keys)
                 for (child_key, child_value) in inner_obj {
-                    if child_key != attr_key && child_key != char_key {
+                    if *child_key != options.attrkey && *child_key != options.charkey {
                         match child_value {
                             Variant::Array(arr) => {
                                 // Multiple elements with same name
                                 for item in arr {
                                     if let Variant::Object(_item_obj) = item {
                                         let child_obj = BTreeMap::from([(child_key.clone(), item.clone())]);
-                                        self.write_object_to_xml(writer, &child_obj, attr_key, char_key)?;
+                                        self.write_object_to_xml(writer, &child_obj, options)?;
                                     }
                                 }
                             }
                             Variant::Object(_) => {
                                 let child_obj = BTreeMap::from([(child_key.clone(), child_value.clone())]);
-                                self.write_object_to_xml(writer, &child_obj, attr_key, char_key)?;
+                                self.write_object_to_xml(writer, &child_obj, options)?;
                             }
                             _ => {
                                 // Write as text element
@@ -396,31 +321,29 @@ impl XmlNode {
         }
     }
 
-    fn extract_parse_options(&self, options: Option<Variant>) -> (String, String) {
-        let mut attr_key = self.config.attr.clone();
-        let mut char_key = self.config.chr.clone();
-
-        if let Some(Variant::Object(opts)) = options {
-            if let Some(Variant::String(ak)) = opts.get("attrkey") {
-                attr_key = ak.clone();
+    fn extract_known_options_properties(&self, options_var: &Variant) -> Xml2jsOptions {
+        let mut opts = Xml2jsOptions::default();
+        if let Some(opts_obj) = options_var.as_object() {
+            if let Some(Variant::Bool(ea)) = opts_obj.get("explicit_array") {
+                opts.explicit_array = ea.clone();
             }
-            if let Some(Variant::String(ck)) = opts.get("charkey") {
-                char_key = ck.clone();
+            if let Some(Variant::Bool(er)) = opts_obj.get("explicit_root") {
+                opts.explicit_array = er.clone();
             }
-        }
-
-        (attr_key, char_key)
-    }
-
-    fn extract_build_options(&self, options: Option<Variant>) -> bool {
-        if let Some(Variant::Object(opts)) = options {
-            if let Some(Variant::Object(render_opts)) = opts.get("renderOpts") {
-                if let Some(Variant::Bool(pretty)) = render_opts.get("pretty") {
-                    return *pretty;
-                }
+            if let Some(Variant::Bool(ma)) = opts_obj.get("merge_attrs") {
+                opts.merge_attrs = ma.clone();
+            }
+            if let Some(Variant::Bool(ec)) = opts_obj.get("explicit_charkey") {
+                opts.explicit_charkey = ec.clone();
+            }
+            if let Some(Variant::String(ak)) = opts_obj.get("attrkey") {
+                opts.attrkey = ak.clone();
+            }
+            if let Some(Variant::String(ck)) = opts_obj.get("charkey") {
+                opts.charkey = ck.clone();
             }
         }
-        false
+        opts
     }
 }
 
@@ -436,5 +359,162 @@ impl FlowNodeBehavior for XmlNode {
 
             with_uow(node.as_ref(), stop_token.clone(), |node, msg| async move { node.process_xml(msg).await }).await;
         }
+    }
+}
+
+fn xml_to_variant(xml_string: &str, options: &Xml2jsOptions) -> crate::Result<Variant> {
+    // Extract options for parsing
+    //let (attr_key, char_key) = self.extract_parse_options(options);
+    let mut reader = Reader::from_reader(xml_string.as_bytes());
+    // reader.trim_text(true);
+
+    let mut text_buf = String::new();
+    let mut stack: Vec<(String, VariantObjectMap)> = Vec::new();
+    let mut root_tag: Option<String> = None;
+
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(ref e)) => {
+                let tag = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                if root_tag.is_none() {
+                    root_tag = Some(tag.clone());
+                }
+
+                let mut map = VariantObjectMap::new();
+                let attrs = attributes_to_map(e, options)?;
+
+                if options.merge_attrs {
+                    for (k, v) in attrs {
+                        map.insert(k, v);
+                    }
+                } else if !attrs.is_empty() {
+                    map.insert(options.attrkey.clone(), Variant::Object(attrs));
+                }
+
+                stack.push((tag, map));
+                text_buf.clear();
+            }
+
+            Ok(Event::Text(e)) => {
+                text_buf.push_str(&e.unescape().unwrap_or_default());
+            }
+
+            Ok(Event::End(ref e)) => {
+                let tag = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                let (open_tag, mut obj) = stack.pop().unwrap();
+
+                if open_tag != tag {
+                    return Err(EdgelinkError::InvalidOperation(format!(
+                        "Mismatched tag: expected </{}> got </{}>",
+                        open_tag, tag
+                    ))
+                    .into());
+                }
+
+                if !text_buf.trim().is_empty() {
+                    let text = Variant::String(text_buf.trim().to_string());
+
+                    if options.explicit_charkey {
+                        obj.insert(options.charkey.clone(), text);
+                    } else {
+                        if obj.is_empty() {
+                            insert_variant_value(&mut stack, &tag, text, options);
+                            text_buf.clear();
+                            continue;
+                        } else {
+                            obj.insert(options.charkey.clone(), text);
+                        }
+                    }
+                }
+
+                let value = Variant::Object(obj);
+                insert_variant_value(&mut stack, &tag, value, options);
+                text_buf.clear();
+            }
+
+            Ok(Event::Eof) => break,
+            Err(e) => return Err(EdgelinkError::InvalidOperation(format!("XML parse error: {}", e)).into()),
+            _ => {}
+        }
+    }
+
+    if let Some((_last_tag, last_obj)) = stack.pop() {
+        let content = Variant::Object(last_obj);
+        if options.explicit_root {
+            let mut root = VariantObjectMap::new();
+            root.insert(root_tag.unwrap_or_else(|| "root".to_string()), content);
+            Ok(Variant::Object(root))
+        } else {
+            Ok(content)
+        }
+    } else {
+        Err(EdgelinkError::InvalidOperation("No root element".to_string()).into())
+    }
+}
+
+fn attributes_to_map(e: &BytesStart, options: &Xml2jsOptions) -> crate::Result<VariantObjectMap> {
+    let mut attrs = VariantObjectMap::new();
+    for attr in e.attributes().flatten() {
+        let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
+        let val = attr.unescape_value().unwrap_or_default().to_string();
+        attrs.insert(key, Variant::String(val));
+    }
+    Ok(attrs)
+}
+
+fn insert_variant_value(
+    stack: &mut Vec<(String, VariantObjectMap)>,
+    tag: &str,
+    value: Variant,
+    options: &Xml2jsOptions,
+) {
+    if let Some((_parent_tag, parent)) = stack.last_mut() {
+        match parent.get_mut(tag) {
+            Some(existing) => match existing {
+                Variant::Array(arr) => arr.push(value),
+                old => {
+                    let replaced = std::mem::replace(old, Variant::Array(vec![]));
+                    if let Variant::Array(arr) = old {
+                        *arr = vec![replaced, value];
+                    }
+                }
+            },
+            None => {
+                if options.explicit_array {
+                    parent.insert(tag.to_string(), Variant::Array(vec![value]));
+                } else {
+                    parent.insert(tag.to_string(), value);
+                }
+            }
+        }
+    } else {
+        match value {
+            Variant::Object(map) => {
+                stack.push((tag.to_string(), map));
+            }
+            _ => {
+                let mut obj = VariantObjectMap::new();
+                obj.insert(tag.to_string(), value);
+                stack.push((tag.to_string(), obj));
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_standard_employees_structure() {
+        let xml = r#"<employees><firstName>John</firstName><lastName>Smith</lastName></employees>"#;
+        // should be: {'employees': {'firstName': ['John'], 'lastName': ['Smith']}}
+        let options = Xml2jsOptions::default();
+
+        let result = xml_to_variant(xml, &options).unwrap();
+        let root = result.as_object().unwrap();
+        let employees = root.get("employees").unwrap().as_object().unwrap();
+        assert_eq!(employees.get("firstName").unwrap().as_array().unwrap()[0].as_str().unwrap(), "John");
+        assert_eq!(employees.get("lastName").unwrap().as_array().unwrap()[0].as_str().unwrap(), "Smith");
     }
 }
