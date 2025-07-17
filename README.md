@@ -255,7 +255,7 @@ Refer [REDNODES-SPECS-DIFF.md](tests/REDNODES-SPECS-DIFF.md) to view the details
         - [x] TCP Out
         - [x] TCP Get
         - [x] UDP In
-        - [x] UDP Out
+        - [x] :heavy_check_mark: UDP Out
             - [x] Unicast
             - [x] Multicast
         - [x] TLS (WIP)

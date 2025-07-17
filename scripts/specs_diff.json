@@ -96,6 +96,11 @@
                 "tcp request",
                 "nodes/network/test_tcprequest_node.py",
                 "test/nodes/core/network/31-tcprequest_spec.js"
+            ],
+            [
+                "udp out",
+                "nodes/network/test_udpout_node.py",
+                "test/nodes/core/network/32-udpout_spec.js"
             ]
         ]
     },

@@ -147,12 +147,14 @@ impl UdpOutNode {
             }
         };
 
-        socket
-            .send_to(&data_to_send, remote_addr)
-            .await
-            .map_err(|e| crate::EdgelinkError::InvalidOperation(format!("Failed to send UDP packet: {e}")))?;
-
-        Ok(())
+        match socket.send_to(&data_to_send, remote_addr).await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                self.report_error(format!("Failed to send UDP packet: {e}"), msg.clone(), CancellationToken::new())
+                    .await;
+                Err(crate::EdgelinkError::InvalidOperation(format!("Failed to send UDP packet: {e}")).into())
+            }
+        }
     }
 }
 
