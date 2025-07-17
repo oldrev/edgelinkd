@@ -33,7 +33,7 @@ on:
       - '*.ini'
       - '*.lock'
   schedule:
-    - cron: '0 2 * * *'
+    - cron: '0 2 * * 1'
   workflow_dispatch:
 
 permissions:
@@ -75,6 +75,7 @@ jobs:
     name: Build and Test on Windows
     needs: fmt-and-check
     runs-on: windows-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     strategy:
       matrix:
         target: [x86_64-pc-windows-msvc, x86_64-pc-windows-gnu]
@@ -230,6 +231,7 @@ jobs:
     name: Build and Test on ARM Linux
     needs: fmt-and-check
     runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     strategy:
       matrix:
         target: [ aarch64-unknown-linux-gnu, armv7-unknown-linux-gnueabihf, armv7-unknown-linux-gnueabi]
