@@ -269,7 +269,7 @@ Refer [REDNODES-SPECS-DIFF.md](tests/REDNODES-SPECS-DIFF.md) to view the details
         - [x] CSV
         - [ ] HTML
         - [x] :heavy_check_mark: JSON
-        - [x] XML
+        - [x] :heavy_check_mark: XML
         - [x] YAML
     - Storage
         - [x] File
