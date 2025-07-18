@@ -396,6 +396,22 @@ impl Engine {
         Ok(None)
     }
 
+    pub fn find_global_node_by_id(&self, id: &ElementId) -> Option<Arc<dyn GlobalNodeBehavior>> {
+        self.inner.global_nodes.get(id).map(|x| x.value().clone())
+    }
+
+    pub fn find_global_node_by_name(&self, name: &str) -> crate::Result<Option<Arc<dyn GlobalNodeBehavior>>> {
+        let mut iter = self.inner.global_nodes.iter().filter(|val| val.name() == name);
+        let nfound = iter.clone().count();
+        if nfound == 1 {
+            Ok(iter.next().map(|x| x.clone()))
+        } else if nfound == 0 {
+            Ok(None)
+        } else {
+            Err(EdgelinkError::InvalidOperation(format!("There are multiple global nodes with name '{name}'")).into())
+        }
+    }
+
     pub async fn inject_msg(
         &self,
         flow_node_id: &ElementId,
