@@ -11,7 +11,7 @@ class TestTcpRequest:
         @pytest.mark.it('should send & recv data')
         async def test_send_recv_data(self):
             # Start a local TCP echo server
-            server, port = await self._start_echo_server()
+            server, port = await _start_echo_server()
             node = {
                 "type": "tcp request", "server": "localhost", "port": str(port), "out": "time", "splitc": "0"
             }
@@ -25,7 +25,7 @@ class TestTcpRequest:
         @pytest.mark.asyncio
         @pytest.mark.it('should retain complete message')
         async def test_retain_complete_message(self):
-            server, port = await self._start_echo_server()
+            server, port = await _start_echo_server()
             node = {
                 "type": "tcp request", "server": "localhost", "port": str(port), "out": "time", "splitc": "0"
             }
@@ -39,7 +39,7 @@ class TestTcpRequest:
         @pytest.mark.asyncio
         @pytest.mark.it('should send & recv data when specified character received')
         async def test_send_recv_data_split_char(self):
-            server, port = await self._start_echo_server()
+            server, port = await _start_echo_server()
             node = {
                 "type": "tcp request", "server": "localhost", "port": str(port), "out": "char", "splitc": "0"
             }
@@ -53,7 +53,7 @@ class TestTcpRequest:
         @pytest.mark.asyncio
         @pytest.mark.it('should send & recv data after fixed number of chars received')
         async def test_send_recv_data_split_count(self):
-            server, port = await self._start_echo_server()
+            server, port = await _start_echo_server()
             node = {
                 "type": "tcp request", "server": "localhost", "port": str(port), "out": "count", "splitc": "7"
             }
@@ -67,7 +67,7 @@ class TestTcpRequest:
         @pytest.mark.asyncio
         @pytest.mark.it('should send & receive, then keep connection')
         async def test_send_recv_keep_connection(self):
-            server, port = await self._start_echo_server()
+            server, port = await _start_echo_server()
             node = {
                 "type": "tcp request", "server": "localhost", "port": str(port), "out": "sit", "splitc": "5"
             }
@@ -81,7 +81,7 @@ class TestTcpRequest:
         @pytest.mark.asyncio
         @pytest.mark.it('should send & recv data to/from server:port from msg')
         async def test_send_recv_data_from_msg(self):
-            server, port = await self._start_echo_server()
+            server, port = await _start_echo_server()
             node = {
                 "type": "tcp request", "server": "", "port": "", "out": "time", "splitc": "0"
             }
@@ -98,7 +98,7 @@ class TestTcpRequest:
         @pytest.mark.asyncio
         @pytest.mark.it('should send & recv data')
         async def test_many_send_recv_data(self):
-            server, port = await TestTcpRequest._start_echo_server()
+            server, port = await _start_echo_server()
             node = {
                 "type": "tcp request", "server": "localhost", "port": str(port), "out": "time", "splitc": "0"
             }
@@ -116,7 +116,7 @@ class TestTcpRequest:
         @pytest.mark.asyncio
         @pytest.mark.it('should send & recv data when specified character received')
         async def test_many_send_recv_data_split_char(self):
-            server, port = await TestTcpRequest._start_echo_server()
+            server, port = await _start_echo_server()
             node = {
                 "type": "tcp request", "server": "localhost", "port": str(port), "out": "char", "splitc": "0"
             }
@@ -133,7 +133,7 @@ class TestTcpRequest:
         @pytest.mark.asyncio
         @pytest.mark.it('should send & recv data after fixed number of chars received')
         async def test_many_send_recv_data_split_count(self):
-            server, port = await TestTcpRequest._start_echo_server()
+            server, port = await _start_echo_server()
             node = {
                 "type": "tcp request", "server": "localhost", "port": str(port), "out": "count", "splitc": "7"
             }
@@ -151,7 +151,7 @@ class TestTcpRequest:
         @pytest.mark.asyncio
         @pytest.mark.it('should send & receive, then keep connection')
         async def test_many_send_recv_keep_connection(self):
-            server, port = await TestTcpRequest._start_echo_server()
+            server, port = await _start_echo_server()
             node = {
                 "type": "tcp request", "server": "localhost", "port": str(port), "out": "sit", "splitc": "5"
             }
@@ -169,7 +169,7 @@ class TestTcpRequest:
         @pytest.mark.asyncio
         @pytest.mark.it('should send & receive, then keep connection, and not split return strings')
         async def test_many_keep_connection_no_split(self):
-            server, port = await TestTcpRequest._start_echo_server()
+            server, port = await _start_echo_server()
             node = {
                 "type": "tcp request", "server": "localhost", "port": str(port), "out": "sit", "ret": "string", "newline": "", "splitc": "0"
             }
@@ -186,7 +186,7 @@ class TestTcpRequest:
         @pytest.mark.asyncio
         @pytest.mark.it('should send & receive, then keep connection, and split return strings')
         async def test_many_keep_connection_split(self):
-            server, port = await TestTcpRequest._start_echo_server()
+            server, port = await _start_echo_server()
             node = {
                 "type": "tcp request", "server": "localhost", "port": str(port), "out": "sit", "ret": "string", "newline": "<A>\\n", "splitc": "0"
             }
@@ -203,7 +203,7 @@ class TestTcpRequest:
         @pytest.mark.asyncio
         @pytest.mark.it('should send & receive, then keep connection, and split return strings and reattach delimiter')
         async def test_many_keep_connection_split_reattach(self):
-            server, port = await TestTcpRequest._start_echo_server()
+            server, port = await _start_echo_server()
             node = {
                 "type": "tcp request", "server": "localhost", "port": str(port), "out": "sit", "ret": "string", "newline": "<A>\\n", "trim": True, "splitc": "0"
             }
@@ -220,7 +220,7 @@ class TestTcpRequest:
         @pytest.mark.asyncio
         @pytest.mark.it('should send & recv data to/from server:port from msg')
         async def test_many_send_recv_data_from_msg(self):
-            server, port = await TestTcpRequest._start_echo_server()
+            server, port = await _start_echo_server()
             node = {
                 "type": "tcp request", "server": "", "port": "", "out": "time", "splitc": "0"
             }
@@ -239,7 +239,7 @@ class TestTcpRequest:
         @pytest.mark.asyncio
         @pytest.mark.it('should limit the queue size')
         async def test_limit_queue_size(self):
-            server, port = await TestTcpRequest._start_echo_server()
+            server, port = await _start_echo_server()
             node = {
                 "type": "tcp request", "server": "localhost", "port": str(port), "out": "sit", "splitc": "5"
             }
@@ -255,7 +255,7 @@ class TestTcpRequest:
         @pytest.mark.asyncio
         @pytest.mark.it('should only retain the latest message')
         async def test_only_retain_latest_message(self):
-            server, port = await TestTcpRequest._start_echo_server()
+            server, port = await _start_echo_server()
             node = {
                 "type": "tcp request", "server": "localhost", "port": str(port), "out": "time", "splitc": "0"
             }
@@ -270,16 +270,16 @@ class TestTcpRequest:
             server.close()
             await server.wait_closed()
 
-    @staticmethod
-    async def _start_echo_server():
-        # Simple TCP echo server, returns ACK:xxx for received data
-        async def handle_echo(reader, writer):
-            data = await reader.read(1024)
-            message = data.decode()
-            writer.write(f"ACK:{message}".encode())
-            await writer.drain()
-            writer.close()
-            await writer.wait_closed()
-        server = await asyncio.start_server(handle_echo, '127.0.0.1', 0)
-        port = server.sockets[0].getsockname()[1]
-        return server, port
+
+async def _start_echo_server():
+    # Simple TCP echo server, returns ACK:xxx for received data
+    async def handle_echo(reader, writer):
+        data = await reader.read(1024)
+        message = data.decode()
+        writer.write(f"ACK:{message}".encode())
+        await writer.drain()
+        writer.close()
+        await writer.wait_closed()
+    server = await asyncio.start_server(handle_echo, '127.0.0.1', 0)
+    port = server.sockets[0].getsockname()[1]
+    return server, port

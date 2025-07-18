@@ -31,9 +31,9 @@ enum TcpGetMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
 enum ReturnType {
     #[serde(rename = "buffer")]
-    #[default]
     Buffer,
     #[serde(rename = "string")]
+    #[default]
     String,
 }
 
@@ -231,19 +231,13 @@ impl TcpGetNode {
                 return Ok(Vec::new());
             }
             TcpGetMode::Time => {
-                // Read for a specified time period
-                let start = std::time::Instant::now();
-                let time_limit =
-                    Duration::from_millis(self.config.splitc.as_deref().unwrap_or("1000").parse().unwrap_or(1000));
-
-                while start.elapsed() < time_limit {
-                    let mut temp_buf = [0u8; 1024];
-                    match timeout(Duration::from_millis(100), stream.read(&mut temp_buf)).await {
-                        Ok(Ok(0)) => break, // EOF
-                        Ok(Ok(n)) => buffer.extend_from_slice(&temp_buf[..n]),
-                        Ok(Err(_)) => break, // Read error
-                        Err(_) => continue,  // Timeout, continue reading
-                    }
+                // Node-RED: as soon as any data is received, return it (do not wait for timeout)
+                let mut temp_buf = [0u8; 4096];
+                match timeout(timeout_duration, stream.read(&mut temp_buf)).await {
+                    Ok(Ok(0)) => {} // EOF
+                    Ok(Ok(n)) => buffer.extend_from_slice(&temp_buf[..n]),
+                    Ok(Err(e)) => return Err(crate::EdgelinkError::InvalidOperation(format!("Read error: {e}")).into()),
+                    Err(_) => return Err(crate::EdgelinkError::InvalidOperation("Read timeout".to_string()).into()),
                 }
             }
             TcpGetMode::Count => {
@@ -278,14 +272,22 @@ impl TcpGetNode {
                 }
             }
             TcpGetMode::Sit => {
-                // This mode should maintain connection and handle multiple responses
-                // For now, just read available data
+                // 保持连接，循环读取直到有数据或 socket 关闭
                 let mut temp_buf = [0u8; 4096];
-                match timeout(timeout_duration, stream.read(&mut temp_buf)).await {
-                    Ok(Ok(0)) => {} // EOF
-                    Ok(Ok(n)) => buffer.extend_from_slice(&temp_buf[..n]),
-                    Ok(Err(e)) => return Err(crate::EdgelinkError::InvalidOperation(format!("Read error: {e}")).into()),
-                    Err(_) => return Err(crate::EdgelinkError::InvalidOperation("Read timeout".to_string()).into()),
+                loop {
+                    match timeout(timeout_duration, stream.read(&mut temp_buf)).await {
+                        Ok(Ok(0)) => break, // EOF, 连接关闭
+                        Ok(Ok(n)) => {
+                            if n > 0 {
+                                buffer.extend_from_slice(&temp_buf[..n]);
+                                break; // 只要有数据就立即返回
+                            }
+                        }
+                        Ok(Err(e)) => {
+                            return Err(crate::EdgelinkError::InvalidOperation(format!("Read error: {e}")).into());
+                        }
+                        Err(_) => return Err(crate::EdgelinkError::InvalidOperation("Read timeout".to_string()).into()),
+                    }
                 }
             }
         }
@@ -315,18 +317,19 @@ impl TcpGetNode {
             }
         }
 
-        // Get host and port from config or message
-        let host = self
-            .config
-            .server
-            .as_deref()
-            .or_else(|| msg_guard.get("host").and_then(|v| v.as_str()))
+        // Node-RED: host/port 优先级应为 msg > config > 默认
+        let host = msg_guard
+            .get("host")
+            .and_then(|v| v.as_str())
+            .or_else(|| self.config.server.as_deref())
             .unwrap_or("localhost");
 
-        let port = self
-            .config
-            .port
-            .or_else(|| msg_guard.get("port").and_then(|v| v.as_number()).and_then(|n| n.as_u64()).map(|n| n as u16))
+        let port = msg_guard
+            .get("port")
+            .and_then(|v| v.as_number())
+            .and_then(|n| n.as_u64())
+            .map(|n| n as u16)
+            .or(self.config.port)
             .unwrap_or(0);
 
         if port == 0 {
