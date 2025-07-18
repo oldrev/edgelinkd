@@ -43,6 +43,9 @@ struct TcpGetNode {
     base: BaseFlowNodeState,
     config: TcpGetNodeConfig,
     connections: Arc<DashMap<String, Arc<Mutex<TcpStream>>>>,
+    reconnect_time: u64,
+    socket_timeout: Option<u64>,
+    msg_queue_size: usize,
 }
 
 impl TcpGetNode {
@@ -74,7 +77,18 @@ impl TcpGetNode {
         _options: Option<&config::Config>,
     ) -> crate::Result<Box<dyn FlowNodeBehavior>> {
         let tcp_config = TcpGetNodeConfig::deserialize(&config.rest)?;
-        let node = TcpGetNode { base: state, config: tcp_config, connections: Arc::new(DashMap::new()) };
+        // Set defaults as in Node-RED: reconnect_time=10000, socket_timeout=None, msg_queue_size=1000
+        let reconnect_time = 10000;
+        let socket_timeout = None;
+        let msg_queue_size = 1000;
+        let node = TcpGetNode {
+            base: state,
+            config: tcp_config,
+            connections: Arc::new(DashMap::new()),
+            reconnect_time,
+            socket_timeout,
+            msg_queue_size,
+        };
         Ok(Box::new(node))
     }
 }
@@ -336,7 +350,7 @@ impl TcpGetNode {
         Ok(buffer)
     }
 
-    async fn handle_message(&self, msg: MsgHandle, stop_token: CancellationToken) -> crate::Result<()> {
+    async fn handle_message(self: Arc<Self>, msg: MsgHandle, stop_token: CancellationToken) -> crate::Result<()> {
         let msg_guard = msg.read().await;
 
         // Check for reset command
@@ -572,10 +586,10 @@ impl FlowNodeBehavior for TcpGetNode {
 
     async fn run(self: Arc<Self>, stop_token: CancellationToken) {
         while !stop_token.is_cancelled() {
-            let self_clone = self.clone();
+            let arc_self = Arc::clone(&self);
             let stop_token_clone = stop_token.clone();
-            with_uow(self_clone.as_ref(), stop_token_clone.clone(), |node, msg| async move {
-                node.handle_message(msg, stop_token_clone).await
+            with_uow(self.as_ref(), stop_token_clone.clone(), |node, msg| async move {
+                arc_self.handle_message(msg, stop_token_clone).await
             })
             .await;
         }
