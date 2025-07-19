@@ -296,7 +296,7 @@ impl Engine {
             return Err(EdgelinkError::invalid_operation("no flows loaded in the engine."));
         }
 
-        // 发布启动开始事件
+        // Publish engine start event
         self.publish_event(EngineEvent::EngineStarted);
 
         for f in self.inner.flows.iter() {
@@ -324,7 +324,7 @@ impl Engine {
 
         *shutdown_lock = true;
 
-        // 发布停止事件
+        // Publish engine stop event
         self.publish_event(EngineEvent::EngineStopped);
 
         //drop(self.stopped_tx);
@@ -458,29 +458,29 @@ impl Engine {
         self.inner.status_channel.send(to_send);
     }
 
-    /// 检查引擎是否正在运行
+    /// Check if the engine is running
     pub fn is_running(&self) -> bool {
         match self.inner.shutdown.try_read() {
             Ok(shutdown_lock) => !*shutdown_lock,
             Err(_) => {
-                // 如果无法获取锁，假设引擎正在运行
+                // If the lock cannot be acquired, assume the engine is running
                 log::warn!("Failed to read engine shutdown state, assuming running");
                 true
             }
         }
     }
 
-    /// 获取事件总线
+    /// Get the event bus
     pub fn event_bus(&self) -> &EngineEventBus {
         &self.inner.event_bus
     }
 
-    /// 发布事件
+    /// Publish event
     pub fn publish_event(&self, event: EngineEvent) {
         self.inner.event_bus.publish(event);
     }
 
-    /// 订阅事件
+    /// Subscribe to events
     pub fn subscribe_events(&self) -> tokio::sync::broadcast::Receiver<EngineEvent> {
         self.inner.event_bus.subscribe()
     }
@@ -494,16 +494,16 @@ impl Engine {
     pub async fn restart(&self) -> crate::Result<()> {
         log::info!("-- Restarting engine...");
 
-        // 发布重启开始事件
+        // Publish engine restart started event
         self.publish_event(EngineEvent::EngineRestartStarted);
 
-        // 停止 Engine
+        // Stop Engine
         self.stop().await?;
 
-        // 启动 Engine
+        // Start Engine
         self.start().await?;
 
-        // 发布重启完成事件
+        // Publish engine restart completed event
         self.publish_event(EngineEvent::EngineRestartCompleted);
 
         log::info!("-- Engine restarted successfully.");
@@ -518,23 +518,23 @@ impl Engine {
     ) -> crate::Result<()> {
         log::info!("-- Redeploying flows...");
 
-        // 发布流部署开始事件
+        // Publish flow deployment started event
         self.publish_event(EngineEvent::FlowDeploymentStarted);
 
-        // 停止当前 Engine（如果正在运行）
+        // Stop current Engine (if running)
         if self.is_running() {
             self.stop().await?;
         }
 
-        // 清理现有的 flows 和 nodes
+        // Clear existing flows and nodes
         self.inner.flows.clear();
         self.inner.all_flow_nodes.clear();
         self.inner.global_nodes.clear();
 
-        // 发布 debug channel 重新初始化事件
+        // Publish debug channel reinitialized event
         self.publish_event(EngineEvent::DebugChannelReinitialized);
 
-        // 重新加载 flows 和 nodes
+        // Reload flows and nodes
         let json_values = json::deser::load_flows_json_value(json.clone()).map_err(|e| {
             log::error!("Failed to load NodeRED JSON value: {e}");
             e
@@ -549,10 +549,10 @@ impl Engine {
         self.load_global_nodes(json_values.global_nodes, reg.clone(), elcfg)?;
         self.load_flows(json_values.flows, reg, elcfg)?;
 
-        // 启动 Engine
+        // Start Engine
         self.start().await?;
 
-        // 发布流部署完成事件
+        // Publish flow deployment completed event
         self.publish_event(EngineEvent::FlowDeploymentCompleted);
 
         log::info!("-- Flows redeployed successfully.");
