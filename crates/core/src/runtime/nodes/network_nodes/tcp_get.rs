@@ -57,6 +57,7 @@ enum TcpClientKind {
 
 #[derive(Debug)]
 #[flow_node("tcp request", red_name = "tcpin")]
+#[allow(dead_code)]
 struct TcpGetNode {
     base: BaseFlowNodeState,
     config: TcpGetNodeConfig,
@@ -288,7 +289,7 @@ impl TcpGetNode {
         }
     }
 
-    async fn read_response(&self, stream: &mut TcpStream, split_count: u32, split_char: u8) -> crate::Result<Vec<u8>> {
+    async fn read_response(&self, stream: &mut TcpStream, _split_count: u32, split_char: u8) -> crate::Result<Vec<u8>> {
         match self.config.mode {
             TcpGetMode::Immediate => self.read_immediate().await,
             TcpGetMode::Time => self.read_time(stream).await,
