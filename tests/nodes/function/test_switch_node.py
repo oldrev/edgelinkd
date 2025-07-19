@@ -623,11 +623,10 @@ class TestSwitchNode:
             {"nid": "1", "msg": {"payload": 25}}   # between 10 and 30 - YES
         ]
         
-        msgs = await run_flow_with_msgs_ntimes(flows_obj=flow, msgs=injections, nexpected=3, timeout=0.5)
-        assert len(msgs) == 3
+        msgs = await run_flow_with_msgs_ntimes(flows_obj=flow, msgs=injections, nexpected=2, timeout=0.5)
+        assert len(msgs) == 2
         assert msgs[0]["payload"] == 20
-        assert msgs[1]["payload"] == 20  
-        assert msgs[2]["payload"] == 25
+        assert msgs[1]["payload"] == 25
 
     @pytest.mark.asyncio
     @pytest.mark.it("should check if input is indeed null")

@@ -337,6 +337,7 @@ impl SwitchNode {
         let mut rules = Vec::with_capacity(raw_rules.len());
         for raw_rule in raw_rules.into_iter() {
             let (vt, v) = match (raw_rule.value_type, raw_rule.value) {
+                (Some(SwitchPropertyType::Prev), _) => (SwitchPropertyType::Prev, RedPropertyValue::null()),
                 (None, Some(raw_value)) => {
                     if raw_value.is_number() {
                         (SwitchPropertyType::Num, RedPropertyValue::Constant(raw_value))
@@ -344,7 +345,6 @@ impl SwitchNode {
                         (SwitchPropertyType::Str, RedPropertyValue::Constant(raw_value))
                     }
                 }
-                (Some(SwitchPropertyType::Prev), _) => (SwitchPropertyType::Prev, RedPropertyValue::null()),
                 (Some(raw_vt), Some(raw_value)) => {
                     if raw_vt.is_constant() {
                         let evaluated = RedPropertyValue::evaluate_constant(&raw_value, raw_vt.try_into()?)?;
@@ -359,6 +359,7 @@ impl SwitchNode {
 
             let (v2t, v2) = if let Some(raw_v2) = raw_rule.value2 {
                 match raw_rule.value2_type {
+                    Some(SwitchPropertyType::Prev) => (Some(SwitchPropertyType::Prev), Some(RedPropertyValue::null())),
                     None => {
                         if raw_v2.is_number() {
                             (Some(SwitchPropertyType::Num), Some(RedPropertyValue::Constant(raw_v2)))
@@ -366,7 +367,6 @@ impl SwitchNode {
                             (Some(SwitchPropertyType::Str), Some(RedPropertyValue::Constant(raw_v2)))
                         }
                     }
-                    Some(SwitchPropertyType::Prev) => (Some(SwitchPropertyType::Prev), None),
                     Some(raw_v2t) => {
                         if raw_v2t.is_constant() {
                             let evaluated = RedPropertyValue::evaluate_constant(&raw_v2, raw_v2t.try_into()?)?;
@@ -377,7 +377,7 @@ impl SwitchNode {
                     }
                 }
             } else {
-                (raw_rule.value2_type, None)
+                (raw_rule.value2_type, Some(RedPropertyValue::null()))
             };
 
             let v = match v {
@@ -403,19 +403,40 @@ impl SwitchNode {
 
     async fn dispatch_msg(&self, orig_msg: &MsgHandle, cancel: CancellationToken) -> crate::Result<()> {
         let mut envelopes: SmallVec<[Envelope; 4]> = SmallVec::new();
-        {
-            let msg = orig_msg.read().await;
-            let from_value = self.eval_property_value(&msg).await?;
-            for (port, rule) in self.config.rules.iter().enumerate() {
-                let v1 = self.get_v1(rule, &msg).await?;
-                let v2 = if rule.value2.is_some() { self.get_v2(rule, &msg).await? } else { Variant::Null };
-                if rule.operator.apply(&from_value, &v1, &v2, rule.case, &[])? {
+        let msg = orig_msg.read().await;
+        let from_value = self.eval_property_value(&msg).await?;
+        let last_property_value = from_value.clone();
+        for (port, rule) in self.config.rules.iter().enumerate() {
+            if rule.value_type == SwitchPropertyType::Prev {
+                let prev_guard = self.prev_value.read().await;
+                if prev_guard.is_null() {
                     envelopes.push(Envelope { port, msg: orig_msg.clone() });
                     if !self.config.check_all {
                         break;
                     }
+                    continue;
                 }
             }
+            if rule.value2_type == Some(SwitchPropertyType::Prev) {
+                let prev_guard = self.prev_value.read().await;
+                if prev_guard.is_null() {
+                    continue;
+                }
+            }
+            let v1 = self.get_v1(rule, &msg).await?;
+            let v2 = self.get_v2(rule, &msg).await?;
+            if rule.operator.apply(&from_value, &v1, &v2, rule.case, &[])? {
+                envelopes.push(Envelope { port, msg: orig_msg.clone() });
+            }
+
+            if !self.config.check_all {
+                break;
+            }
+        }
+        // Update prev_value
+        if !last_property_value.is_null() {
+            let mut prev = self.prev_value.write().await;
+            *prev = last_property_value;
         }
         if !envelopes.is_empty() {
             self.fan_out_many(envelopes, cancel).await?;
@@ -463,6 +484,7 @@ impl SwitchNode {
                 )
                 .await
             }
+            (None, _) => Ok(Variant::Null),
             _ => Err(EdgelinkError::BadArgument("rule").into()),
         }
     }

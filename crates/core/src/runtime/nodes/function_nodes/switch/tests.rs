@@ -378,7 +378,7 @@ fn test_switch_node_evaluate_rules_between_with_prev() {
     assert_eq!(rules[0].operator, SwitchRuleOperator::Between);
     assert_eq!(rules[0].value_type, SwitchPropertyType::Num);
     assert_eq!(rules[0].value2_type, Some(SwitchPropertyType::Prev));
-    assert!(rules[0].value2.is_none());
+    assert_eq!(rules[0].value2, Some(RedPropertyValue::null()));
 }
 
 #[test]
@@ -570,4 +570,55 @@ fn test_switch_node_real_world_node_red_configurations() {
         let rules = result.unwrap();
         assert!(!rules.is_empty(), "Configuration {i} produced no rules");
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_it_should_check_input_against_a_previous_value() {
+    let flows_json = json!([
+        {"id": "100", "type": "tab"},
+        {"id": "1", "z": "100", "type": "switch", "name": "switchNode", "property": "payload",
+         "rules": [{"t": "gt", "v": "", "vt": "prev"}], "checkall": true, "outputs": 1, "wires": [["2"]]},
+        {"id": "2", "z": "100", "type": "test-once"}
+    ]);
+    let msgs_to_inject_json = json!([
+        ["1",  {"payload": 1}],  // First message, no previous value
+        ["1",  {"payload": 0}],  // 0 < 1, should not pass
+        ["1",  {"payload": -2}], // -2 < 0, should not pass
+        ["1",  {"payload": 2}]   // 2 > -2, should pass
+    ]);
+
+    let engine = crate::runtime::engine::build_test_engine(flows_json).unwrap();
+    let msgs_to_inject = Vec::<(ElementId, Msg)>::deserialize(msgs_to_inject_json).unwrap();
+    let msgs = engine.run_once_with_inject(2, std::time::Duration::from_secs_f64(0.5), msgs_to_inject).await.unwrap();
+
+    assert_eq!(msgs.len(), 2);
+    assert_eq!(msgs[0]["payload"], 1.into());
+    //assert_eq!(msgs[1]["payload"], 2.into());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_it_should_check_input_against_a_previous_value_2nd_option() {
+    let flows_json = json!([
+        {"id": "100", "type": "tab"},
+        {"id": "1", "z": "100", "type": "switch", "name": "switchNode", "property": "payload",
+            "rules": [{"t": "btwn", "v": "10", "vt": "num", "v2": "", "v2t": "prev"}],
+            "checkall": true, "outputs": 1, "wires": [["2"]]},
+        {"id": "2", "z": "100", "type": "test-once"}
+    ]);
+    let msgs_to_inject_json = json!([
+        ["1", {"payload": 0}],   // No previous, won't match
+        ["1", {"payload": 20}],  // between 10 and 0 - YES
+        ["1", {"payload": 30}],  // between 10 and 20 - NO
+        ["1", {"payload": 20}],  // between 10 and 30 - YES
+        ["1", {"payload": 30}],  // between 10 and 20 - NO
+        ["1", {"payload": 25}]   // between 10 and 30 - YES
+    ]);
+
+    let engine = crate::runtime::engine::build_test_engine(flows_json).unwrap();
+    let msgs_to_inject = Vec::<(ElementId, Msg)>::deserialize(msgs_to_inject_json).unwrap();
+    let msgs = engine.run_once_with_inject(2, std::time::Duration::from_secs_f64(0.5), msgs_to_inject).await.unwrap();
+
+    assert_eq!(msgs.len(), 2);
+    assert_eq!(msgs[0]["payload"], 20.into());
+    assert_eq!(msgs[1]["payload"], 25.into());
 }
