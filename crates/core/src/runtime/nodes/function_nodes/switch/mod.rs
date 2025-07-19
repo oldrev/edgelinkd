@@ -267,7 +267,7 @@ struct RawSwitchRule {
     value_type: Option<SwitchPropertyType>,
 
     #[serde(default, rename = "v2")]
-    value2: Option<Variant>,
+    value2: Variant,
 
     #[serde(default, rename = "v2t")]
     value2_type: Option<SwitchPropertyType>,
@@ -284,7 +284,7 @@ struct SwitchRule {
 
     value_type: SwitchPropertyType,
 
-    value2: Option<RedPropertyValue>,
+    value2: RedPropertyValue,
 
     value2_type: Option<SwitchPropertyType>,
 
@@ -357,27 +357,29 @@ impl SwitchNode {
                 (None, None) => (SwitchPropertyType::Str, RedPropertyValue::null()),
             };
 
-            let (v2t, v2) = if let Some(raw_v2) = raw_rule.value2 {
+            let (v2t, v2) = if !raw_rule.value2.is_null() {
                 match raw_rule.value2_type {
-                    Some(SwitchPropertyType::Prev) => (Some(SwitchPropertyType::Prev), Some(RedPropertyValue::null())),
+                    Some(SwitchPropertyType::Prev) => (Some(SwitchPropertyType::Prev), RedPropertyValue::null()),
                     None => {
-                        if raw_v2.is_number() {
-                            (Some(SwitchPropertyType::Num), Some(RedPropertyValue::Constant(raw_v2)))
+                        if raw_rule.value2.is_number() {
+                            (Some(SwitchPropertyType::Num), RedPropertyValue::Constant(raw_rule.value2))
                         } else {
-                            (Some(SwitchPropertyType::Str), Some(RedPropertyValue::Constant(raw_v2)))
+                            (Some(SwitchPropertyType::Str), RedPropertyValue::Constant(raw_rule.value2))
                         }
                     }
                     Some(raw_v2t) => {
                         if raw_v2t.is_constant() {
-                            let evaluated = RedPropertyValue::evaluate_constant(&raw_v2, raw_v2t.try_into()?)?;
-                            (Some(raw_v2t), Some(evaluated))
+                            (
+                                Some(raw_v2t),
+                                RedPropertyValue::evaluate_constant(&raw_rule.value2, raw_v2t.try_into()?)?,
+                            )
                         } else {
-                            (Some(raw_v2t), Some(RedPropertyValue::Runtime(raw_v2.to_string()?)))
+                            (Some(raw_v2t), RedPropertyValue::Runtime(raw_rule.value2.to_string()?))
                         }
                     }
                 }
             } else {
-                (raw_rule.value2_type, Some(RedPropertyValue::null()))
+                (raw_rule.value2_type, RedPropertyValue::null())
             };
 
             let v = match v {
@@ -474,7 +476,7 @@ impl SwitchNode {
     async fn get_v2(&self, rule: &SwitchRule, msg: &Msg) -> crate::Result<Variant> {
         match (rule.value2_type, &rule.value2) {
             (Some(SwitchPropertyType::Prev), _) => Ok(self.prev_value.read().await.clone()),
-            (Some(vt2), Some(v2)) => {
+            (Some(vt2), v2) => {
                 eval::evaluate_node_property_value(
                     v2.clone(),
                     vt2.try_into().unwrap(),
@@ -485,7 +487,6 @@ impl SwitchNode {
                 .await
             }
             (None, _) => Ok(Variant::Null),
-            _ => Err(EdgelinkError::BadArgument("rule").into()),
         }
     }
 }
