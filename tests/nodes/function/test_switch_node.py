@@ -461,7 +461,7 @@ class TestSwitchNode:
     @pytest.mark.asyncio
     @pytest.mark.it("should check if input is indeed false")
     async def test_it_should_check_if_input_is_indeed_false(self):
-        await _singular_switch_test(True, True, True, False)
+        await _singular_switch_test(False, True, True, False)
 
     @pytest.mark.asyncio
     @pytest.mark.it("sends nothing when input is false and checking for true")
