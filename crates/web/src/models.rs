@@ -1,5 +1,7 @@
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use config;
+use serde::{Deserialize, Serialize};
 
 /// Node-RED Flow data structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,7 +88,7 @@ pub struct NodeInfo {
 
 /// System settings
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RuntimeSettings {
+pub struct WebServerArgs {
     pub version: String,
     #[serde(rename = "httpNodeRoot")]
     pub http_node_root: String,
@@ -191,7 +193,7 @@ pub struct ApiResponse<T> {
     pub data: T,
 }
 
-impl Default for RuntimeSettings {
+impl Default for WebServerArgs {
     fn default() -> Self {
         Self {
             version: "3.1.0".to_string(),
@@ -240,5 +242,16 @@ impl Default for ContextConfig {
 impl Default for LoggingConfig {
     fn default() -> Self {
         Self { console: ConsoleLogging { level: "info".to_string(), metrics: false, audit: false } }
+    }
+}
+
+// Load WebServerArgs from config, fallback to default if not found
+impl WebServerArgs {
+    pub fn load(cfg: &config::Config) -> edgelink_core::Result<Self> {
+        match cfg.get::<Self>("web") {
+            Ok(res) => Ok(res),
+            Err(config::ConfigError::NotFound(_)) => Ok(Self::default()),
+            Err(e) => Err(e.into()),
+        }
     }
 }

@@ -1,13 +1,17 @@
-use crate::api::create_all_routes;
-use crate::handlers::{FlowEngineRestartCallback, WebState};
-use axum::serve;
-use axum::{Extension, Router};
-use edgelink_core::runtime::registry::RegistryHandle;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+use axum::serve;
+use axum::{Extension, Router};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower_http::services::ServeDir;
+
+use edgelink_core::runtime::registry::RegistryHandle;
+
+use crate::api::create_all_routes;
+use crate::handlers::{FlowEngineRestartCallback, WebState};
+use crate::models::*;
 
 pub struct WebServer {
     pub static_dir: PathBuf,
@@ -15,9 +19,16 @@ pub struct WebServer {
 }
 
 impl WebServer {
-    pub fn new(static_dir: impl Into<PathBuf>, cancel_token: CancellationToken) -> Self {
-        let app_state = Arc::new(WebState {
-            settings: Default::default(),
+    pub fn new(static_dir: impl Into<PathBuf>, cancel_token: CancellationToken, cfg: &config::Config) -> Self {
+        let args = match WebServerArgs::load(cfg) {
+            Ok(a) => Arc::new(a),
+            Err(e) => {
+                log::warn!("Failed to load WebServerArgs from config: {e}, using default");
+                Arc::new(WebServerArgs::default())
+            }
+        };
+        let web_state = Arc::new(WebState {
+            args,
             registry: tokio::sync::RwLock::new(None),
             comms: crate::handlers::CommsManager::new(),
             flows_file_path: tokio::sync::RwLock::new(None),
@@ -30,14 +41,14 @@ impl WebServer {
 
         // Start heartbeat task
         tokio::spawn({
-            let comms = app_state.comms.clone();
+            let comms = web_state.comms.clone();
             let cancel = cancel_token.clone();
             async move {
                 comms.start_heartbeat_task(cancel).await;
             }
         });
 
-        Self { static_dir: app_state.static_dir.clone(), state: app_state }
+        Self { static_dir: web_state.static_dir.clone(), state: web_state }
     }
 
     pub async fn with_registry(self, registry: RegistryHandle) -> Self {

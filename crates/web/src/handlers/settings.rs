@@ -1,5 +1,5 @@
 use crate::handlers::WebState;
-use crate::models::RuntimeSettings;
+use crate::models::WebServerArgs;
 use axum::extract::{Path, Query};
 use axum::{
     Extension,
@@ -36,8 +36,8 @@ pub async fn update_user_settings(
     Ok(Json(payload))
 }
 /// Get system settings
-pub async fn get_settings(Extension(state): Extension<Arc<WebState>>) -> Result<Json<RuntimeSettings>, StatusCode> {
-    let settings = state.settings.read().await;
+pub async fn get_settings(Extension(state): Extension<Arc<WebState>>) -> Result<Json<WebServerArgs>, StatusCode> {
+    let settings = state.args.as_ref();
     Ok(Json(settings.clone()))
 }
 
