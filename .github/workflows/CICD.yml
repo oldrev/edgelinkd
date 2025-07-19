@@ -365,9 +365,7 @@ jobs:
     name: Nightly Build & Release (Windows)
     needs: fmt-and-check
     if: |
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/dev') ||
-      (github.event_name == 'pull_request' && github.base_ref == 'dev')
+      github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     runs-on: windows-latest
     steps:
       - name: Checkout repository
