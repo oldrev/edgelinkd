@@ -1,9 +1,10 @@
-use edgelink_core::runtime::paths;
 use std::path::PathBuf;
 use std::sync::Arc;
+
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
+use edgelink_core::runtime::paths;
 use edgelink_web::server::WebServer;
 
 use crate::app::App;
@@ -14,7 +15,7 @@ use crate::env::EdgelinkEnv;
 use crate::logging;
 use crate::registry::list_available_nodes;
 
-pub async fn run_app(cli_args: Arc<CliArgs>) -> anyhow::Result<()> {
+pub async fn run_app(cli_args: Arc<CliArgs>) -> edgelink_core::Result<()> {
     match &cli_args.command {
         Some(Commands::Run { flows_path: _, headless: _, bind: _ }) => run_app_internal(cli_args.clone()).await,
         Some(Commands::List) => list_available_nodes().await,
@@ -23,7 +24,7 @@ pub async fn run_app(cli_args: Arc<CliArgs>) -> anyhow::Result<()> {
     }
 }
 
-pub async fn run_app_internal(cli_args: Arc<CliArgs>) -> anyhow::Result<()> {
+pub async fn run_app_internal(cli_args: Arc<CliArgs>) -> edgelink_core::Result<()> {
     if cli_args.verbose > 0 {
         eprintln!("EdgeLink v{} - #{}\n", consts::APP_VERSION, consts::GIT_HASH);
         eprintln!("Loading configuration...");
@@ -60,19 +61,24 @@ pub async fn run_app_internal(cli_args: Arc<CliArgs>) -> anyhow::Result<()> {
     let app = Arc::new(App::new(cli_args.clone(), env, None).await?);
 
     let headless = app.env().config.get_bool("headless").unwrap_or(false);
-    let web_server_handle: Option<JoinHandle<()>> =
-        if !headless { Some(start_web_server(app.clone(), &app.env().config, cancel.clone()).await?) } else { None };
-
-    let app_result = app.run(cancel.child_token()).await;
-
-    if let Some(handle) = web_server_handle {
-        handle.abort();
+    use tokio::try_join;
+    if headless {
+        try_join!(app.run(cancel.child_token()), async { Ok(()) })?;
+    } else {
+        let handle = start_web_server(app.clone(), &app.env().config, cancel.clone()).await?;
+        let app_fut = app.run(cancel.child_token());
+        let web_fut = async {
+            handle.await.map_err(|e| anyhow::anyhow!("Web server task failed: {e}"))?;
+            Ok(())
+        };
+        try_join!(app_fut, web_fut)?;
     }
 
+    // 等待 cancel token 完成
     tokio::time::timeout(tokio::time::Duration::from_secs(10), cancel.cancelled()).await?;
     log::info!("Bye!");
 
-    app_result
+    Ok(())
 }
 
 /// Start the web server with the given configuration
@@ -80,7 +86,7 @@ async fn start_web_server(
     app: Arc<App>,
     cfg: &config::Config,
     cancel: CancellationToken,
-) -> anyhow::Result<JoinHandle<()>> {
+) -> edgelink_core::Result<JoinHandle<()>> {
     // Determine static directory at runtime
     let static_dir = paths::ui_static_dir();
     log::info!("Using static directory: {}", static_dir.display());
@@ -131,5 +137,5 @@ async fn start_web_server(
     log::info!("  GET  http://{addr}/api/admin/settings");
     log::info!("Health check: http://{addr}/api/health");
 
-    Ok(web_server.spawn(addr, cancel.clone()).await)
+    web_server.spawn(addr, cancel.clone()).await
 }

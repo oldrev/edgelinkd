@@ -91,9 +91,13 @@ impl CliArgs {
         builder: config::ConfigBuilder<config::builder::DefaultState>,
     ) -> Result<config::ConfigBuilder<config::builder::DefaultState>, config::ConfigError> {
         let mut builder = builder;
-        // flows_path (from subcommand Run)
-        if let Some(Commands::Run { flows_path: Some(fp), .. }) = &self.command {
-            builder = builder.set_override("flows_path", fp.clone())?;
+        // Handle all Run subcommand parameters together
+        if let Some(Commands::Run { flows_path, bind, headless }) = &self.command {
+            if let Some(fp) = flows_path {
+                builder = builder.set_override("flows_path", fp.clone())?;
+            }
+            builder = builder.set_override("bind", bind.clone())?;
+            builder = builder.set_override("headless", *headless)?;
         }
         // verbose
         builder = builder.set_override("verbose", self.verbose as i64)?;
@@ -113,7 +117,6 @@ impl CliArgs {
         if let Some(ref home) = self.home {
             builder = builder.set_override("home", home.clone())?;
         }
-        // 其他参数可按需添加
         Ok(builder)
     }
 }

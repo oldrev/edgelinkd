@@ -107,19 +107,11 @@ impl WebServer {
         self,
         addr: std::net::SocketAddr,
         cancel_token: CancellationToken,
-    ) -> tokio::task::JoinHandle<()> {
+    ) -> edgelink_core::Result<tokio::task::JoinHandle<()>> {
         let router = self.router();
-        tokio::spawn(async move {
-            let listener = match TcpListener::bind(&addr).await {
-                Ok(listener) => listener,
-                Err(e) => {
-                    log::error!("Failed to bind to address {addr}: {e}");
-                    return;
-                }
-            };
-
+        let listener = TcpListener::bind(&addr).await?;
+        Ok(tokio::spawn(async move {
             let server = serve(listener, router);
-
             tokio::select! {
                 result = server => {
                     if let Err(e) = result {
@@ -130,6 +122,6 @@ impl WebServer {
                     log::info!("Web server shutting down gracefully...");
                 }
             }
-        })
+        }))
     }
 }
