@@ -147,7 +147,7 @@ where
 impl SwitchRuleOperator {
     fn apply(&self, a: &Variant, b: &Variant, c: &Variant, case: bool, _parts: &[Variant]) -> crate::Result<bool> {
         match self {
-            Self::Equal | Self::Else => Ok(a == b),
+            Self::Equal => Ok(a == b),
             Self::NotEqual => Ok(a != b),
             Self::LessThan => Ok(a < b),
             Self::LessThanEqual => Ok(a <= b),
@@ -199,6 +199,7 @@ impl SwitchRuleOperator {
                 (Variant::Object(a), Some(b)) => Ok(a.contains_key(b)),
                 _ => Ok(false),
             },
+            Self::Else => Ok(*a == Variant::Bool(true)),
             _ => Err(EdgelinkError::NotSupported("Unsupported operator".to_owned()).into()),
         }
     }
@@ -369,10 +370,7 @@ impl SwitchNode {
                     }
                     Some(raw_v2t) => {
                         if raw_v2t.is_constant() {
-                            (
-                                Some(raw_v2t),
-                                RedPropertyValue::evaluate_constant(&raw_rule.value2, raw_v2t.try_into()?)?,
-                            )
+                            (Some(raw_v2t), RedPropertyValue::evaluate_constant(&raw_rule.value2, raw_v2t.try_into()?)?)
                         } else {
                             (Some(raw_v2t), RedPropertyValue::Runtime(raw_rule.value2.to_string()?))
                         }
