@@ -791,11 +791,9 @@ class TestSwitchNode:
              "checkall": True, "outputs": 1, "wires": [["3"]]},
             {"id": "3", "z": "100", "type": "test-once"}
         ]
-        
         injections = [
             {"nid": "1", "msg": {"payload": "pass"}},
         ]
-        
         msgs = await run_flow_with_msgs_ntimes(flows_obj=flows, msgs=injections, nexpected=1, timeout=0.5)
         assert len(msgs) == 1
         assert msgs[0]["payload"] == "pass"
@@ -812,9 +810,8 @@ class TestSwitchNode:
              "checkall": True, "outputs": 1, "wires": [["2"]]},
             {"id": "2", "z": "100", "type": "test-once"}
         ]
-        
-        # Set environment variable (this depends on your implementation)
-        # os.environ["VAR"] = "VAL"
+        # Set environment variable
+        os.environ["VAR"] = "VAL"
         await _custom_flow_switch_test(flow, True, "OK")
 
     # Sequence handling tests (these require sequence/parts support)

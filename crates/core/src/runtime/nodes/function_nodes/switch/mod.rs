@@ -199,7 +199,7 @@ impl SwitchRuleOperator {
                 (Variant::Object(a), Some(b)) => Ok(a.contains_key(b)),
                 _ => Ok(false),
             },
-            Self::Else => Ok(*a == Variant::Bool(true)),
+            Self::Else => Ok(false),
             _ => Err(EdgelinkError::NotSupported("Unsupported operator".to_owned()).into()),
         }
     }
@@ -406,31 +406,40 @@ impl SwitchNode {
         let msg = orig_msg.read().await;
         let from_value = self.eval_property_value(&msg).await?;
         let last_property_value = from_value.clone();
+        let mut matched = false;
         for (port, rule) in self.config.rules.iter().enumerate() {
-            if rule.value_type == SwitchPropertyType::Prev {
-                let prev_guard = self.prev_value.read().await;
-                if prev_guard.is_null() {
+            if rule.operator == SwitchRuleOperator::Else {
+                // only match if no previous rule matched
+                if !matched {
                     envelopes.push(Envelope { port, msg: orig_msg.clone() });
+                }
+                // else never match
+            } else {
+                if rule.value_type == SwitchPropertyType::Prev {
+                    let prev_guard = self.prev_value.read().await;
+                    if prev_guard.is_null() {
+                        envelopes.push(Envelope { port, msg: orig_msg.clone() });
+                        if !self.config.check_all {
+                            break;
+                        }
+                        continue;
+                    }
+                }
+                if rule.value2_type == Some(SwitchPropertyType::Prev) {
+                    let prev_guard = self.prev_value.read().await;
+                    if prev_guard.is_null() {
+                        continue;
+                    }
+                }
+                let v1 = self.get_v1(rule, &msg).await?;
+                let v2 = self.get_v2(rule, &msg).await?;
+                if rule.operator.apply(&from_value, &v1, &v2, rule.case, &[])? {
+                    envelopes.push(Envelope { port, msg: orig_msg.clone() });
+                    matched = true;
                     if !self.config.check_all {
                         break;
                     }
-                    continue;
                 }
-            }
-            if rule.value2_type == Some(SwitchPropertyType::Prev) {
-                let prev_guard = self.prev_value.read().await;
-                if prev_guard.is_null() {
-                    continue;
-                }
-            }
-            let v1 = self.get_v1(rule, &msg).await?;
-            let v2 = self.get_v2(rule, &msg).await?;
-            if rule.operator.apply(&from_value, &v1, &v2, rule.case, &[])? {
-                envelopes.push(Envelope { port, msg: orig_msg.clone() });
-            }
-
-            if !self.config.check_all {
-                break;
             }
         }
         // Update prev_value
