@@ -1,3 +1,3 @@
 # `edgelink_core`
 
-The core code for EdgeLink project.
+The core code for EdgeLinkd project.

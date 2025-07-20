@@ -1,11 +1,13 @@
-use crate::handlers::web_state::WebState;
-use crate::handlers::*;
-use crate::health::*;
 use axum::{
     Router,
     routing::{get, post},
 };
 use tower_http::cors::{Any, CorsLayer};
+
+use crate::handlers::library::*;
+use crate::handlers::web_state::WebState;
+use crate::handlers::*;
+use crate::health::*;
 
 /// Create Node-RED compatible API routes
 /// These routes directly mimic Node-RED's path structure
@@ -23,6 +25,9 @@ fn create_node_red_api_routes() -> Router {
         .route("/nodes/{module}", get(get_node_module).put(toggle_node_module).delete(uninstall_node_module))
         .route("/nodes/{module}/{set}", get(get_node_set).put(toggle_node_set))
         .route("/nodes/{module}/{set}/messages", get(get_node_set_messages))
+        // Library API (Node-RED compatible)
+        .route("/library/{type}", get(get_library_entries))
+        .route("/library/{type}/{*name}", get(get_library_entry).post(post_library_entry))
         // Plugin management (Node-RED expected paths)
         .route("/plugins", get(get_plugins))
         .route("/plugins/messages", get(get_plugin_messages))

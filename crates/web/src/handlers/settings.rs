@@ -1,5 +1,5 @@
 use crate::handlers::WebState;
-use crate::models::WebServerArgs;
+use crate::models::RedSystemSettings;
 use axum::extract::{Path, Query};
 use axum::{
     Extension,
@@ -36,8 +36,8 @@ pub async fn update_user_settings(
     Ok(Json(payload))
 }
 /// Get system settings
-pub async fn get_settings(Extension(state): Extension<Arc<WebState>>) -> Result<Json<WebServerArgs>, StatusCode> {
-    let settings = state.args.as_ref();
+pub async fn get_settings(Extension(state): Extension<Arc<WebState>>) -> Result<Json<RedSystemSettings>, StatusCode> {
+    let settings = state.red_settings.as_ref();
     Ok(Json(settings.clone()))
 }
 
@@ -123,29 +123,27 @@ async fn generate_plugins_html() -> String {
 }
 
 pub async fn get_theme() -> Result<Json<Value>, StatusCode> {
-    let jd = serde_json::json!(
-        {
-            "page": {
-                "title": "EdgeLink",
-                "favicon": "favicon.ico",
-                "tabicon": {
-                    "icon": "red/images/node-red-icon-black.svg",
-                    "colour": "#8f0000"
-                }
-            },
-            "header": {
-                "title": "EdgeLink",
-                "image": "red/images/node-red.svg"
-            },
-            "asset": {
-                "red": "red/red.min.js",
-                "main": "red/main.min.js",
-                "vendorMonaco": "vendor/monaco/monaco-bootstrap.js"
-            },
-            "themes": []
-        }
-    );
-
+    // Return Node-RED compatible theme list
+    let jd = serde_json::json!({
+        "page": {
+            "title": "EdgeLinkd",
+            "favicon": "favicon.ico",
+            "tabicon": {
+                "icon": "red/images/node-red-icon-black.svg",
+                "colour": "#8f0000"
+            }
+        },
+        "header": {
+            "title": "EdgeLinkd",
+            "image": "red/images/node-red.svg"
+        },
+        "asset": {
+            "red": "red/red.min.js",
+            "main": "red/main.min.js",
+            "vendorMonaco": "vendor/monaco/monaco-bootstrap.js"
+        },
+        "themes": []
+    });
     Ok(Json(jd))
 }
 /// Get plugin messages
@@ -159,8 +157,8 @@ pub async fn get_plugin_messages(Query(params): Query<HashMap<String, String>>) 
         "zh-CN" => serde_json::json!({
             "edgelink": {
                 "plugin": {
-                    "name": "EdgeLink插件",
-                    "description": "EdgeLink核心插件",
+                    "name": "EdgeLinkd 插件",
+                    "description": "EdgeLinkd 核心插件",
                     "version": "版本"
                 }
             }
@@ -168,8 +166,8 @@ pub async fn get_plugin_messages(Query(params): Query<HashMap<String, String>>) 
         _ => serde_json::json!({
             "edgelink": {
                 "plugin": {
-                    "name": "EdgeLink Plugin",
-                    "description": "EdgeLink core plugin",
+                    "name": "EdgeLinkd Plugin",
+                    "description": "EdgeLinkd core plugin",
                     "version": "Version"
                 }
             }

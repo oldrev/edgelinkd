@@ -1,6 +1,7 @@
 pub mod comms;
 pub mod context;
 pub mod flows;
+pub mod library;
 pub mod locales;
 pub mod nodes;
 pub mod settings;

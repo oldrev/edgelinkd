@@ -20,15 +20,15 @@ pub struct WebServer {
 
 impl WebServer {
     pub fn new(static_dir: impl Into<PathBuf>, cancel_token: CancellationToken, cfg: &config::Config) -> Self {
-        let args = match WebServerArgs::load(cfg) {
+        let args = match RedSystemSettings::load(cfg) {
             Ok(a) => Arc::new(a),
             Err(e) => {
                 log::warn!("Failed to load WebServerArgs from config: {e}, using default");
-                Arc::new(WebServerArgs::default())
+                Arc::new(RedSystemSettings::default())
             }
         };
         let web_state = Arc::new(WebState {
-            args,
+            red_settings: args,
             registry: tokio::sync::RwLock::new(None),
             comms: crate::handlers::CommsManager::new(),
             flows_file_path: tokio::sync::RwLock::new(None),

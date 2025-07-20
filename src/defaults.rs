@@ -27,7 +27,7 @@ pub fn create_default_flows_json() -> serde_json::Value {
         "once": false,
         "onceDelay": 0.1,
         "topic": "",
-        "payload": "Hello, EdgeLink!",
+        "payload": "Hello, EdgeLinkd!",
         "payloadType": "date",
         "x": 410,
         "y": 280,

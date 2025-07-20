@@ -26,7 +26,7 @@ pub async fn run_app(cli_args: Arc<CliArgs>) -> edgelink_core::Result<()> {
 
 pub async fn run_app_internal(cli_args: Arc<CliArgs>) -> edgelink_core::Result<()> {
     if cli_args.verbose > 0 {
-        eprintln!("EdgeLink v{} - #{}\n", consts::APP_VERSION, consts::GIT_HASH);
+        eprintln!("EdgeLinkd v{} - #{}\n", consts::APP_VERSION, consts::GIT_HASH);
         eprintln!("Loading configuration...");
     }
 
@@ -37,7 +37,7 @@ pub async fn run_app_internal(cli_args: Arc<CliArgs>) -> edgelink_core::Result<(
         eprintln!("Logging sub-system initialized.\n");
     }
 
-    log::info!("EdgeLink Version={}-#{}", consts::APP_VERSION, consts::GIT_HASH);
+    log::info!("EdgeLinkd Version={}-#{}", consts::APP_VERSION, consts::GIT_HASH);
     log::info!("==========================================================\n");
 
     // Prepare the runtime environment (ensure flows file exists, etc.)
@@ -54,7 +54,7 @@ pub async fn run_app_internal(cli_args: Arc<CliArgs>) -> edgelink_core::Result<(
         ctrl_c_token.cancel();
     });
 
-    log::info!("Starting EdgeLink run-time engine...");
+    log::info!("Starting EdgeLinkd run-time engine...");
     log::info!("Press CTRL+C to terminate.");
 
     // Create the App first to get flows data

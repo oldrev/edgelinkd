@@ -86,9 +86,93 @@ pub struct NodeInfo {
     pub module: Option<String>,
 }
 
+/*
+{
+    "httpNodeRoot": "/",
+    "version": "4.0.9",
+    "context": {
+        "default": "memory0",
+        "stores": [
+            "memory0",
+            "memory1",
+            "file"
+        ]
+    },
+    "codeEditor": {
+        "lib": "monaco",
+        "options": {}
+    },
+    "libraries": [
+        {
+            "id": "local",
+            "label": "editor:library.types.local",
+            "user": false,
+            "icon": "font-awesome/fa-hdd-o"
+        },
+        {
+            "id": "examples",
+            "label": "editor:library.types.examples",
+            "user": false,
+            "icon": "font-awesome/fa-life-ring",
+            "types": [
+                "flows"
+            ],
+            "readOnly": true
+        }
+    ],
+    "flowFilePretty": true,
+    "externalModules": {},
+    "flowEncryptionType": "system",
+    "diagnostics": {
+        "enabled": true,
+        "ui": true
+    },
+    "runtimeState": {
+        "enabled": false,
+        "ui": false
+    },
+    "functionExternalModules": true,
+    "functionTimeout": 0,
+    "tlsConfigDisableLocalFiles": false,
+    "editorTheme": {
+        "palette": {},
+        "projects": {
+            "enabled": false,
+            "workflow": {
+                "mode": "manual"
+            }
+        },
+        "languages": [
+            "de",
+            "en-US",
+            "es-ES",
+            "fr",
+            "ja",
+            "ko",
+            "pt-BR",
+            "ru",
+            "zh-CN",
+            "zh-TW"
+        ]
+    }
+}
+    */
+
+/// Library entry for UI settings
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LibraryEntry {
+    pub id: String,
+    pub label: String,
+    pub user: Option<bool>,
+    pub icon: Option<String>,
+    pub types: Option<Vec<String>>,
+    #[serde(rename = "readOnly")]
+    pub read_only: Option<bool>,
+}
+
 /// System settings
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WebServerArgs {
+pub struct RedSystemSettings {
     pub version: String,
     #[serde(rename = "httpNodeRoot")]
     pub http_node_root: String,
@@ -104,6 +188,7 @@ pub struct WebServerArgs {
     pub editor_theme: EditorTheme,
     pub context: ContextConfig,
     pub logging: LoggingConfig,
+    pub libraries: Vec<LibraryEntry>,
 }
 
 /// Editor theme configuration
@@ -193,7 +278,7 @@ pub struct ApiResponse<T> {
     pub data: T,
 }
 
-impl Default for WebServerArgs {
+impl Default for RedSystemSettings {
     fn default() -> Self {
         Self {
             version: "3.1.0".to_string(),
@@ -205,6 +290,7 @@ impl Default for WebServerArgs {
             editor_theme: EditorTheme::default(),
             context: ContextConfig::default(),
             logging: LoggingConfig::default(),
+            libraries: Vec::<LibraryEntry>::default(),
         }
     }
 }
@@ -217,8 +303,8 @@ impl Default for EditorTheme {
         languages.insert("ja".to_string(), "日本語".to_string());
 
         Self {
-            page: ThemePage { title: "EdgeLink".to_string(), favicon: None, css: None, scripts: None },
-            header: ThemeHeader { title: "EdgeLink".to_string(), url: None, image: None },
+            page: ThemePage { title: "EdgeLinkd".to_string(), favicon: None, css: None, scripts: None },
+            header: ThemeHeader { title: "EdgeLinkd".to_string(), url: None, image: None },
             deploy_button: ThemeDeployButton { button_type: "simple".to_string(), label: None, icon: None },
             menu: ThemeMenu {
                 menu_item_import_library: true,
@@ -246,7 +332,7 @@ impl Default for LoggingConfig {
 }
 
 // Load WebServerArgs from config, fallback to default if not found
-impl WebServerArgs {
+impl RedSystemSettings {
     pub fn load(cfg: &config::Config) -> edgelink_core::Result<Self> {
         match cfg.get::<Self>("web") {
             Ok(res) => Ok(res),

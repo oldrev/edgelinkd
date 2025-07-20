@@ -1,9 +1,9 @@
 use clap::{Parser, Subcommand};
 
 const LONG_ABOUT: &str = r#"
-EdgeLink Daemon Program
+EdgeLinkd Daemon Program
 
-EdgeLink is a Node-RED compatible run-time engine implemented in Rust.
+EdgeLinkd is a Node-RED compatible back-end engine implemented in Rust.
 
 Copyright (C) 2023-TODAY Li Wei and contributors. All rights reserved.
 

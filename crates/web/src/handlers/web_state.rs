@@ -3,7 +3,7 @@ use axum::Router;
 use edgelink_core::runtime::paths;
 
 use crate::handlers::CommsManager;
-use crate::models::WebServerArgs;
+use crate::models::RedSystemSettings;
 use edgelink_core::runtime::engine::Engine;
 use edgelink_core::runtime::engine_events::EngineEvent;
 use edgelink_core::runtime::registry::RegistryHandle;
@@ -23,7 +23,7 @@ pub type FlowEngineRestartCallback = Arc<dyn Fn(PathBuf) -> tokio::task::JoinHan
 ///
 /// Always use `Arc<WebState>` for sharing between handlers and layers.
 pub struct WebState {
-    pub args: Arc<WebServerArgs>,
+    pub red_settings: Arc<RedSystemSettings>,
     pub registry: RwLock<Option<RegistryHandle>>, // Node registry
     pub comms: CommsManager,                      // WebSocket communication manager
     pub flows_file_path: RwLock<Option<PathBuf>>, // Path to the flows.json file
@@ -60,7 +60,7 @@ impl WebState {
     /// Construct a new WebState wrapped in Arc for use everywhere.
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
-            args: Arc::new(WebServerArgs::default()),
+            red_settings: Arc::new(RedSystemSettings::default()),
             registry: RwLock::new(None), // No registry by default, needs to be set later
             comms: CommsManager::new(),  // Create WebSocket communication manager
             flows_file_path: RwLock::new(None), // No flows file path by default
