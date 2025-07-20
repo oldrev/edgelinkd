@@ -14,3 +14,6 @@ memory2 = { provider = "memory" }
 
 [runtime.flow]
 node_msg_queue_capacity = 16
+
+[runtime.nodes.file]
+working_directory = "../resources/file-out-node"

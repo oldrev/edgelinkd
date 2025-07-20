@@ -30,14 +30,14 @@ pub type FlowNodeTask = tokio::task::JoinHandle<()>;
 pub type NodeCandidates = SmallVec<[(usize, Arc<dyn FlowNodeBehavior>); 8]>;
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct FlowArgs {
+pub struct FlowSettings {
     pub node_msg_queue_capacity: usize,
 }
 
-impl FlowArgs {
-    pub fn load(cfg: Option<&config::Config>) -> crate::Result<Self> {
-        match cfg {
-            Some(cfg) => match cfg.get::<Self>("runtime.flow") {
+impl FlowSettings {
+    pub fn load(settings: Option<&config::Config>) -> crate::Result<Self> {
+        match settings {
+            Some(settings) => match settings.get::<Self>("runtime.flow") {
                 Ok(res) => Ok(res),
                 Err(config::ConfigError::NotFound(_)) => Ok(Self::default()),
                 Err(e) => Err(e.into()),
@@ -47,7 +47,7 @@ impl FlowArgs {
     }
 }
 
-impl Default for FlowArgs {
+impl Default for FlowSettings {
     fn default() -> Self {
         Self { node_msg_queue_capacity: 16 }
     }
@@ -93,7 +93,7 @@ struct InnerFlow {
     parent: Option<ElementId>,
     label: String,
     disabled: bool,
-    _args: FlowArgs,
+    _args: FlowSettings,
     ordering: usize,
     type_str: &'static str,
 
@@ -251,7 +251,7 @@ impl Flow {
         let envs = envs_builder.build();
 
         let context = engine.get_context_manager().new_context(engine.context(), flow_config.id.to_string());
-        let args = FlowArgs::load(options)?;
+        let args = FlowSettings::load(options)?;
 
         let inner_flow = InnerFlow {
             id: flow_config.id,
@@ -323,7 +323,7 @@ impl Flow {
         flow_config: &RedFlowConfig,
         reg: &dyn Registry,
         engine: &Engine,
-        options: Option<&config::Config>,
+        settings: Option<&config::Config>,
     ) -> crate::Result<()> {
         // Adding nodes
         for node_config in flow_config.nodes.iter() {
@@ -376,7 +376,7 @@ impl Flow {
                         }
                     }
 
-                    match factory(self, node_state, node_config, options) {
+                    match factory(self, node_state, node_config, settings) {
                         Ok(node) => {
                             log::debug!("------ The node {node} has been built.");
                             node

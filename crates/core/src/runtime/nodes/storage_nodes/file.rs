@@ -1,9 +1,9 @@
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
+use tokio::fs::OpenOptions;
+use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 
 use crate::runtime::flow::Flow;
@@ -11,15 +11,68 @@ use crate::runtime::model::*;
 use crate::runtime::nodes::*;
 use edgelink_macro::*;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileNodeSettings {
+    #[serde()]
+    pub working_directory: PathBuf,
+}
+
+impl FileNodeSettings {
+    pub fn load(settings: Option<&config::Config>) -> crate::Result<Self> {
+        match settings {
+            Some(settings) => match settings.get::<Self>("runtime.nodes.file") {
+                Ok(res) => Ok(res),
+                Err(config::ConfigError::NotFound(_)) => {
+                    Ok(Self { working_directory: std::env::temp_dir().join("file-node") })
+                }
+                Err(e) => Err(e.into()),
+            },
+            _ => Ok(Self { working_directory: std::env::temp_dir().join("file-node") }), // FIXME
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum OverwriteFile {
-    #[serde(rename = "false")]
     #[default]
     False,
-    #[serde(rename = "true")]
+
     True,
-    #[serde(rename = "delete")]
+
     Delete,
+}
+
+impl<'de> Deserialize<'de> for OverwriteFile {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct Visitor;
+        impl<'de> serde::de::Visitor<'de> for Visitor {
+            type Value = OverwriteFile;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str(r#""true", "false", "delete", true, or false"#)
+            }
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match v {
+                    "true" => Ok(OverwriteFile::True),
+                    "false" => Ok(OverwriteFile::False),
+                    "delete" => Ok(OverwriteFile::Delete),
+                    _ => Err(E::custom(format!("invalid string for OverwriteFile: {}", v))),
+                }
+            }
+            fn visit_bool<E>(self, v: bool) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(if v { OverwriteFile::True } else { OverwriteFile::False })
+            }
+        }
+        deserializer.deserialize_any(Visitor)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
@@ -41,18 +94,21 @@ enum FileEncoding {
 struct FileNodeConfig {
     #[serde(default = "default_filename")]
     filename: String,
+
     #[serde(default = "default_filename_type")]
     #[serde(rename = "filenameType")]
     filename_type: String,
-    #[serde(default)]
+
     #[serde(rename = "appendNewline")]
-    append_newline: bool,
-    #[serde(default)]
+    append_newline: RedBool,
+
     #[serde(rename = "overwriteFile")]
     overwrite_file: OverwriteFile,
-    #[serde(default)]
+
+    #[serde(default = "default_create_dir")]
     #[serde(rename = "createDir")]
-    create_dir: bool,
+    create_dir: RedBool,
+
     #[serde(default)]
     encoding: FileEncoding,
 }
@@ -65,6 +121,10 @@ fn default_filename_type() -> String {
     "str".to_string()
 }
 
+fn default_create_dir() -> RedBool {
+    RedBool(false)
+}
+
 #[derive(Debug)]
 #[flow_node("file", red_name = "file")]
 pub struct FileNode {
@@ -72,6 +132,7 @@ pub struct FileNode {
     config: FileNodeConfig,
     #[allow(dead_code)]
     state: Mutex<()>,
+    settings: FileNodeSettings,
 }
 
 impl FileNode {
@@ -79,37 +140,65 @@ impl FileNode {
         _flow: &Flow,
         base_node: BaseFlowNodeState,
         config: &RedFlowNodeConfig,
-        _options: Option<&config::Config>,
+        settings: Option<&config::Config>,
     ) -> crate::Result<Box<dyn FlowNodeBehavior>> {
         let file_config = FileNodeConfig::deserialize(&config.rest)?;
-        let node = FileNode { base: base_node, config: file_config, state: Mutex::new(()) };
+        let node = FileNode {
+            base: base_node,
+            config: file_config,
+            state: Mutex::new(()),
+            settings: FileNodeSettings::load(settings)?,
+        };
         Ok(Box::new(node))
     }
 
     fn get_filename(&self, msg: &Msg) -> Option<String> {
-        match self.config.filename_type.as_str() {
-            "msg" => {
-                // 从消息中获取文件名
-                let prop = if self.config.filename.is_empty() { "filename" } else { &self.config.filename };
-                if let Some(Variant::String(s)) = msg.get(prop) {
-                    if !s.is_empty() {
-                        return Some(s.clone());
-                    }
-                }
-                None
-            }
-            "env" => {
-                // 从环境变量获取文件名
-                if !self.config.filename.is_empty() { std::env::var(&self.config.filename).ok() } else { None }
-            }
-            _ => {
-                // 静态文件名
-                if !self.config.filename.is_empty() { Some(self.config.filename.clone()) } else { None }
+        // Node-RED compatibility: in-place upgrade if filenameType is empty
+        let mut filename_type = self.config.filename_type.as_str();
+        let mut filename = self.config.filename.as_str();
+        if filename_type.is_empty() {
+            if filename.is_empty() {
+                filename_type = "msg";
+                filename = "filename";
+            } else {
+                filename_type = "str";
             }
         }
+
+        let value = match filename_type {
+            "msg" => {
+                // Get filename from message
+                let prop = if filename.is_empty() { "filename" } else { filename };
+                if let Some(Variant::String(s)) = msg.get(prop) {
+                    if !s.is_empty() { Some(s.clone()) } else { None }
+                } else {
+                    None
+                }
+            }
+            "env" => {
+                // Get filename from environment variable
+                if !filename.is_empty() { std::env::var(filename).ok() } else { None }
+            }
+            _ => {
+                // Static filename
+                if !filename.is_empty() { Some(filename.to_string()) } else { None }
+            }
+        };
+
+        // Node-RED: resolve relative path with fileWorkingDirectory if present
+        if let Some(ref fname) = value {
+            if !fname.is_empty() && !std::path::Path::new(fname).is_absolute() {
+                // Try to get fileWorkingDirectory from settings (if available)
+                let mut pb = std::path::PathBuf::from(&self.settings.working_directory);
+                pb.push(fname);
+                return Some(pb.to_string_lossy().to_string());
+            }
+            return Some(fname.clone());
+        }
+        None
     }
 
-    fn encode_data(&self, data: &str, encoding: FileEncoding) -> Vec<u8> {
+    fn _encode_data(&self, data: &str, encoding: FileEncoding) -> Vec<u8> {
         match encoding {
             FileEncoding::None | FileEncoding::Utf8 => data.as_bytes().to_vec(),
             FileEncoding::Base64 => {
@@ -123,46 +212,25 @@ impl FileNode {
 
     async fn do_write(&self, filename: &str, payload: &Variant, append: bool, msg: &Msg) -> crate::Result<()> {
         let path = PathBuf::from(filename);
-        if self.config.create_dir {
+        if *self.config.create_dir {
             if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)?;
+                tokio::fs::create_dir_all(parent).await?;
             }
         }
 
-        // 准备数据
-        let mut data_str = match payload {
-            Variant::String(s) => s.clone(),
-            Variant::Number(n) => n.to_string(),
-            Variant::Bool(b) => b.to_string(),
-            Variant::Bytes(bytes) => String::from_utf8_lossy(bytes).to_string(),
-            Variant::Object(_) | Variant::Array(_) => serde_json::to_string(payload).unwrap_or_else(|_| String::new()),
-            _ => String::new(),
+        // Prepare data (Node-RED: object/array -> JSON, bool/number -> string, bytes -> as-is)
+        let data_bytes: Vec<u8> = match payload {
+            Variant::String(s) => s.as_bytes().to_vec(),
+            Variant::Number(n) => n.to_string().as_bytes().to_vec(),
+            Variant::Bool(b) => b.to_string().as_bytes().to_vec(),
+            Variant::Bytes(bytes) => bytes.clone(),
+            Variant::Object(_) | Variant::Array(_) => {
+                serde_json::to_string(payload).unwrap_or_default().as_bytes().to_vec()
+            }
+            _ => Vec::new(),
         };
 
-        // 添加换行符（如果需要）
-        if self.config.append_newline {
-            // 检查是否是多部分消息的最后一部分
-            let is_last_part = if let Some(Variant::Object(parts)) = msg.get("parts") {
-                if let (Some(Variant::Number(index)), Some(Variant::Number(count))) =
-                    (parts.get("index"), parts.get("count"))
-                {
-                    if let (Some(idx), Some(cnt)) = (index.as_u64(), count.as_u64()) { idx == cnt - 1 } else { true }
-                } else {
-                    true
-                }
-            } else {
-                true
-            };
-
-            if !is_last_part {
-                #[cfg(target_os = "windows")]
-                data_str.push_str("\r\n");
-                #[cfg(not(target_os = "windows"))]
-                data_str.push('\n');
-            }
-        }
-
-        // 确定编码
+        // Encoding (Node-RED: encoding can be set by msg or config)
         let encoding = if matches!(self.config.encoding, FileEncoding::SetByMsg) {
             if let Some(Variant::String(enc)) = msg.get("encoding") {
                 match enc.as_str() {
@@ -178,9 +246,42 @@ impl FileNode {
             self.config.encoding
         };
 
-        let bytes = self.encode_data(&data_str, encoding);
+        // If encoding is not none, encode accordingly
+        let encoded_bytes = match encoding {
+            FileEncoding::None | FileEncoding::Utf8 => data_bytes.clone(),
+            FileEncoding::Base64 => {
+                use base64::{Engine as _, engine::general_purpose};
+                general_purpose::STANDARD.decode(&data_bytes).unwrap_or(data_bytes.clone())
+            }
+            FileEncoding::Binary => data_bytes.clone(),
+            FileEncoding::SetByMsg => data_bytes.clone(),
+        };
 
-        // 写入文件
+        // Append newline if needed (Node-RED: only if not last part for multipart)
+        let mut final_bytes = encoded_bytes;
+        let append_newline = self.config.append_newline;
+        if *append_newline {
+            // Check multipart: only append newline if not last part
+            let is_last_part = if let Some(Variant::Object(parts)) = msg.get("parts") {
+                if let (Some(Variant::Number(index)), Some(Variant::Number(count))) =
+                    (parts.get("index"), parts.get("count"))
+                {
+                    if let (Some(idx), Some(cnt)) = (index.as_u64(), count.as_u64()) { idx == cnt - 1 } else { true }
+                } else {
+                    true
+                }
+            } else {
+                true
+            };
+            if !is_last_part {
+                #[cfg(target_os = "windows")]
+                final_bytes.extend_from_slice(b"\r\n");
+                #[cfg(not(target_os = "windows"))]
+                final_bytes.push(b'\n');
+            }
+        }
+
+        // Write to file (async)
         let mut options = OpenOptions::new();
         options.write(true).create(true);
         if append {
@@ -189,14 +290,14 @@ impl FileNode {
             options.truncate(true);
         }
 
-        let mut file = options.open(&path)?;
-        file.write_all(&bytes)?;
-        file.flush()?;
+        let mut file = options.open(&path).await?;
+        file.write_all(&final_bytes).await?;
+        file.flush().await?;
         Ok(())
     }
 
     async fn do_delete(&self, filename: &str) -> crate::Result<()> {
-        std::fs::remove_file(filename)?;
+        tokio::fs::remove_file(filename).await?;
         Ok(())
     }
 }
@@ -211,6 +312,9 @@ impl FlowNodeBehavior for FileNode {
         while !stop_token.is_cancelled() {
             let node = self.clone();
             with_uow(node.as_ref(), stop_token.clone(), |node, msg| async move {
+                // Node-RED: queue/serialize file operations using Mutex
+                let _guard = node.state.lock().await;
+
                 let filename = {
                     let msg_guard = msg.read().await;
                     node.get_filename(&msg_guard)
@@ -225,11 +329,13 @@ impl FlowNodeBehavior for FileNode {
                 };
 
                 // 根据 overwrite_file 字段决定操作
+                let mut error_variant: Option<Variant> = None;
                 match node.config.overwrite_file {
                     OverwriteFile::Delete => {
                         // 删除文件
                         if let Err(e) = node.do_delete(&filename).await {
                             log::error!("FileNode: Delete error: {e}");
+                            error_variant = Some(Variant::String(format!("Delete error: {e}")));
                         } else {
                             log::debug!("FileNode: Deleted file: {filename}");
                         }
@@ -240,6 +346,7 @@ impl FlowNodeBehavior for FileNode {
                         if let Some(payload) = msg_guard.get("payload") {
                             if let Err(e) = node.do_write(&filename, payload, false, &msg_guard).await {
                                 log::error!("FileNode: Write error: {e}");
+                                error_variant = Some(Variant::String(format!("Write error: {e}")));
                             }
                         }
                     }
@@ -249,12 +356,19 @@ impl FlowNodeBehavior for FileNode {
                         if let Some(payload) = msg_guard.get("payload") {
                             if let Err(e) = node.do_write(&filename, payload, true, &msg_guard).await {
                                 log::error!("FileNode: Append error: {e}");
+                                error_variant = Some(Variant::String(format!("Append error: {e}")));
                             }
                         }
                     }
                 }
 
-                // 传递消息到下一个节点
+                // Node-RED: on error, optionally pass error in message
+                if let Some(err) = error_variant {
+                    let mut msg_guard = msg.write().await;
+                    msg_guard.set("error".into(), err);
+                }
+
+                // Always forward the message (Node-RED always calls nodeSend)
                 node.fan_out_one(Envelope { port: 0, msg }, CancellationToken::new()).await
             })
             .await;

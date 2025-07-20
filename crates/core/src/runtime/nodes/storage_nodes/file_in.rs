@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
-use std::fs::File;
-use std::io::{BufRead, BufReader, Read};
 use std::sync::Arc;
 
 use serde::Deserialize;
 use serde_json::Number;
+use tokio::fs::File;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::sync::Mutex;
 
 use crate::runtime::flow::Flow;
@@ -128,9 +128,9 @@ impl FileInNode {
     }
 
     async fn read_file_utf8(&self, filename: &str, _msg: &Msg) -> crate::Result<Variant> {
-        let mut file = File::open(filename)?;
+        let mut file = File::open(filename).await?;
         let mut buf = Vec::new();
-        file.read_to_end(&mut buf)?;
+        file.read_to_end(&mut buf).await?;
 
         match self.config.format {
             FileFormat::Utf8 => {
@@ -146,13 +146,15 @@ impl FileInNode {
     }
 
     async fn read_file_lines(&self, filename: &str, msg: &Msg) -> crate::Result<Vec<Msg>> {
-        let file = File::open(filename)?;
+        let file = File::open(filename).await?;
         let reader = BufReader::new(file);
+        let mut lines = reader.lines();
         let mut messages = Vec::new();
         let msg_id = msg.get("_msgid").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let mut index = 0;
 
-        for (index, line_result) in reader.lines().enumerate() {
-            let line = line_result?;
+        while let Some(line_result) = lines.next_line().await? {
+            let line = line_result;
             let mut new_msg = if self.config.all_props {
                 msg.clone()
             } else {
@@ -177,6 +179,7 @@ impl FileInNode {
             });
 
             messages.push(new_msg);
+            index += 1;
         }
 
         // 设置最后一条消息的 count
@@ -191,7 +194,7 @@ impl FileInNode {
     }
 
     async fn read_file_stream(&self, filename: &str, msg: &Msg) -> crate::Result<Vec<Msg>> {
-        let mut file = File::open(filename)?;
+        let mut file = File::open(filename).await?;
         let mut messages = Vec::new();
         let msg_id = msg.get("_msgid").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let chunk_size = 64 * 1024; // 64KB chunks
@@ -199,7 +202,7 @@ impl FileInNode {
 
         loop {
             let mut buffer = vec![0; chunk_size];
-            let bytes_read = file.read(&mut buffer)?;
+            let bytes_read = file.read(&mut buffer).await?;
 
             if bytes_read == 0 {
                 break;
