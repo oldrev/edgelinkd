@@ -123,7 +123,7 @@ impl XmlNode {
                     if let Some(chr) = &self.config.chr {
                         options.charkey = chr.clone();
                     }
-                    self.convert_object_to_xml(&value, &options)
+                    self.convert_object_to_xml(value, &options)
                 }
                 _ => {
                     log::warn!("XML node expects string or object input, got {value:?}");
@@ -380,8 +380,7 @@ fn xml_to_variant(xml_string: &str, options: &Xml2jsOptions) -> crate::Result<Va
 
                 if open_tag != tag {
                     return Err(EdgelinkError::InvalidOperation(format!(
-                        "Mismatched tag: expected </{}> got </{}>",
-                        open_tag, tag
+                        "Mismatched tag: expected </{open_tag}> got </{tag}>"
                     ))
                     .into());
                 }
@@ -391,14 +390,12 @@ fn xml_to_variant(xml_string: &str, options: &Xml2jsOptions) -> crate::Result<Va
 
                     if options.explicit_charkey {
                         obj.insert(options.charkey.clone(), text);
+                    } else if obj.is_empty() {
+                        insert_variant_value(&mut stack, &tag, text, options);
+                        text_buf.clear();
+                        continue;
                     } else {
-                        if obj.is_empty() {
-                            insert_variant_value(&mut stack, &tag, text, options);
-                            text_buf.clear();
-                            continue;
-                        } else {
-                            obj.insert(options.charkey.clone(), text);
-                        }
+                        obj.insert(options.charkey.clone(), text);
                     }
                 }
 
@@ -408,7 +405,7 @@ fn xml_to_variant(xml_string: &str, options: &Xml2jsOptions) -> crate::Result<Va
             }
 
             Ok(Event::Eof) => break,
-            Err(e) => return Err(EdgelinkError::InvalidOperation(format!("XML parse error: {}", e)).into()),
+            Err(e) => return Err(EdgelinkError::InvalidOperation(format!("XML parse error: {e}")).into()),
             _ => {}
         }
     }

@@ -107,7 +107,7 @@ async fn start_web_server(
         })
     });
 
-    let web_server = WebServer::new(static_dir, cancel.clone(), &cfg)
+    let web_server = WebServer::new(static_dir, cancel.clone(), cfg)
         .with_registry(app.registry().clone())
         .await
         .with_flows_file_path(flows_path)

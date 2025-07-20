@@ -18,7 +18,7 @@ impl EdgelinkEnv {
             .ok()
             .and_then(|p| p.parent().map(|d| d.to_path_buf()))
             .and_then(|d| d.to_str().map(|s| s.to_string()))
-            .unwrap_or_else(|| "".to_string());
+            .unwrap_or_default();
         let ui_static_dir = OnceCell::from(Self::calc_ui_static_dir(&exe_dir));
         Self { config, exe_dir, ui_static_dir }
     }

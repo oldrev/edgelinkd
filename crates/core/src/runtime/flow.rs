@@ -27,6 +27,7 @@ use crate::runtime::registry::Registry;
 const NODE_MSG_CHANNEL_CAPACITY: usize = 32;
 
 pub type FlowNodeTask = tokio::task::JoinHandle<()>;
+pub type NodeCandidates = SmallVec<[(usize, Arc<dyn FlowNodeBehavior>); 8]>;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct FlowArgs {
@@ -440,8 +441,6 @@ impl Flow {
                     Ordering::Greater
                 } else if !a.scope.as_bool() && b.scope.as_bool() {
                     Ordering::Less
-                } else if a.scope.as_bool() && b.scope.as_bool() {
-                    Ordering::Equal
                 } else {
                     Ordering::Equal
                 }
@@ -716,12 +715,12 @@ impl Flow {
         cancel: CancellationToken,
     ) -> crate::Result<()> {
         let status_nodes = self.inner.status_nodes.read().expect("`status_nodes` read lock").clone();
-        let candidates = self.find_candidate_nodes::<StatusNode>(node, reporting_node.clone(), &status_nodes)?;
+        let candidates = self.find_candidate_nodes::<StatusNode>(node, reporting_node, &status_nodes)?;
 
         for candidate in candidates.iter() {
             let status_node = candidate.1.as_any().downcast_ref::<StatusNode>().unwrap();
             // TODO FIXME
-            let mut status_jv = serde_json::json!({ "status":  serde_json::to_value(&status_obj)? });
+            let mut status_jv = serde_json::json!({ "status":  serde_json::to_value(status_obj)? });
             status_jv["status"]["source"] = serde_json::json!({
                     "id": node.id(),
                     "type": node.type_str().to_string(),
@@ -742,7 +741,7 @@ impl Flow {
         cancel: CancellationToken,
     ) -> crate::Result<bool> {
         let catch_nodes = self.inner.catch_nodes.read().expect("`catch_nodes` read lock").clone();
-        let candidates = self.find_candidate_nodes::<CatchNode>(node, reporting_node.clone(), &catch_nodes)?;
+        let candidates = self.find_candidate_nodes::<CatchNode>(node, reporting_node, &catch_nodes)?;
         /*
         let mut candidates = SmallVec::<[(usize, Arc<dyn FlowNodeBehavior>); 8]>::new();
         {
@@ -835,7 +834,7 @@ impl Flow {
         node: &dyn FlowNodeBehavior,
         reporting_node: Option<&dyn FlowNodeBehavior>,
         scoped_nodes: &Vec<Arc<dyn FlowNodeBehavior>>,
-    ) -> crate::Result<SmallVec<[(usize, Arc<dyn FlowNodeBehavior>); 8]>>
+    ) -> crate::Result<NodeCandidates>
     where
         TScopedNode: FlowNodeBehavior + ScopedNodeBehavior + 'static,
     {

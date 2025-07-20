@@ -73,7 +73,7 @@ impl TcpGetNode {
         let status = StatusObject {
             fill: Some(crate::runtime::nodes::StatusFill::Green),
             shape: Some(crate::runtime::nodes::StatusShape::Dot),
-            text: Some(if let Some(c) = count { format!("{}: {}", text, c) } else { text }),
+            text: Some(if let Some(c) = count { format!("{text}: {c}") } else { text }),
         };
         use crate::runtime::nodes::FlowNodeBehavior;
         FlowNodeBehavior::report_status(self, status, stop_token.clone()).await;
@@ -534,12 +534,9 @@ impl TcpGetNode {
                                         .fan_out_one(Envelope { port: 0, msg: response_msg }, stop_token.clone())
                                         .await;
                                 }
-                            } else {
-                                if let Some((msg, stop_token)) = pending_msgs.last() {
-                                    let _ = node
-                                        .fan_out_one(Envelope { port: 0, msg: msg.clone() }, stop_token.clone())
-                                        .await;
-                                }
+                            } else if let Some((msg, stop_token)) = pending_msgs.last() {
+                                let _ =
+                                    node.fan_out_one(Envelope { port: 0, msg: msg.clone() }, stop_token.clone()).await;
                             }
                         }
                         Err(e) => {
