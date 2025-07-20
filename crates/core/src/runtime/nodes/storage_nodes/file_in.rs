@@ -93,7 +93,6 @@ impl FileInNode {
     fn get_filename(&self, msg: &Msg) -> Option<String> {
         match self.config.filename_type.as_str() {
             "msg" => {
-                // 从消息中获取文件名
                 let prop = if self.config.filename.is_empty() { "filename" } else { &self.config.filename };
                 if let Some(Variant::String(s)) = msg.get(prop) {
                     if !s.is_empty() {
@@ -103,12 +102,18 @@ impl FileInNode {
                 None
             }
             "env" => {
-                // 从环境变量获取文件名
-                if !self.config.filename.is_empty() { std::env::var(&self.config.filename).ok() } else { None }
+                if !self.config.filename.is_empty() {
+                    std::env::var(&self.config.filename).ok()
+                } else {
+                    None
+                }
             }
             _ => {
-                // 静态文件名
-                if !self.config.filename.is_empty() { Some(self.config.filename.clone()) } else { None }
+                if !self.config.filename.is_empty() {
+                    Some(self.config.filename.clone())
+                } else {
+                    None
+                }
             }
         }
     }
@@ -120,10 +125,7 @@ impl FileInNode {
                 use base64::{Engine as _, engine::general_purpose};
                 general_purpose::STANDARD.encode(data)
             }
-            FileEncoding::Binary => {
-                // 对于二进制格式，我们返回原始数据的字符串表示
-                String::from_utf8_lossy(data).to_string()
-            }
+            FileEncoding::Binary => String::from_utf8_lossy(data).to_string(),
         }
     }
 
@@ -270,8 +272,15 @@ impl FlowNodeBehavior for FileInNode {
                     }
                 };
 
-                // 设置状态显示
-                // TODO: 实现状态显示逻辑
+                node.report_status(
+                    StatusObject {
+                        fill: Some(crate::runtime::nodes::StatusFill::Grey),
+                        shape: Some(crate::runtime::nodes::StatusShape::Dot),
+                        text: Some(filename.clone()),
+                    },
+                    CancellationToken::new(),
+                )
+                .await;
 
                 let result = match node.config.format {
                     FileFormat::Lines => {
@@ -295,6 +304,11 @@ impl FlowNodeBehavior for FileInNode {
 
                 match result {
                     Ok(messages) => {
+                        node.report_status(
+                            StatusObject { fill: None, shape: None, text: None },
+                            CancellationToken::new(),
+                        )
+                        .await;
                         for output_msg in messages {
                             let envelope = Envelope { port: 0, msg: MsgHandle::new(output_msg) };
                             node.fan_out_one(envelope, CancellationToken::new()).await?;
@@ -302,6 +316,16 @@ impl FlowNodeBehavior for FileInNode {
                     }
                     Err(e) => {
                         log::warn!("FileInNode: Read error: {e}");
+
+                        node.report_status(
+                            StatusObject {
+                                fill: Some(crate::runtime::nodes::StatusFill::Red),
+                                shape: Some(crate::runtime::nodes::StatusShape::Dot),
+                                text: Some(format!("{e}")),
+                            },
+                            CancellationToken::new(),
+                        )
+                        .await;
 
                         if node.config.send_error {
                             let mut error_msg = {
