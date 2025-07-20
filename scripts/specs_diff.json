@@ -89,7 +89,7 @@
             ]
         ]
     },
-   {
+    {
         "category": "network nodes",
         "nodes": [
             [
@@ -104,7 +104,7 @@
             ]
         ]
     },
-   {
+    {
         "category": "parser nodes",
         "nodes": [
             [
@@ -126,6 +126,16 @@
                 "yaml node",
                 "nodes/parsers/test_yaml_node.py",
                 "test/nodes/core/parsers/70-YAML_spec.js"
+            ]
+        ]
+    },
+    {
+        "category": "storage nodes",
+        "nodes": [
+            [
+                "file node",
+                "nodes/storage/test_file_node.py",
+                "test/nodes/core/storage/10-file_spec.js"
             ]
         ]
     },
