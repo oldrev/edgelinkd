@@ -1,3 +1,8 @@
+use crate::runtime::flow::Flow;
+use crate::runtime::model::*;
+use crate::runtime::nodes::{with_uow, *};
+use edgelink_macro::*;
+use mustache::{Data, MapBuilder};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -5,10 +10,8 @@ use tokio::sync::Mutex;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
-use crate::runtime::flow::Flow;
-use crate::runtime::model::*;
-use crate::runtime::nodes::{with_uow, *};
-use edgelink_macro::*;
+#[cfg(test)]
+mod tests;
 
 #[derive(Debug)]
 struct TriggerEvent {
@@ -305,30 +308,32 @@ impl TriggerNode {
     }
 
     async fn handle_message(self: Arc<Self>, msg: MsgHandle, cancel: CancellationToken) -> crate::Result<()> {
-        // 1. 解析 topic 和其他消息属性
+        // 1. 解析 topic 和其他消息属性，确保与 Node-RED JS 行为一致
         let (topic, original_payload, is_reset, delay_override) = {
             let msg_guard = msg.read().await;
+            // Node-RED JS: topic = RED.util.getMessageProperty(msg, node.topic) || "_none"
             let topic = if self.config.by_topic == ByTopic::Topic {
-                msg_guard.get(&self.config.topic).and_then(|v| v.as_str()).unwrap_or("_none").to_string()
+                let t = msg_guard.get(&self.config.topic).and_then(|v| v.as_str());
+                match t {
+                    Some(s) if !s.is_empty() => s.to_string(),
+                    _ => "_none".to_string(),
+                }
             } else {
                 "_none".to_string()
             };
             let original_payload = msg_guard.get("payload").cloned();
 
-            // Check for reset condition
+            // Node-RED JS: msg.reset 或 payload == reset
             let is_reset = msg_guard.contains("reset")
                 || (!self.config.reset.is_empty() && {
                     if let Some(payload) = msg_guard.get("payload") {
                         match payload {
                             Variant::String(s) => s == &self.config.reset,
-                            Variant::Bool(b) => {
-                                // Handle boolean reset values
-                                match self.config.reset.as_str() {
-                                    "true" => *b,
-                                    "false" => !*b,
-                                    _ => false,
-                                }
-                            }
+                            Variant::Bool(b) => match self.config.reset.as_str() {
+                                "true" => *b,
+                                "false" => !*b,
+                                _ => false,
+                            },
                             _ => false,
                         }
                     } else {
@@ -346,7 +351,7 @@ impl TriggerNode {
 
         let mut mut_state = self.mut_state.lock().await;
 
-        // Handle reset
+        // 2. reset 逻辑
         if is_reset {
             if let Some(event) = mut_state.events.remove(&topic) {
                 event.cancel_token.cancel();
@@ -354,46 +359,33 @@ impl TriggerNode {
             return Ok(());
         }
 
-        // Check if we should block this message
+        // 3. 阻断逻辑：已有定时器且 extend=false 时丢弃新消息
         let should_block = mut_state.events.contains_key(&topic) && !self.config.extend;
         if should_block {
             return Ok(());
         }
 
-        // If extending, cancel previous timer for this topic
+        // 4. extend=true 时，先取消旧定时器
         if self.config.extend {
             if let Some(event) = mut_state.events.remove(&topic) {
                 event.cancel_token.cancel();
             }
         }
 
-        // 立即输出 op1 (if not null type)
-        if self.config.op1_type != PayloadType::Null {
-            let op1_payload =
-                self.config.get_payload_value(self.config.op1_type, &self.config.op1, original_payload.as_ref());
-            if let Some(payload) = op1_payload {
-                // Create new message for op1 output
-                let new_msg_data = {
-                    let msg_guard = msg.read().await;
-                    msg_guard.as_variant_object().clone()
-                };
-                let mut new_msg_data = new_msg_data;
-                new_msg_data.insert("payload".to_string(), payload);
-                let op1_msg = MsgHandle::with_properties(new_msg_data);
-                self.fan_out_one(Envelope { port: 0, msg: op1_msg }, cancel.clone()).await?;
-            }
-        }
-
-        // 启动定时器输出 op2 (if not null type and duration > 0)
-        let duration_ms = if let Some(override_val) = delay_override {
-            override_val * 1000.0 // delay override is in seconds
+        // 6. 循环模式（loop）：duration < 0
+        let mut loop_mode = false;
+        let mut duration_ms = if let Some(override_val) = delay_override {
+            override_val * 1000.0
         } else {
             self.config.get_duration_in_ms()
         };
+        if duration_ms < 0.0 {
+            loop_mode = true;
+            duration_ms = -duration_ms;
+        }
 
-        if duration_ms > 0.0 && self.config.op2_type != PayloadType::Null {
-            let delay_duration = std::time::Duration::from_millis(duration_ms as u64);
-
+        // 7. 先插入阻断事件（非循环模式且duration>0）
+        if duration_ms > 0.0 && !loop_mode {
             let node = Arc::clone(&self);
             let cancel_clone = cancel.clone();
             let op2_type = self.config.op2_type;
@@ -401,44 +393,46 @@ impl TriggerNode {
             let op2_payload_original = original_payload.clone();
             let outputs = self.config.outputs;
             let topic_clone = topic.clone();
-
-            // Collect message data for timer task instead of cloning the message
             let msg_data = {
                 let msg_guard = msg.read().await;
-                msg_guard.as_variant_object().clone() // Get all message data
+                msg_guard.as_variant_object().clone()
             };
-
-            // Remove timer_msg creation, will create new message in timer task
-
+            let msg_for_template = {
+                let msg_guard = msg.read().await;
+                msg_guard.clone()
+            };
             let token = CancellationToken::new();
             let child_token = token.child_token();
-
-            // Spawn timer task using JoinSet, following link_call.rs pattern
+            let is_null = self.config.op2_type == PayloadType::Null;
             let _task_handle = mut_state.tasks.spawn(async move {
                 tokio::select! {
-                    _ = tokio::time::sleep(delay_duration) => {
-                        let op2_payload = node.config.get_payload_value(
-                            op2_type,
-                            &op2_value,
-                            op2_payload_original.as_ref(),
-                        );
-                        if let Some(payload) = op2_payload {
-                            let mut new_msg_data = msg_data.clone();
-                            new_msg_data.insert("payload".to_string(), payload);
-                            let timer_msg = MsgHandle::with_properties(new_msg_data);
-                            let output_port = if outputs > 1 { 1 } else { 0 };
-                            let _ = node.fan_out_one(Envelope { port: output_port, msg: timer_msg }, cancel_clone).await;
+                    _ = tokio::time::sleep(std::time::Duration::from_millis(duration_ms as u64)) => {
+                        if !is_null {
+                            let op2_payload = if op2_type == PayloadType::String && op2_value.contains("{{") {
+                                match render_mustache_template(&op2_value, &msg_for_template) {
+                                    Ok(rendered) => Some(Variant::String(rendered)),
+                                    Err(_) => Some(Variant::String(op2_value.clone())),
+                                }
+                            } else {
+                                node.config.get_payload_value(op2_type, &op2_value, op2_payload_original.as_ref())
+                            };
+                            if let Some(payload) = op2_payload {
+                                let mut new_msg_data = msg_data.clone();
+                                new_msg_data.insert("payload".to_string(), payload);
+                                let timer_msg = MsgHandle::with_properties(new_msg_data);
+                                let output_port = if outputs > 1 { 1 } else { 0 };
+                                let _ = node.fan_out_one(Envelope { port: output_port, msg: timer_msg }, cancel_clone).await;
+                            }
                         }
-                        // 清理 topic 状态
+                        // 清理 topic
                         let mut mut_state = node.mut_state.lock().await;
                         mut_state.events.remove(&topic_clone);
                     }
                     _ = child_token.cancelled() => {
-                        // 被取消，无需处理
+                        // do nothing
                     }
                 }
             });
-
             mut_state.events.insert(
                 topic.clone(),
                 TriggerEvent {
@@ -450,6 +444,82 @@ impl TriggerNode {
                     },
                 },
             );
+        }
+
+        // 8. 立即输出 op1（null 类型不输出）
+        if self.config.op1_type != PayloadType::Null {
+            let msg_for_template = {
+                let msg_guard = msg.read().await;
+                msg_guard.clone()
+            };
+            let op1_payload = if self.config.op1_type == PayloadType::String && self.config.op1.contains("{{") {
+                match render_mustache_template(&self.config.op1, &msg_for_template) {
+                    Ok(rendered) => Some(Variant::String(rendered)),
+                    Err(_) => Some(Variant::String(self.config.op1.clone())),
+                }
+            } else {
+                self.config.get_payload_value(self.config.op1_type, &self.config.op1, original_payload.as_ref())
+            };
+            if let Some(payload) = op1_payload {
+                let new_msg_data = {
+                    let msg_guard = msg.read().await;
+                    msg_guard.as_variant_object().clone()
+                };
+                let mut new_msg_data = new_msg_data;
+                new_msg_data.insert("payload".to_string(), payload);
+                let op1_msg = MsgHandle::with_properties(new_msg_data);
+                self.fan_out_one(Envelope { port: 0, msg: op1_msg }, cancel.clone()).await?;
+            }
+        }
+
+        // 9. 循环模式（loop）：interval 模式，定时输出 op1
+        if duration_ms > 0.0 && loop_mode {
+            let node = Arc::clone(&self);
+            let cancel_clone = cancel.clone();
+            let op1_type = self.config.op1_type;
+            let op1_value = self.config.op1.clone();
+            let op1_payload_original = original_payload.clone();
+            let msg_data_loop = {
+                let msg_guard = msg.read().await;
+                msg_guard.as_variant_object().clone()
+            };
+            let msg_for_template = {
+                let msg_guard = msg.read().await;
+                msg_guard.clone()
+            };
+            let topic_loop = topic.clone();
+            let token = CancellationToken::new();
+            let child_token = token.child_token();
+            let _task_handle = mut_state.tasks.spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_millis(duration_ms as u64));
+                loop {
+                    tokio::select! {
+                        _ = interval.tick() => {
+                            let op1_payload = if op1_type == PayloadType::String && op1_value.contains("{{") {
+                                match render_mustache_template(&op1_value, &msg_for_template) {
+                                    Ok(rendered) => Some(Variant::String(rendered)),
+                                    Err(_) => Some(Variant::String(op1_value.clone())),
+                                }
+                            } else {
+                                node.config.get_payload_value(op1_type, &op1_value, op1_payload_original.as_ref())
+                            };
+                            if let Some(payload) = op1_payload {
+                                let mut new_msg_data = msg_data_loop.clone();
+                                new_msg_data.insert("payload".to_string(), payload);
+                                let op1_msg = MsgHandle::with_properties(new_msg_data);
+                                let _ = node.fan_out_one(Envelope { port: 0, msg: op1_msg }, cancel_clone.clone()).await;
+                            }
+                        }
+                        _ = child_token.cancelled() => {
+                            break;
+                        }
+                    }
+                }
+                // 清理 topic
+                let mut mut_state = node.mut_state.lock().await;
+                mut_state.events.remove(&topic_loop);
+            });
+            mut_state.events.insert(topic.clone(), TriggerEvent { cancel_token: token.clone(), _op2_payload: None });
         }
         Ok(())
     }
@@ -469,160 +539,43 @@ impl FlowNodeBehavior for TriggerNode {
             })
             .await;
         }
-        // 关闭时清理所有定时器
+        // Clear all timers
         let mut mut_state = self.mut_state.lock().await;
         mut_state.tasks.abort_all();
         mut_state.events.clear();
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn test_trigger_node_basic() {
-        let flows_json = json!([
-            {"id": "100", "type": "tab"},
-            {"id": "1", "type": "trigger", "z": "100", "wires": [["2"]], "duration": "50"},
-            {"id": "2", "z": "100", "type": "test-once"},
-        ]);
-        let msgs_to_inject_json = json!([
-            ["1", {"payload": null}],
-        ]);
-
-        let engine = crate::runtime::engine::build_test_engine(flows_json).unwrap();
-        let msgs_to_inject = Vec::<(ElementId, Msg)>::deserialize(msgs_to_inject_json).unwrap();
-        let msgs =
-            engine.run_once_with_inject(2, std::time::Duration::from_secs_f64(0.2), msgs_to_inject).await.unwrap();
-
-        assert_eq!(msgs.len(), 2);
-        assert_eq!(msgs[0]["payload"], "1".into());
-        assert_eq!(msgs[1]["payload"], "0".into());
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn test_trigger_node_with_stress() {
-        let flows_json = json!([
-            {"id": "100", "type": "tab"},
-            {"id": "1", "type": "trigger", "z": "100", "wires": [["2"]],
-             "op1": "foo", "op1type": "str", "op2": "bar", "op2type": "str", "duration": "50"},
-            {"id": "2", "z": "100", "type": "test-once"},
-        ]);
-        let msgs_to_inject_json = json!([
-            ["1", {"payload": "test"}],
-        ]);
-
-        for i in 0..10 {
-            eprintln!("TRIGGER TEST ROUND {i}");
-            let engine = crate::runtime::engine::build_test_engine(flows_json.clone()).unwrap();
-            let msgs_to_inject = Vec::<(ElementId, Msg)>::deserialize(msgs_to_inject_json.clone()).unwrap();
-            let msgs =
-                engine.run_once_with_inject(2, std::time::Duration::from_secs_f64(0.2), msgs_to_inject).await.unwrap();
-
-            assert_eq!(msgs.len(), 2);
-            assert_eq!(msgs[0]["payload"], "foo".into());
-            assert_eq!(msgs[1]["payload"], "bar".into());
+fn render_mustache_template(template_str: &str, msg: &Msg) -> crate::Result<String> {
+    let msg_json = serde_json::to_value(msg)?;
+    let mut context_map = MapBuilder::new();
+    if let serde_json::Value::Object(obj) = &msg_json {
+        for (key, value) in obj {
+            match value {
+                serde_json::Value::String(s) => {
+                    context_map = context_map.insert_str(key, s);
+                }
+                serde_json::Value::Number(n) => {
+                    context_map = context_map.insert_str(key, n.to_string());
+                }
+                serde_json::Value::Bool(b) => {
+                    context_map = context_map.insert_str(key, b.to_string());
+                }
+                serde_json::Value::Null => {
+                    context_map = context_map.insert_str(key, "");
+                }
+                _ => {
+                    let s = serde_json::to_string(value).unwrap_or_default();
+                    context_map = context_map.insert_str(key, &s);
+                }
+            }
         }
     }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn test_trigger_node_with_different_types() {
-        let flows_json = json!([
-            {"id": "100", "type": "tab"},
-            {"id": "1", "type": "trigger", "z": "100", "wires": [["2"]],
-             "op1": 10, "op1type": "num", "op2": true, "op2type": "bool", "duration": "50"},
-            {"id": "2", "z": "100", "type": "test-once"},
-        ]);
-        let msgs_to_inject_json = json!([
-            ["1", {"payload": "test"}],
-        ]);
-
-        let engine = crate::runtime::engine::build_test_engine(flows_json).unwrap();
-        let msgs_to_inject = Vec::<(ElementId, Msg)>::deserialize(msgs_to_inject_json).unwrap();
-        let msgs =
-            engine.run_once_with_inject(2, std::time::Duration::from_secs_f64(0.2), msgs_to_inject).await.unwrap();
-
-        assert_eq!(msgs.len(), 2);
-        assert_eq!(msgs[0]["payload"], serde_json::Value::Number(serde_json::Number::from(10)).into());
-        assert_eq!(msgs[1]["payload"], true.into());
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn test_trigger_node_multiple_topics() {
-        let flows_json = json!([
-            {"id": "100", "type": "tab"},
-            {"id": "1", "type": "trigger", "z": "100", "wires": [["2"]],
-             "bytopic": "topic", "op1": 1, "op2": 0, "op1type": "num", "op2type": "num", "duration": "50"},
-            {"id": "2", "z": "100", "type": "test-once"},
-        ]);
-        let msgs_to_inject_json = json!([
-            ["1", {"payload": "test1", "topic": "A"}],
-            ["1", {"payload": "test2", "topic": "B"}],
-        ]);
-
-        let engine = crate::runtime::engine::build_test_engine(flows_json).unwrap();
-        let msgs_to_inject = Vec::<(ElementId, Msg)>::deserialize(msgs_to_inject_json).unwrap();
-        let msgs =
-            engine.run_once_with_inject(4, std::time::Duration::from_secs_f64(0.2), msgs_to_inject).await.unwrap();
-
-        assert_eq!(msgs.len(), 4);
-        // Should get A:1, B:1, A:0, B:0
-        assert_eq!(msgs[0]["payload"], serde_json::Value::Number(serde_json::Number::from(1)).into());
-        assert_eq!(msgs[0]["topic"], "A".into());
-        assert_eq!(msgs[1]["payload"], serde_json::Value::Number(serde_json::Number::from(1)).into());
-        assert_eq!(msgs[1]["topic"], "B".into());
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn test_trigger_node_reset() {
-        let flows_json = json!([
-            {"id": "100", "type": "tab"},
-            {"id": "1", "type": "trigger", "z": "100", "wires": [["2"]],
-             "reset": "stop", "duration": "0"},
-            {"id": "2", "z": "100", "type": "test-once"},
-        ]);
-        let msgs_to_inject_json = json!([
-            ["1", {"payload": null}],
-            ["1", {"payload": null}], // Should be blocked
-            ["1", {"payload": "stop"}], // Reset
-            ["1", {"payload": null}], // Should work again
-        ]);
-
-        let engine = crate::runtime::engine::build_test_engine(flows_json).unwrap();
-        let msgs_to_inject = Vec::<(ElementId, Msg)>::deserialize(msgs_to_inject_json).unwrap();
-        let msgs =
-            engine.run_once_with_inject(2, std::time::Duration::from_secs_f64(0.2), msgs_to_inject).await.unwrap();
-
-        assert_eq!(msgs.len(), 2);
-        assert_eq!(msgs[0]["payload"], "1".into());
-        assert_eq!(msgs[1]["payload"], "1".into());
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn test_trigger_node_configured_outputs() {
-        let flows_json = json!([
-            {"id": "100", "type": "tab"},
-            {"id": "1", "type": "trigger", "z": "100", "wires": [["2"]],
-             "op1": "immediate", "op1type": "str", "op2": "delayed", "op2type": "str", "duration": "50"},
-            {"id": "2", "z": "100", "type": "test-once"},
-        ]);
-        let msgs_to_inject_json = json!([
-            ["1", {"payload": "foo", "topic": "bar"}],
-        ]);
-
-        let engine = crate::runtime::engine::build_test_engine(flows_json).unwrap();
-        let msgs_to_inject = Vec::<(ElementId, Msg)>::deserialize(msgs_to_inject_json).unwrap();
-        let msgs =
-            engine.run_once_with_inject(2, std::time::Duration::from_secs_f64(0.2), msgs_to_inject).await.unwrap();
-
-        assert_eq!(msgs.len(), 2);
-        // First message should be immediate op1 output
-        assert_eq!(msgs[0]["payload"], "immediate".into());
-        assert_eq!(msgs[0]["topic"], "bar".into());
-        // Second message should be delayed op2 output
-        assert_eq!(msgs[1]["payload"], "delayed".into());
-        assert_eq!(msgs[1]["topic"], "bar".into());
-    }
+    let context = context_map.build();
+    let template = mustache::compile_str(template_str)
+        .map_err(|e| crate::EdgelinkError::invalid_operation(&format!("Mustache compile error: {e}")))?;
+    let result = template
+        .render_data_to_string(&context)
+        .map_err(|e| crate::EdgelinkError::invalid_operation(&format!("Mustache render error: {e}")))?;
+    Ok(result)
 }
