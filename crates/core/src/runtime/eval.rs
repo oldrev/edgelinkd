@@ -153,15 +153,16 @@ pub async fn evaluate_node_property_value(
             _ => Variant::Number(utils::time::unix_now().into()),
         },
 
+        // Node-RED: vt: "msg", v: null/undefined → treat as null
+        (RedPropertyType::Msg, RedPropertyValue::Constant(Variant::Null)) => Variant::Null,
+
+        // Node-RED: vt: "msg", v: "" → treat as null
+        (RedPropertyType::Msg, RedPropertyValue::Runtime(ref prop)) if prop.is_empty() => Variant::Null,
+
         (RedPropertyType::Msg, RedPropertyValue::Constant(Variant::String(ref prop)))
         | (RedPropertyType::Msg, RedPropertyValue::Runtime(ref prop)) => {
             if let Some(msg) = msg {
-                if let Some(pv) = msg.get_nav_stripped(prop.as_str()) {
-                    pv.clone()
-                } else {
-                    return Err(EdgelinkError::BadArgument("value"))
-                        .with_context(|| format!("Cannot get the property(s) from `msg`: {}", prop.as_str()));
-                }
+                if let Some(pv) = msg.get_nav_stripped(prop.as_str()) { pv.clone() } else { Variant::Null }
             } else {
                 return Err(EdgelinkError::BadArgument("msg")).with_context(|| "`msg` is required".to_owned());
             }

@@ -100,7 +100,7 @@ fn test_raw_switch_rule_basic() {
     assert_eq!(rule.operator, SwitchRuleOperator::Equal);
     assert_eq!(rule.value, Some(Variant::String("Hello".to_string())));
     assert_eq!(rule.value_type, Some(SwitchPropertyType::Str));
-    assert_eq!(rule.value2, None);
+    assert_eq!(rule.value2, Variant::Null);
     assert_eq!(rule.value2_type, None);
     assert!(!rule.regex_case);
 }
@@ -120,7 +120,7 @@ fn test_raw_switch_rule_between() {
     assert_eq!(rule.operator, SwitchRuleOperator::Between);
     assert_eq!(rule.value, Some(Variant::Number(serde_json::Number::from(3))));
     assert_eq!(rule.value_type, Some(SwitchPropertyType::Num));
-    assert_eq!(rule.value2, Some(Variant::Number(serde_json::Number::from(5))));
+    assert_eq!(rule.value2, Variant::Number(serde_json::Number::from(5)));
     assert_eq!(rule.value2_type, Some(SwitchPropertyType::Num));
 }
 
@@ -378,7 +378,7 @@ fn test_switch_node_evaluate_rules_between_with_prev() {
     assert_eq!(rules[0].operator, SwitchRuleOperator::Between);
     assert_eq!(rules[0].value_type, SwitchPropertyType::Num);
     assert_eq!(rules[0].value2_type, Some(SwitchPropertyType::Prev));
-    assert_eq!(rules[0].value2, Some(RedPropertyValue::null()));
+    assert_eq!(rules[0].value2, RedPropertyValue::null());
 }
 
 #[test]
@@ -508,7 +508,7 @@ fn test_raw_switch_rule_minimal() {
     assert_eq!(rule.operator, SwitchRuleOperator::IsNull);
     assert_eq!(rule.value, None);
     assert_eq!(rule.value_type, None);
-    assert_eq!(rule.value2, None);
+    assert_eq!(rule.value2, Variant::Null);
     assert_eq!(rule.value2_type, None);
     assert!(!rule.regex_case);
 }
@@ -621,4 +621,24 @@ async fn test_it_should_check_input_against_a_previous_value_2nd_option() {
     assert_eq!(msgs.len(), 2);
     assert_eq!(msgs[0]["payload"], 20.into());
     assert_eq!(msgs[1]["payload"], 25.into());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_should_check_if_input_is_indeed_false() {
+    let flows_json = json!([
+        {"id": "100", "type": "tab"},
+        {"id": "1", "z": "100", "type": "switch", "name": "switchNode", "property": "payload",
+            "rules": [{"t": false}], "checkall": true, "outputs": 1, "wires": [["2"]]},
+        {"id": "2", "z": "100", "type": "test-once"}
+    ]);
+    let msgs_to_inject_json = json!([
+        ["1", {"payload": false}],
+    ]);
+
+    let engine = crate::runtime::engine::build_test_engine(flows_json).unwrap();
+    let msgs_to_inject = Vec::<(ElementId, Msg)>::deserialize(msgs_to_inject_json).unwrap();
+    let msgs = engine.run_once_with_inject(1, std::time::Duration::from_secs_f64(0.5), msgs_to_inject).await.unwrap();
+
+    assert_eq!(msgs.len(), 1);
+    assert_eq!(msgs[0]["payload"], false.into());
 }

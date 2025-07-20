@@ -162,8 +162,8 @@ impl SwitchRuleOperator {
                 }
                 _ => Ok(false),
             },
-            Self::IsTrue => Ok(a.as_bool().unwrap_or(false)),
-            Self::IsFalse => Ok(a.as_bool().unwrap_or(false)),
+            Self::IsTrue => Ok(a.as_bool() == Some(true)),
+            Self::IsFalse => Ok(a.as_bool() == Some(false)),
             Self::IsNull => Ok(a.is_null()),
             Self::IsNotNull => Ok(!a.is_null()),
             Self::IsEmpty => match a {
