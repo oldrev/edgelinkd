@@ -184,7 +184,6 @@ impl FlowNodeBehavior for InjectNode {
             if let Err(e) = self.repeat_task(repeat_interval, stop_token.child_token()).await {
                 if let Some(edgelink_err) = e.downcast_ref::<EdgelinkError>() {
                     if matches!(edgelink_err, EdgelinkError::TaskCancelled) {
-                        // 任务被取消，忽略该错误
                         log::debug!("The 'repeat_task' was cancelled");
                     } else {
                         log::warn!("The 'repeat_task' failed: {e}");
@@ -305,7 +304,6 @@ mod inject_web {
             StatusCode::NOT_FOUND.into_response()
         }
     }
-    // (已移除重复/旧 handler 实现)
 
     fn _inject_post_router() -> axum::routing::MethodRouter {
         axum::routing::post(inject_post_handler)
