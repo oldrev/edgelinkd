@@ -94,10 +94,10 @@ impl FileInNode {
         match self.config.filename_type.as_str() {
             "msg" => {
                 let prop = if self.config.filename.is_empty() { "filename" } else { &self.config.filename };
-                if let Some(Variant::String(s)) = msg.get(prop) {
-                    if !s.is_empty() {
-                        return Some(s.clone());
-                    }
+                if let Some(Variant::String(s)) = msg.get(prop)
+                    && !s.is_empty()
+                {
+                    return Some(s.clone());
                 }
                 None
             }
@@ -186,10 +186,10 @@ impl FileInNode {
 
         // 设置最后一条消息的 count
         let messages_len = messages.len();
-        if let Some(last_msg) = messages.last_mut() {
-            if let Some(Variant::Object(parts)) = last_msg.get_mut("parts") {
-                parts.insert("count".to_string(), Variant::Number(Number::from(messages_len)));
-            }
+        if let Some(last_msg) = messages.last_mut()
+            && let Some(Variant::Object(parts)) = last_msg.get_mut("parts")
+        {
+            parts.insert("count".to_string(), Variant::Number(Number::from(messages_len)));
         }
 
         Ok(messages)

@@ -162,15 +162,14 @@ impl BatchNode {
         // Check for end-of-sequence
         if self.config.honour_parts {
             let msg = msg_handle.read().await;
-            if let Some(Variant::Object(parts)) = msg.get("parts") {
-                if let (Some(Variant::Number(index)), Some(Variant::Number(count))) =
+            if let Some(Variant::Object(parts)) = msg.get("parts")
+                && let (Some(Variant::Number(index)), Some(Variant::Number(count))) =
                     (parts.get("index"), parts.get("count"))
-                {
-                    let idx = index.as_u64().unwrap_or(0) as usize;
-                    let cnt = count.as_u64().unwrap_or(0) as usize;
-                    if (idx + 1) == cnt {
-                        eof = true;
-                    }
+            {
+                let idx = index.as_u64().unwrap_or(0) as usize;
+                let cnt = count.as_u64().unwrap_or(0) as usize;
+                if (idx + 1) == cnt {
+                    eof = true;
                 }
             }
         }
@@ -321,23 +320,21 @@ impl BatchNode {
         // Update count if available
         {
             let msg = msg_handle.read().await;
-            if let Some(Variant::Object(parts)) = msg.get("parts") {
-                if let Some(Variant::Number(count)) = parts.get("count") {
-                    group.count = Some(count.as_u64().unwrap_or(0) as usize);
-                }
+            if let Some(Variant::Object(parts)) = msg.get("parts")
+                && let Some(Variant::Number(count)) = parts.get("count")
+            {
+                group.count = Some(count.as_u64().unwrap_or(0) as usize);
             }
         }
 
         // Check if all topics have complete groups
         let can_concat = self.config.topics.iter().all(|topic_config| {
-            if let Some(topic_groups) = pending.get(&topic_config.topic) {
-                if let Some(first_group_id) = topic_groups.group_ids.first() {
-                    if let Some(group) = topic_groups.groups.get(first_group_id) {
-                        if let Some(expected_count) = group.count {
-                            return group.messages.len() == expected_count;
-                        }
-                    }
-                }
+            if let Some(topic_groups) = pending.get(&topic_config.topic)
+                && let Some(first_group_id) = topic_groups.group_ids.first()
+                && let Some(group) = topic_groups.groups.get(first_group_id)
+                && let Some(expected_count) = group.count
+            {
+                return group.messages.len() == expected_count;
             }
             false
         });
@@ -347,14 +344,14 @@ impl BatchNode {
             let mut all_messages = Vec::new();
 
             for topic_config in &self.config.topics {
-                if let Some(topic_groups) = pending.get_mut(&topic_config.topic) {
-                    if let Some(first_group_id) = topic_groups.group_ids.first().cloned() {
-                        if let Some(group) = topic_groups.groups.remove(&first_group_id) {
-                            *pending_count = pending_count.saturating_sub(group.messages.len());
-                            all_messages.extend(group.messages);
-                        }
-                        topic_groups.group_ids.remove(0);
+                if let Some(topic_groups) = pending.get_mut(&topic_config.topic)
+                    && let Some(first_group_id) = topic_groups.group_ids.first().cloned()
+                {
+                    if let Some(group) = topic_groups.groups.remove(&first_group_id) {
+                        *pending_count = pending_count.saturating_sub(group.messages.len());
+                        all_messages.extend(group.messages);
                     }
+                    topic_groups.group_ids.remove(0);
                 }
             }
 

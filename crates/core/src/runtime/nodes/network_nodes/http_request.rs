@@ -267,12 +267,12 @@ impl HttpRequestNode {
         let mut headers = HashMap::new();
 
         // Add headers from message
-        if let Some(msg_headers) = msg_guard.get("headers") {
-            if let Some(headers_obj) = msg_headers.as_object() {
-                for (key, value) in headers_obj {
-                    if let Some(value_str) = value.as_str() {
-                        headers.insert(key.clone(), value_str.to_string());
-                    }
+        if let Some(msg_headers) = msg_guard.get("headers")
+            && let Some(headers_obj) = msg_headers.as_object()
+        {
+            for (key, value) in headers_obj {
+                if let Some(value_str) = value.as_str() {
+                    headers.insert(key.clone(), value_str.to_string());
                 }
             }
         }
@@ -314,12 +314,12 @@ impl HttpRequestNode {
         }
 
         // Handle cookies
-        if let Some(cookies) = msg_guard.get("cookies") {
-            if let Some(cookies_obj) = cookies.as_object() {
-                let cookie_header = self.build_cookie_header(cookies_obj);
-                if !cookie_header.is_empty() {
-                    headers.insert("Cookie".to_string(), cookie_header);
-                }
+        if let Some(cookies) = msg_guard.get("cookies")
+            && let Some(cookies_obj) = cookies.as_object()
+        {
+            let cookie_header = self.build_cookie_header(cookies_obj);
+            if !cookie_header.is_empty() {
+                headers.insert("Cookie".to_string(), cookie_header);
             }
         }
 
@@ -736,10 +736,10 @@ impl HttpRequestNode {
         msg_guard.set("payload".to_string(), Variant::String(error.to_string()));
 
         // Try to extract status code from error if it's a reqwest error
-        if let Some(reqwest_error) = error.downcast_ref::<reqwest::Error>() {
-            if let Some(status) = reqwest_error.status() {
-                msg_guard.set("statusCode".to_string(), Variant::Number(serde_json::Number::from(status.as_u16())));
-            }
+        if let Some(reqwest_error) = error.downcast_ref::<reqwest::Error>()
+            && let Some(status) = reqwest_error.status()
+        {
+            msg_guard.set("statusCode".to_string(), Variant::Number(serde_json::Number::from(status.as_u16())));
         }
 
         drop(msg_guard);

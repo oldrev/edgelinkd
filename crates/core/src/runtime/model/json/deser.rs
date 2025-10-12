@@ -233,25 +233,24 @@ fn preprocess_subflows(jv_root: JsonValue) -> crate::Result<JsonValue> {
     for node in new_elements.iter_mut() {
         let node = node.as_object_mut().unwrap();
 
-        if let Some(JsonValue::String(pvalue)) = node.get_mut("z") {
-            if let Some(new_id) = id_map.get(pvalue.as_str()) {
-                *pvalue = new_id.to_string();
-            }
+        if let Some(JsonValue::String(pvalue)) = node.get_mut("z")
+            && let Some(new_id) = id_map.get(pvalue.as_str())
+        {
+            *pvalue = new_id.to_string();
         }
 
-        if let Some(JsonValue::String(pvalue)) = node.get_mut("g") {
-            if let Some(new_id) = id_map.get(pvalue.as_str()) {
-                *pvalue = new_id.to_string();
-            }
+        if let Some(JsonValue::String(pvalue)) = node.get_mut("g")
+            && let Some(new_id) = id_map.get(pvalue.as_str())
+        {
+            *pvalue = new_id.to_string();
         }
 
         // Replace the nested flow instance `type` property
-        if let Some(JsonValue::String(pvalue)) = node.get_mut("type") {
-            if let Some(("subflow", old_id)) = pvalue.split_once(':') {
-                if let Some(new_id) = id_map.get(old_id) {
-                    *pvalue = format!("subflow:{new_id}");
-                }
-            }
+        if let Some(JsonValue::String(pvalue)) = node.get_mut("type")
+            && let Some(("subflow", old_id)) = pvalue.split_once(':')
+            && let Some(new_id) = id_map.get(old_id)
+        {
+            *pvalue = format!("subflow:{new_id}");
         }
 
         // Node with `wires` property
@@ -259,10 +258,10 @@ fn preprocess_subflows(jv_root: JsonValue) -> crate::Result<JsonValue> {
             for wire in wires {
                 let wire = wire.as_array_mut().unwrap();
                 for id in wire {
-                    if let JsonValue::String(pvalue) = id {
-                        if let Some(new_id) = id_map.get(pvalue.as_str()) {
-                            *pvalue = new_id.to_string();
-                        }
+                    if let JsonValue::String(pvalue) = id
+                        && let Some(new_id) = id_map.get(pvalue.as_str())
+                    {
+                        *pvalue = new_id.to_string();
                     }
                 }
             }
@@ -272,10 +271,10 @@ fn preprocess_subflows(jv_root: JsonValue) -> crate::Result<JsonValue> {
         // TODO CHECK TYPE: complete/catch/status
         if let Some(scope) = node.get_mut("scope").and_then(|x| x.as_array_mut()) {
             for id in scope {
-                if let JsonValue::String(pvalue) = id {
-                    if let Some(new_id) = id_map.get(pvalue.as_str()) {
-                        *pvalue = new_id.to_string();
-                    }
+                if let JsonValue::String(pvalue) = id
+                    && let Some(new_id) = id_map.get(pvalue.as_str())
+                {
+                    *pvalue = new_id.to_string();
                 }
             }
         }
@@ -283,10 +282,10 @@ fn preprocess_subflows(jv_root: JsonValue) -> crate::Result<JsonValue> {
         // Node with `links` property
         if let Some(links) = node.get_mut("links").and_then(|x| x.as_array_mut()) {
             for id in links {
-                if let JsonValue::String(pvalue) = id {
-                    if let Some(new_id) = id_map.get(pvalue.as_str()) {
-                        *pvalue = new_id.to_string();
-                    }
+                if let JsonValue::String(pvalue) = id
+                    && let Some(new_id) = id_map.get(pvalue.as_str())
+                {
+                    *pvalue = new_id.to_string();
                 }
             }
         }
@@ -295,10 +294,10 @@ fn preprocess_subflows(jv_root: JsonValue) -> crate::Result<JsonValue> {
         if let Some(JsonValue::Array(in_props)) = node.get_mut("in") {
             for in_item in in_props.iter_mut() {
                 for wires_item in in_item["wires"].as_array_mut().unwrap().iter_mut() {
-                    if let Some(JsonValue::String(pvalue)) = wires_item.get_mut("id") {
-                        if let Some(new_id) = id_map.get(pvalue.as_str()) {
-                            *pvalue = new_id.to_string();
-                        }
+                    if let Some(JsonValue::String(pvalue)) = wires_item.get_mut("id")
+                        && let Some(new_id) = id_map.get(pvalue.as_str())
+                    {
+                        *pvalue = new_id.to_string();
                     }
                 }
             }
@@ -308,10 +307,10 @@ fn preprocess_subflows(jv_root: JsonValue) -> crate::Result<JsonValue> {
         if let Some(JsonValue::Array(out_props)) = node.get_mut("out") {
             for out_item in out_props.iter_mut() {
                 for wires_item in out_item["wires"].as_array_mut().unwrap().iter_mut() {
-                    if let Some(JsonValue::String(pvalue)) = wires_item.get_mut("id") {
-                        if let Some(new_id) = id_map.get(pvalue.as_str()) {
-                            *pvalue = new_id.to_string();
-                        }
+                    if let Some(JsonValue::String(pvalue)) = wires_item.get_mut("id")
+                        && let Some(new_id) = id_map.get(pvalue.as_str())
+                    {
+                        *pvalue = new_id.to_string();
                     }
                 }
             }
@@ -741,16 +740,16 @@ fn preprocess_merge_subflow_env(flows: &mut JsonValue) -> crate::Result<()> {
         .collect();
 
     for element in elements.iter_mut() {
-        if let Some(("subflow", subflow_id)) = element.get_str("type").and_then(|x| x.split_once(':')) {
-            if let Some(subflow_env) = subflows.get(subflow_id) {
-                let instance_env = if let Some(instance_env) = element.get_mut("env") {
-                    instance_env
-                } else {
-                    element["env"] = JsonValue::Array(Vec::new());
-                    element.get_mut("env").unwrap()
-                };
-                merge_env(instance_env, subflow_env)?;
-            }
+        if let Some(("subflow", subflow_id)) = element.get_str("type").and_then(|x| x.split_once(':'))
+            && let Some(subflow_env) = subflows.get(subflow_id)
+        {
+            let instance_env = if let Some(instance_env) = element.get_mut("env") {
+                instance_env
+            } else {
+                element["env"] = JsonValue::Array(Vec::new());
+                element.get_mut("env").unwrap()
+            };
+            merge_env(instance_env, subflow_env)?;
         }
     }
     Ok(())
@@ -765,10 +764,10 @@ fn merge_env(target_envs: &mut JsonValue, ref_envs: &JsonValue) -> crate::Result
         target_vec.iter().filter_map(|item| item.get_str("name")).map(|name| name.to_string()).collect();
 
     for item in ref_vec.iter() {
-        if let Some(name) = item.get_str("name") {
-            if !target_names.contains(name) {
-                target_vec.push(item.clone());
-            }
+        if let Some(name) = item.get_str("name")
+            && !target_names.contains(name)
+        {
+            target_vec.push(item.clone());
         }
     }
 

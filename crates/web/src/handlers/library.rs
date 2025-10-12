@@ -99,10 +99,10 @@ pub async fn post_library_entry(
     if !file_path.starts_with(&state.static_dir) {
         return (StatusCode::FORBIDDEN, "Access denied").into_response();
     }
-    if let Some(parent) = file_path.parent() {
-        if fs::create_dir_all(parent).await.is_err() {
-            return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create directory").into_response();
-        }
+    if let Some(parent) = file_path.parent()
+        && fs::create_dir_all(parent).await.is_err()
+    {
+        return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create directory").into_response();
     }
     match fs::File::create(&file_path).await {
         Ok(mut file) => {

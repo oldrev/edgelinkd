@@ -232,38 +232,39 @@ impl TcpGetNode {
         match self.config.return_type {
             ReturnType::String => {
                 let result = String::from_utf8_lossy(data).to_string();
-                if let Some(newline) = &self.config.newline {
-                    if !newline.is_empty() {
-                        let parts: Vec<&str> = result.split(newline).collect();
-                        if parts.len() > 1 {
-                            // Node-RED: send each part as a separate message
-                            // (the caller must handle this fan-out)
-                            // Here, just return the first part for backward compatibility
-                            // (the actual fan-out will be handled in handle_message)
-                            let mut part = parts[0].to_string();
-                            if self.config.trim {
-                                // Only trim the trailing separator
-                                if part.ends_with(newline) {
-                                    part.truncate(part.len() - newline.len());
-                                }
+                if let Some(newline) = &self.config.newline
+                    && !newline.is_empty()
+                {
+                    let parts: Vec<&str> = result.split(newline).collect();
+                    if parts.len() > 1 {
+                        // Node-RED: send each part as a separate message
+                        // (the caller must handle this fan-out)
+                        // Here, just return the first part for backward compatibility
+                        // (the actual fan-out will be handled in handle_message)
+                        let mut part = parts[0].to_string();
+                        if self.config.trim {
+                            // Only trim the trailing separator
+                            if part.ends_with(newline) {
+                                part.truncate(part.len() - newline.len());
                             }
-                            let original_guard = original_msg.read().await;
-                            let mut body = std::collections::BTreeMap::new();
-                            for (key, value) in original_guard.as_variant_object().iter() {
-                                body.insert(key.clone(), value.clone());
-                            }
-                            body.insert("payload".to_string(), Variant::String(part));
-                            drop(original_guard);
-                            return MsgHandle::with_properties(body);
                         }
+                        let original_guard = original_msg.read().await;
+                        let mut body = std::collections::BTreeMap::new();
+                        for (key, value) in original_guard.as_variant_object().iter() {
+                            body.insert(key.clone(), value.clone());
+                        }
+                        body.insert("payload".to_string(), Variant::String(part));
+                        drop(original_guard);
+                        return MsgHandle::with_properties(body);
                     }
                 }
                 // Default: single message
                 let mut out = result;
-                if let Some(newline) = &self.config.newline {
-                    if self.config.trim && out.ends_with(newline) {
-                        out.truncate(out.len() - newline.len());
-                    }
+                if let Some(newline) = &self.config.newline
+                    && self.config.trim
+                    && out.ends_with(newline)
+                {
+                    out.truncate(out.len() - newline.len());
                 }
                 let original_guard = original_msg.read().await;
                 let mut body = std::collections::BTreeMap::new();
@@ -500,32 +501,28 @@ impl TcpGetNode {
                                         continue;
                                     }
                                 };
-                                if !response_data.is_empty() && node.config.return_type == ReturnType::String {
-                                    if let Some(newline) = &node.config.newline {
-                                        if !newline.is_empty() {
-                                            let result = String::from_utf8_lossy(&response_data).to_string();
-                                            let parts: Vec<&str> =
-                                                result.split(newline).filter(|p| !p.is_empty()).collect();
-                                            if parts.len() > 1 {
-                                                let out = parts[0].to_string();
-                                                let (msg, stop_token) = &pending_msgs[0];
-                                                let original_guard = msg.read().await;
-                                                let mut body = std::collections::BTreeMap::new();
-                                                for (key, value) in original_guard.as_variant_object().iter() {
-                                                    body.insert(key.clone(), value.clone());
-                                                }
-                                                body.insert("payload".to_string(), Variant::String(out));
-                                                drop(original_guard);
-                                                let response_msg = MsgHandle::with_properties(body);
-                                                let _ = node
-                                                    .fan_out_one(
-                                                        Envelope { port: 0, msg: response_msg },
-                                                        stop_token.clone(),
-                                                    )
-                                                    .await;
-                                                continue;
-                                            }
+                                if !response_data.is_empty()
+                                    && node.config.return_type == ReturnType::String
+                                    && let Some(newline) = &node.config.newline
+                                    && !newline.is_empty()
+                                {
+                                    let result = String::from_utf8_lossy(&response_data).to_string();
+                                    let parts: Vec<&str> = result.split(newline).filter(|p| !p.is_empty()).collect();
+                                    if parts.len() > 1 {
+                                        let out = parts[0].to_string();
+                                        let (msg, stop_token) = &pending_msgs[0];
+                                        let original_guard = msg.read().await;
+                                        let mut body = std::collections::BTreeMap::new();
+                                        for (key, value) in original_guard.as_variant_object().iter() {
+                                            body.insert(key.clone(), value.clone());
                                         }
+                                        body.insert("payload".to_string(), Variant::String(out));
+                                        drop(original_guard);
+                                        let response_msg = MsgHandle::with_properties(body);
+                                        let _ = node
+                                            .fan_out_one(Envelope { port: 0, msg: response_msg }, stop_token.clone())
+                                            .await;
+                                        continue;
                                     }
                                 }
                                 if let Some((msg, stop_token)) = pending_msgs.last() {
@@ -671,34 +668,33 @@ impl TcpGetNode {
             };
             if !response_data.is_empty() {
                 // Node-RED: for string+newline, always fan out only the first part
-                if self.config.return_type == ReturnType::String {
-                    if let Some(newline) = &self.config.newline {
-                        if !newline.is_empty() {
-                            let result = String::from_utf8_lossy(&response_data).to_string();
-                            let parts: Vec<&str> = result.split(newline).collect();
-                            let mut part = parts[0].to_string();
-                            if self.config.trim && part.ends_with(newline) {
-                                part.truncate(part.len() - newline.len());
-                            }
-                            if let Some((msg, stop_token)) = pending_msgs.first() {
-                                let original_guard = msg.read().await;
-                                let mut body = std::collections::BTreeMap::new();
-                                for (key, value) in original_guard.as_variant_object().iter() {
-                                    body.insert(key.clone(), value.clone());
-                                }
-                                body.insert("payload".to_string(), Variant::String(part));
-                                drop(original_guard);
-                                let response_msg = MsgHandle::with_properties(body);
-                                if let Err(e) =
-                                    self.fan_out_one(Envelope { port: 0, msg: response_msg }, stop_token.clone()).await
-                                {
-                                    log::error!("TCP request: Failed to send response message: {e}");
-                                    self.report_error(format!("Send error: {e}"), stop_token.clone()).await;
-                                }
-                            }
-                            continue;
+                if self.config.return_type == ReturnType::String
+                    && let Some(newline) = &self.config.newline
+                    && !newline.is_empty()
+                {
+                    let result = String::from_utf8_lossy(&response_data).to_string();
+                    let parts: Vec<&str> = result.split(newline).collect();
+                    let mut part = parts[0].to_string();
+                    if self.config.trim && part.ends_with(newline) {
+                        part.truncate(part.len() - newline.len());
+                    }
+                    if let Some((msg, stop_token)) = pending_msgs.first() {
+                        let original_guard = msg.read().await;
+                        let mut body = std::collections::BTreeMap::new();
+                        for (key, value) in original_guard.as_variant_object().iter() {
+                            body.insert(key.clone(), value.clone());
+                        }
+                        body.insert("payload".to_string(), Variant::String(part));
+                        drop(original_guard);
+                        let response_msg = MsgHandle::with_properties(body);
+                        if let Err(e) =
+                            self.fan_out_one(Envelope { port: 0, msg: response_msg }, stop_token.clone()).await
+                        {
+                            log::error!("TCP request: Failed to send response message: {e}");
+                            self.report_error(format!("Send error: {e}"), stop_token.clone()).await;
                         }
                     }
+                    continue;
                 }
                 if let Some((msg, stop_token)) = pending_msgs.last() {
                     let response_msg = self.create_response_message(&response_data, msg).await;

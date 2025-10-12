@@ -279,10 +279,10 @@ impl CsvNode {
         let mut template = self.template.clone();
 
         // 如果消息中有 columns 字段，动态解析
-        if template.is_empty() || (template.len() == 1 && template[0].is_none()) {
-            if let Some(columns) = msg.get("columns").and_then(|v| v.as_str()) {
-                template = CsvNode::parse_template_static(columns, &self.config.sep);
-            }
+        if (template.is_empty() || (template.len() == 1 && template[0].is_none()))
+            && let Some(columns) = msg.get("columns").and_then(|v| v.as_str())
+        {
+            template = CsvNode::parse_template_static(columns, &self.config.sep);
         }
 
         // Convert payload to array format
@@ -296,10 +296,11 @@ impl CsvNode {
 
         // Add headers if needed
         if self.config.hdrout != CsvHeaderMode::None && !state.hdr_sent {
-            if template.is_empty() && !data_array.is_empty() {
-                if let Variant::Object(obj) = &data_array[0] {
-                    template = obj.keys().map(|k| Some(k.clone())).collect();
-                }
+            if template.is_empty()
+                && !data_array.is_empty()
+                && let Variant::Object(obj) = &data_array[0]
+            {
+                template = obj.keys().map(|k| Some(k.clone())).collect();
             }
 
             if !template.is_empty() {
@@ -453,21 +454,21 @@ impl CsvNode {
         }
 
         // Handle multi-part messages
-        if msg.has_parts() {
-            if let Some(parts) = msg.parts() {
-                let has_more = parts.get("index").and_then(|v| v.as_number()).and_then(|n| n.as_u64()).unwrap_or(0) + 1
-                    < parts.get("count").and_then(|v| v.as_number()).and_then(|n| n.as_u64()).unwrap_or(1);
+        if msg.has_parts()
+            && let Some(parts) = msg.parts()
+        {
+            let has_more = parts.get("index").and_then(|v| v.as_number()).and_then(|n| n.as_u64()).unwrap_or(0) + 1
+                < parts.get("count").and_then(|v| v.as_number()).and_then(|n| n.as_u64()).unwrap_or(1);
 
-                if has_more {
-                    // Store objects and wait for more parts
-                    state.store.extend(objects);
-                    return Ok((Variant::Null, None)); // Signal to not send message yet
-                } else {
-                    // Last part - return all stored objects
-                    state.store.extend(objects);
-                    objects = state.store.clone();
-                    state.store.clear();
-                }
+            if has_more {
+                // Store objects and wait for more parts
+                state.store.extend(objects);
+                return Ok((Variant::Null, None)); // Signal to not send message yet
+            } else {
+                // Last part - return all stored objects
+                state.store.extend(objects);
+                objects = state.store.clone();
+                state.store.clear();
             }
         }
 
@@ -580,10 +581,10 @@ impl CsvNode {
             if let Ok(int_val) = trimmed.parse::<i64>() {
                 return Variant::Number(Number::from(int_val));
             }
-            if let Ok(float_val) = trimmed.parse::<f64>() {
-                if let Some(num) = Number::from_f64(float_val) {
-                    return Variant::Number(num);
-                }
+            if let Ok(float_val) = trimmed.parse::<f64>()
+                && let Some(num) = Number::from_f64(float_val)
+            {
+                return Variant::Number(num);
             }
         }
 

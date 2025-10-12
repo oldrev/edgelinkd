@@ -10,17 +10,17 @@ use crate::*;
 
 /// Get value of environment variable.
 fn evaluate_env_property(name: &str, node: Option<&dyn FlowNodeBehavior>, flow: Option<&Flow>) -> Option<Variant> {
-    if let Some(node) = node {
-        if let Some(var) = node.get_env(name) {
-            return Some(var);
-        }
+    if let Some(node) = node
+        && let Some(var) = node.get_env(name)
+    {
+        return Some(var);
     }
 
     if let Some(flow_ref) = flow {
-        if let Some(node) = node {
-            if let Some(ref group) = node.group() {
-                return group.get_env(name);
-            }
+        if let Some(node) = node
+            && let Some(ref group) = node.group()
+        {
+            return group.get_env(name);
         }
 
         return flow_ref.get_env(name);

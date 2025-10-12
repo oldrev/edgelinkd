@@ -42,10 +42,10 @@ impl ContextStore for MemoryContextStore {
 
     async fn get_one(&self, scope: &str, path: &[PropexSegment]) -> Result<Variant> {
         let scopes = self.scopes.read().await;
-        if let Some(scope_map) = scopes.get(scope) {
-            if let Some(value) = scope_map.get_segs(path) {
-                return Ok(value.clone());
-            }
+        if let Some(scope_map) = scopes.get(scope)
+            && let Some(value) = scope_map.get_segs(path)
+        {
+            return Ok(value.clone());
         }
         Err(EdgelinkError::OutOfRange.into())
     }

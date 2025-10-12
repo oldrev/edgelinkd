@@ -212,17 +212,17 @@ fn handle_legacy_json(orig: &Value) -> Value {
         if let Some(props) = map.get_mut("props") {
             if let Value::Array(props_array) = props {
                 for prop in props_array {
-                    if let Value::Object(prop_map) = prop {
-                        if let Some(p) = prop_map.get("p") {
-                            if p == "payload" && !prop_map.contains_key("v") {
-                                prop_map.insert("v".to_owned(), orig["payload"].clone());
-                                prop_map.insert("vt".to_owned(), orig["payloadType"].clone());
-                            } else if p == "topic"
-                                && prop_map.get("vt") == Some(&Value::String("str".to_owned()))
-                                && !prop_map.contains_key("v")
-                            {
-                                prop_map.insert("v".to_owned(), orig["topic"].clone());
-                            }
+                    if let Value::Object(prop_map) = prop
+                        && let Some(p) = prop_map.get("p")
+                    {
+                        if p == "payload" && !prop_map.contains_key("v") {
+                            prop_map.insert("v".to_owned(), orig["payload"].clone());
+                            prop_map.insert("vt".to_owned(), orig["payloadType"].clone());
+                        } else if p == "topic"
+                            && prop_map.get("vt") == Some(&Value::String("str".to_owned()))
+                            && !prop_map.contains_key("v")
+                        {
+                            prop_map.insert("v".to_owned(), orig["topic"].clone());
                         }
                     }
                 }

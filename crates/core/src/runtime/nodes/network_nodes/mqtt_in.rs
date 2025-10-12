@@ -302,10 +302,10 @@ impl MqttInNode {
                 // Auto-detect the best format
                 if let Ok(utf8_str) = std::str::from_utf8(payload) {
                     // Try to parse as JSON first
-                    if datatype == &MqttDataType::AutoDetect {
-                        if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(utf8_str) {
-                            return self.json_value_to_variant(json_val);
-                        }
+                    if datatype == &MqttDataType::AutoDetect
+                        && let Ok(json_val) = serde_json::from_str::<serde_json::Value>(utf8_str)
+                    {
+                        return self.json_value_to_variant(json_val);
                     }
                     // Return as string
                     Variant::String(utf8_str.to_string())
@@ -356,10 +356,10 @@ impl MqttInNode {
             }
 
             // Unsubscribe if already subscribed
-            if subs.contains_key(&topic) {
-                if let Err(e) = client.unsubscribe(&topic).await {
-                    log::warn!("Failed to unsubscribe from '{topic}': {e}");
-                }
+            if subs.contains_key(&topic)
+                && let Err(e) = client.unsubscribe(&topic).await
+            {
+                log::warn!("Failed to unsubscribe from '{topic}': {e}");
             }
 
             // Determine QoS
@@ -525,10 +525,10 @@ impl MqttInNode {
                     for item in arr {
                         if let Variant::String(s) = item {
                             topics.push(s.clone());
-                        } else if let Variant::Object(obj) = item {
-                            if let Some(Variant::String(topic)) = obj.get("topic") {
-                                topics.push(topic.clone());
-                            }
+                        } else if let Variant::Object(obj) = item
+                            && let Some(Variant::String(topic)) = obj.get("topic")
+                        {
+                            topics.push(topic.clone());
                         }
                     }
                     Ok(topics)

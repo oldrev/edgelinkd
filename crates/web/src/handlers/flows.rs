@@ -269,12 +269,12 @@ pub async fn get_flow(
 
     // Find the specified flow
     for flow in &flows {
-        if let Some(flow_id) = flow.get("id").and_then(|v| v.as_str()) {
-            if let Some(flow_type) = flow.get("type").and_then(|v| v.as_str()) {
-                if flow_id == id && flow_type == "tab" {
-                    return Ok(Json(flow.clone()));
-                }
-            }
+        if let Some(flow_id) = flow.get("id").and_then(|v| v.as_str())
+            && let Some(flow_type) = flow.get("type").and_then(|v| v.as_str())
+            && flow_id == id
+            && flow_type == "tab"
+        {
+            return Ok(Json(flow.clone()));
         }
     }
 
@@ -339,12 +339,12 @@ pub async fn put_flow(
     // Find and update the specified flow
     let mut found = false;
     for flow in &mut flows {
-        if let Some(flow_id) = flow.get("id").and_then(|v| v.as_str()) {
-            if flow_id == id {
-                *flow = payload.clone();
-                found = true;
-                break;
-            }
+        if let Some(flow_id) = flow.get("id").and_then(|v| v.as_str())
+            && flow_id == id
+        {
+            *flow = payload.clone();
+            found = true;
+            break;
         }
     }
 

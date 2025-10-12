@@ -208,10 +208,10 @@ impl JsonNode {
     }
 
     fn stringify_value(&self, value: &Variant) -> crate::Result<Variant> {
-        if let Variant::String(s) = value {
-            if serde_json::from_str::<serde_json::Value>(s).is_ok() {
-                return Ok(Variant::String(s.clone()));
-            }
+        if let Variant::String(s) = value
+            && serde_json::from_str::<serde_json::Value>(s).is_ok()
+        {
+            return Ok(Variant::String(s.clone()));
         }
         let json_value = variant_to_json_value(value);
         let json_string = if self.config.pretty {

@@ -218,13 +218,13 @@ impl TcpOutNode {
         let session_id = session_id.unwrap();
 
         // Check for reset command
-        if let Some(reset) = msg_guard.get("reset") {
-            if reset.as_bool().unwrap_or(false) || reset.as_str().is_some() {
-                let mut connections = self.connections.lock().await;
-                connections.remove(&session_id);
-                log::info!("TCP out: Connection {session_id} reset");
-                return Ok(());
-            }
+        if let Some(reset) = msg_guard.get("reset")
+            && (reset.as_bool().unwrap_or(false) || reset.as_str().is_some())
+        {
+            let mut connections = self.connections.lock().await;
+            connections.remove(&session_id);
+            log::info!("TCP out: Connection {session_id} reset");
+            return Ok(());
         }
 
         if !msg_guard.contains("payload") {

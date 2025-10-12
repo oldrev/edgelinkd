@@ -78,13 +78,13 @@ pub async fn get_available_locales(Extension(state): Extension<Arc<WebState>>) -
     if let Ok(entries) = tokio::fs::read_dir(&locales_dir).await {
         let mut entries = entries;
         while let Ok(Some(entry)) = entries.next_entry().await {
-            if entry.path().is_dir() {
-                if let Some(lang) = entry.file_name().to_str() {
-                    // Check if messages.json exists in this directory
-                    let messages_path = entry.path().join("messages.json");
-                    if messages_path.exists() {
-                        available_langs.push(lang.to_string());
-                    }
+            if entry.path().is_dir()
+                && let Some(lang) = entry.file_name().to_str()
+            {
+                // Check if messages.json exists in this directory
+                let messages_path = entry.path().join("messages.json");
+                if messages_path.exists() {
+                    available_langs.push(lang.to_string());
                 }
             }
         }
@@ -118,20 +118,20 @@ async fn get_fallback_locale(state: &Arc<WebState>, requested_lang: &str) -> Res
         let primary_lang = requested_lang.split('-').next().unwrap();
         let primary_path = static_dir.join("locales").join(primary_lang).join("messages.json");
 
-        if let Ok(content) = tokio::fs::read_to_string(&primary_path).await {
-            if let Ok(json) = serde_json::from_str::<Value>(&content) {
-                return Ok(Json(json));
-            }
+        if let Ok(content) = tokio::fs::read_to_string(&primary_path).await
+            && let Ok(json) = serde_json::from_str::<Value>(&content)
+        {
+            return Ok(Json(json));
         }
     }
 
     // Strategy 2: Try en-US as ultimate fallback
     if requested_lang != "en-US" {
         let en_us_path = static_dir.join("locales/en-US/messages.json");
-        if let Ok(content) = tokio::fs::read_to_string(&en_us_path).await {
-            if let Ok(json) = serde_json::from_str::<Value>(&content) {
-                return Ok(Json(json));
-            }
+        if let Ok(content) = tokio::fs::read_to_string(&en_us_path).await
+            && let Ok(json) = serde_json::from_str::<Value>(&content)
+        {
+            return Ok(Json(json));
         }
     }
 
@@ -216,14 +216,13 @@ pub async fn get_editor_locale(
 
     for file_name in &editor_files {
         let file_path = locale_dir.join(file_name);
-        if let Ok(content) = tokio::fs::read_to_string(&file_path).await {
-            if let Ok(json) = serde_json::from_str::<Value>(&content) {
-                if let Some(obj) = json.as_object() {
-                    // Merge the JSON objects
-                    for (key, value) in obj {
-                        combined_locale.insert(key.clone(), value.clone());
-                    }
-                }
+        if let Ok(content) = tokio::fs::read_to_string(&file_path).await
+            && let Ok(json) = serde_json::from_str::<Value>(&content)
+            && let Some(obj) = json.as_object()
+        {
+            // Merge the JSON objects
+            for (key, value) in obj {
+                combined_locale.insert(key.clone(), value.clone());
             }
         }
     }
@@ -245,20 +244,20 @@ async fn get_editor_fallback_locale(state: &WebState, requested_lang: &str) -> R
         let primary_lang = requested_lang.split('-').next().unwrap();
         let primary_dir = static_dir.join("locales").join(primary_lang);
 
-        if let Ok(content) = tokio::fs::read_to_string(primary_dir.join("editor.json")).await {
-            if let Ok(json) = serde_json::from_str::<Value>(&content) {
-                return Ok(Json(json));
-            }
+        if let Ok(content) = tokio::fs::read_to_string(primary_dir.join("editor.json")).await
+            && let Ok(json) = serde_json::from_str::<Value>(&content)
+        {
+            return Ok(Json(json));
         }
     }
 
     // Strategy 2: Try en-US
     if requested_lang != "en-US" {
         let en_us_dir = static_dir.join("locales/en-US");
-        if let Ok(content) = tokio::fs::read_to_string(en_us_dir.join("editor.json")).await {
-            if let Ok(json) = serde_json::from_str::<Value>(&content) {
-                return Ok(Json(json));
-            }
+        if let Ok(content) = tokio::fs::read_to_string(en_us_dir.join("editor.json")).await
+            && let Ok(json) = serde_json::from_str::<Value>(&content)
+        {
+            return Ok(Json(json));
         }
     }
 

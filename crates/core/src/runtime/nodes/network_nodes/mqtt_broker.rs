@@ -201,10 +201,10 @@ impl MqttBrokerNode {
     /// Parse port from broker url
     fn parse_port(&self) -> u16 {
         let url = &self.config.url;
-        if let Some(idx) = url.rfind(':') {
-            if let Ok(port) = url[idx + 1..].parse() {
-                return port;
-            }
+        if let Some(idx) = url.rfind(':')
+            && let Ok(port) = url[idx + 1..].parse()
+        {
+            return port;
         }
         if url.starts_with("mqtts://") { 8883 } else { 1883 }
     }

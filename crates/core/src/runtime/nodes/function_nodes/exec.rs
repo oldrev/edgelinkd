@@ -197,18 +197,18 @@ impl ExecNode {
         let mut cmd = self.config.command.clone();
 
         // Add payload if configured
-        if !self.config.addpay.is_empty() {
-            if let Some(value) = msg.get(&self.config.addpay) {
-                let value_str = match value {
-                    Variant::String(s) => s.clone(),
-                    Variant::Number(n) => n.to_string(),
-                    Variant::Bool(b) => b.to_string(),
-                    _ => format!("{value:?}"),
-                };
-                if !value_str.is_empty() {
-                    cmd.push(' ');
-                    cmd.push_str(&value_str);
-                }
+        if !self.config.addpay.is_empty()
+            && let Some(value) = msg.get(&self.config.addpay)
+        {
+            let value_str = match value {
+                Variant::String(s) => s.clone(),
+                Variant::Number(n) => n.to_string(),
+                Variant::Bool(b) => b.to_string(),
+                _ => format!("{value:?}"),
+            };
+            if !value_str.is_empty() {
+                cmd.push(' ');
+                cmd.push_str(&value_str);
             }
         }
 

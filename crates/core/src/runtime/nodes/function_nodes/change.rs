@@ -481,11 +481,10 @@ fn handle_legacy_json(n: Value) -> crate::Result<Value> {
 
         if let (Some("set"), None, Some(Value::String(to))) =
             (rule.get("t").and_then(|t| t.as_str()), rule.get("tot"), rule.get("to"))
+            && to.starts_with("msg.")
         {
-            if to.starts_with("msg.") {
-                rule["to"] = to.trim_start_matches("msg.").into();
-                rule["tot"] = "msg".into();
-            }
+            rule["to"] = to.trim_start_matches("msg.").into();
+            rule["tot"] = "msg".into();
         }
 
         if rule.get("tot").is_none() {
@@ -496,23 +495,26 @@ fn handle_legacy_json(n: Value) -> crate::Result<Value> {
             rule["fromt"] = "str".into();
         }
 
-        if let (Some(t), Some(fromt), Some(from)) = (rule.get("t"), rule.get("fromt"), rule.get("from")) {
-            if t == "change" && fromt != "msg" && fromt != "flow" && fromt != "global" {
-                let from_str = from.as_str().unwrap_or("");
-                let mut from_re = from_str.to_string();
+        if let (Some(t), Some(fromt), Some(from)) = (rule.get("t"), rule.get("fromt"), rule.get("from"))
+            && t == "change"
+            && fromt != "msg"
+            && fromt != "flow"
+            && fromt != "global"
+        {
+            let from_str = from.as_str().unwrap_or("");
+            let mut from_re = from_str.to_string();
 
-                if fromt != "re" {
-                    from_re = old_from_re_pattern.replace_all(&from_re, r"\$&").to_string();
+            if fromt != "re" {
+                from_re = old_from_re_pattern.replace_all(&from_re, r"\$&").to_string();
+            }
+
+            match regex::Regex::new(&from_re) {
+                Ok(re) => {
+                    rule["fromRE"] = Value::String(re.as_str().to_string());
                 }
-
-                match regex::Regex::new(&from_re) {
-                    Ok(re) => {
-                        rule["fromRE"] = Value::String(re.as_str().to_string());
-                    }
-                    Err(e) => {
-                        log::error!("Invalid regexp: {e}");
-                        return Err(e.into());
-                    }
+                Err(e) => {
+                    log::error!("Invalid regexp: {e}");
+                    return Err(e.into());
                 }
             }
         }

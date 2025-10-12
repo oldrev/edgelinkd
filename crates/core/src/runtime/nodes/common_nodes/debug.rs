@@ -108,12 +108,11 @@ impl DebugNode {
     ) -> crate::Result<Box<dyn FlowNodeBehavior>> {
         // Compatibility: if complete == "false", convert to "payload"
         let mut json = config.rest.clone();
-        if let Some(obj) = json.as_object_mut() {
-            if let Some(complete_val) = obj.get_mut("complete") {
-                if complete_val == "false" {
-                    *complete_val = serde_json::Value::String("payload".to_string());
-                }
-            }
+        if let Some(obj) = json.as_object_mut()
+            && let Some(complete_val) = obj.get_mut("complete")
+            && complete_val == "false"
+        {
+            *complete_val = serde_json::Value::String("payload".to_string());
         }
         let debug_config: DebugNodeConfig = DebugNodeConfig::deserialize(&json)?;
 

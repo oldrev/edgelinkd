@@ -248,23 +248,23 @@ impl WebSocketInNode {
         let msg_guard = msg.read().await;
 
         // Check for control commands
-        if let Some(command) = msg_guard.get("connect") {
-            if command.as_bool().unwrap_or(false) {
-                log::info!("WebSocket in: Received connect command");
-                // Connection will be handled by the main loop
-            }
+        if let Some(command) = msg_guard.get("connect")
+            && command.as_bool().unwrap_or(false)
+        {
+            log::info!("WebSocket in: Received connect command");
+            // Connection will be handled by the main loop
         }
 
-        if let Some(command) = msg_guard.get("disconnect") {
-            if command.as_bool().unwrap_or(false) {
-                log::info!("WebSocket in: Received disconnect command");
-                // Close current connection
-                let mut conn_guard = self.connection.lock().await;
-                if let Some(mut stream) = conn_guard.take() {
-                    if let Err(e) = stream.close(None).await {
-                        log::error!("WebSocket in: Failed to close connection: {e}");
-                    }
-                }
+        if let Some(command) = msg_guard.get("disconnect")
+            && command.as_bool().unwrap_or(false)
+        {
+            log::info!("WebSocket in: Received disconnect command");
+            // Close current connection
+            let mut conn_guard = self.connection.lock().await;
+            if let Some(mut stream) = conn_guard.take()
+                && let Err(e) = stream.close(None).await
+            {
+                log::error!("WebSocket in: Failed to close connection: {e}");
             }
         }
 
@@ -305,10 +305,10 @@ impl FlowNodeBehavior for WebSocketInNode {
         // Close connection if still open
         {
             let mut conn_guard = self.connection.lock().await;
-            if let Some(mut stream) = conn_guard.take() {
-                if let Err(e) = stream.close(None).await {
-                    log::error!("WebSocket in: Failed to close connection during cleanup: {e}");
-                }
+            if let Some(mut stream) = conn_guard.take()
+                && let Err(e) = stream.close(None).await
+            {
+                log::error!("WebSocket in: Failed to close connection during cleanup: {e}");
             }
         }
 

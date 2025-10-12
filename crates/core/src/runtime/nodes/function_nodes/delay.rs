@@ -745,12 +745,11 @@ impl DelayNode {
                     // Replace existing message
                     if self.config.outputs >= 2 {
                         // Send replaced message to second output
-                        if let Some(old_msg) = queue.get(existing_pos) {
-                            if let Err(e) =
+                        if let Some(old_msg) = queue.get(existing_pos)
+                            && let Err(e) =
                                 self.fan_out_one(Envelope { port: 1, msg: old_msg.msg.clone() }, cancel.clone()).await
-                            {
-                                log::error!("Failed to send replaced message: {e}");
-                            }
+                        {
+                            log::error!("Failed to send replaced message: {e}");
                         }
                     }
                     queue[existing_pos] = MsgInfo { msg: msg.clone(), envelope: Envelope { port: 0, msg } };

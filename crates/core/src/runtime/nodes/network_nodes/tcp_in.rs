@@ -183,23 +183,24 @@ impl TcpInNode {
     ) -> Result<Option<Vec<u8>>, std::io::Error> {
         match self.config.datamode {
             DataMode::Stream => {
-                if let Some(newline) = &self.config.newline {
-                    if !newline.is_empty() && matches!(self.config.datatype, DataType::Utf8) {
-                        // Read line by line for UTF-8 with newline separator
-                        let mut line = String::new();
-                        let bytes_read = reader.read_line(&mut line).await?;
-                        if bytes_read == 0 {
-                            return Ok(None); // EOF
-                        }
+                if let Some(newline) = &self.config.newline
+                    && !newline.is_empty()
+                    && matches!(self.config.datatype, DataType::Utf8)
+                {
+                    // Read line by line for UTF-8 with newline separator
+                    let mut line = String::new();
+                    let bytes_read = reader.read_line(&mut line).await?;
+                    if bytes_read == 0 {
+                        return Ok(None); // EOF
+                    }
 
-                        if !self.config.trim {
-                            // Keep the newline if trim is false
-                            return Ok(Some(line.into_bytes()));
-                        } else {
-                            // Remove the newline if trim is true
-                            line = line.trim_end_matches(['\r', '\n']).to_string();
-                            return Ok(Some(line.into_bytes()));
-                        }
+                    if !self.config.trim {
+                        // Keep the newline if trim is false
+                        return Ok(Some(line.into_bytes()));
+                    } else {
+                        // Remove the newline if trim is true
+                        line = line.trim_end_matches(['\r', '\n']).to_string();
+                        return Ok(Some(line.into_bytes()));
                     }
                 }
 

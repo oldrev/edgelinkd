@@ -158,28 +158,28 @@ impl FlowNodeBehavior for UdpInNode {
                 log::info!("UDP in: Listening on {}", socket.local_addr().unwrap_or(bind_addr));
 
                 // Configure multicast if needed
-                if let UdpMulticast::Multi = self.config.multicast {
-                    if let Some(group) = &self.config.group {
-                        if let Ok(group_addr) = group.parse::<IpAddr>() {
-                            match group_addr {
-                                IpAddr::V4(v4_addr) => {
-                                    if let Err(e) = socket.join_multicast_v4(v4_addr, std::net::Ipv4Addr::UNSPECIFIED) {
-                                        log::error!("UDP in: Failed to join multicast group {group}: {e}");
-                                    } else {
-                                        log::info!("UDP in: Joined multicast group {group}");
-                                    }
-                                }
-                                IpAddr::V6(v6_addr) => {
-                                    if let Err(e) = socket.join_multicast_v6(&v6_addr, 0) {
-                                        log::error!("UDP in: Failed to join IPv6 multicast group {group}: {e}");
-                                    } else {
-                                        log::info!("UDP in: Joined IPv6 multicast group {group}");
-                                    }
+                if let UdpMulticast::Multi = self.config.multicast
+                    && let Some(group) = &self.config.group
+                {
+                    if let Ok(group_addr) = group.parse::<IpAddr>() {
+                        match group_addr {
+                            IpAddr::V4(v4_addr) => {
+                                if let Err(e) = socket.join_multicast_v4(v4_addr, std::net::Ipv4Addr::UNSPECIFIED) {
+                                    log::error!("UDP in: Failed to join multicast group {group}: {e}");
+                                } else {
+                                    log::info!("UDP in: Joined multicast group {group}");
                                 }
                             }
-                        } else {
-                            log::error!("UDP in: Invalid multicast group address: {group}");
+                            IpAddr::V6(v6_addr) => {
+                                if let Err(e) = socket.join_multicast_v6(&v6_addr, 0) {
+                                    log::error!("UDP in: Failed to join IPv6 multicast group {group}: {e}");
+                                } else {
+                                    log::info!("UDP in: Joined IPv6 multicast group {group}");
+                                }
+                            }
                         }
+                    } else {
+                        log::error!("UDP in: Invalid multicast group address: {group}");
                     }
                 }
 
@@ -220,17 +220,16 @@ impl FlowNodeBehavior for UdpInNode {
                 }
 
                 // Clean up multicast membership on shutdown
-                if let UdpMulticast::Multi = self.config.multicast {
-                    if let Some(group) = &self.config.group {
-                        if let Ok(group_addr) = group.parse::<IpAddr>() {
-                            match group_addr {
-                                IpAddr::V4(v4_addr) => {
-                                    let _ = socket.leave_multicast_v4(v4_addr, std::net::Ipv4Addr::UNSPECIFIED);
-                                }
-                                IpAddr::V6(v6_addr) => {
-                                    let _ = socket.leave_multicast_v6(&v6_addr, 0);
-                                }
-                            }
+                if let UdpMulticast::Multi = self.config.multicast
+                    && let Some(group) = &self.config.group
+                    && let Ok(group_addr) = group.parse::<IpAddr>()
+                {
+                    match group_addr {
+                        IpAddr::V4(v4_addr) => {
+                            let _ = socket.leave_multicast_v4(v4_addr, std::net::Ipv4Addr::UNSPECIFIED);
+                        }
+                        IpAddr::V6(v6_addr) => {
+                            let _ = socket.leave_multicast_v6(&v6_addr, 0);
                         }
                     }
                 }

@@ -167,27 +167,27 @@ impl WebSocketOutNode {
         let msg_guard = msg.read().await;
 
         // Check for control commands
-        if let Some(command) = msg_guard.get("connect") {
-            if command.as_bool().unwrap_or(false) {
-                log::info!("WebSocket out: Received connect command");
-                if let Err(e) = self.ensure_connection().await {
-                    log::error!("WebSocket out: Connect command failed: {e}");
-                }
-                return Ok(());
+        if let Some(command) = msg_guard.get("connect")
+            && command.as_bool().unwrap_or(false)
+        {
+            log::info!("WebSocket out: Received connect command");
+            if let Err(e) = self.ensure_connection().await {
+                log::error!("WebSocket out: Connect command failed: {e}");
             }
+            return Ok(());
         }
 
-        if let Some(command) = msg_guard.get("disconnect") {
-            if command.as_bool().unwrap_or(false) {
-                log::info!("WebSocket out: Received disconnect command");
-                let mut conn_guard = self.connection.lock().await;
-                if let Some(mut stream) = conn_guard.take() {
-                    if let Err(e) = stream.close(None).await {
-                        log::error!("WebSocket out: Failed to close connection: {e}");
-                    }
-                }
-                return Ok(());
+        if let Some(command) = msg_guard.get("disconnect")
+            && command.as_bool().unwrap_or(false)
+        {
+            log::info!("WebSocket out: Received disconnect command");
+            let mut conn_guard = self.connection.lock().await;
+            if let Some(mut stream) = conn_guard.take()
+                && let Err(e) = stream.close(None).await
+            {
+                log::error!("WebSocket out: Failed to close connection: {e}");
             }
+            return Ok(());
         }
 
         // Get the data to send
@@ -267,10 +267,10 @@ impl FlowNodeBehavior for WebSocketOutNode {
 
     async fn run(self: Arc<Self>, stop_token: CancellationToken) {
         // Establish initial connection if auto-connect is enabled
-        if self.config.reconnect {
-            if let Err(e) = self.ensure_connection().await {
-                log::warn!("WebSocket out: Initial connection failed: {e}");
-            }
+        if self.config.reconnect
+            && let Err(e) = self.ensure_connection().await
+        {
+            log::warn!("WebSocket out: Initial connection failed: {e}");
         }
 
         // Handle input messages
@@ -287,10 +287,10 @@ impl FlowNodeBehavior for WebSocketOutNode {
         // Clean up connection
         {
             let mut conn_guard = self.connection.lock().await;
-            if let Some(mut stream) = conn_guard.take() {
-                if let Err(e) = stream.close(None).await {
-                    log::error!("WebSocket out: Failed to close connection during cleanup: {e}");
-                }
+            if let Some(mut stream) = conn_guard.take()
+                && let Err(e) = stream.close(None).await
+            {
+                log::error!("WebSocket out: Failed to close connection during cleanup: {e}");
             }
         }
 

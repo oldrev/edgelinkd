@@ -245,12 +245,11 @@ impl WebSocketListenerNode {
                 // Convert array of numbers to binary data
                 let mut bytes = Vec::new();
                 for item in arr {
-                    if let Some(num) = item.as_number() {
-                        if let Some(b) = num.as_u64() {
-                            if b <= 255 {
-                                bytes.push(b as u8);
-                            }
-                        }
+                    if let Some(num) = item.as_number()
+                        && let Some(b) = num.as_u64()
+                        && b <= 255
+                    {
+                        bytes.push(b as u8);
                     }
                 }
                 Message::Binary(bytes.into())

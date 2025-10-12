@@ -212,10 +212,10 @@ impl FileNode {
 
     async fn do_write(&self, filename: &str, payload: &Variant, append: bool, msg: &Msg) -> crate::Result<()> {
         let path = PathBuf::from(filename);
-        if *self.config.create_dir {
-            if let Some(parent) = path.parent() {
-                tokio::fs::create_dir_all(parent).await?;
-            }
+        if *self.config.create_dir
+            && let Some(parent) = path.parent()
+        {
+            tokio::fs::create_dir_all(parent).await?;
         }
 
         // Prepare data (Node-RED: object/array -> JSON, bool/number -> string, bytes -> as-is)
@@ -343,21 +343,21 @@ impl FlowNodeBehavior for FileNode {
                     OverwriteFile::True => {
                         // 覆盖写入
                         let msg_guard = msg.read().await;
-                        if let Some(payload) = msg_guard.get("payload") {
-                            if let Err(e) = node.do_write(&filename, payload, false, &msg_guard).await {
-                                log::error!("FileNode: Write error: {e}");
-                                error_variant = Some(Variant::String(format!("Write error: {e}")));
-                            }
+                        if let Some(payload) = msg_guard.get("payload")
+                            && let Err(e) = node.do_write(&filename, payload, false, &msg_guard).await
+                        {
+                            log::error!("FileNode: Write error: {e}");
+                            error_variant = Some(Variant::String(format!("Write error: {e}")));
                         }
                     }
                     OverwriteFile::False => {
                         // 追加写入
                         let msg_guard = msg.read().await;
-                        if let Some(payload) = msg_guard.get("payload") {
-                            if let Err(e) = node.do_write(&filename, payload, true, &msg_guard).await {
-                                log::error!("FileNode: Append error: {e}");
-                                error_variant = Some(Variant::String(format!("Append error: {e}")));
-                            }
+                        if let Some(payload) = msg_guard.get("payload")
+                            && let Err(e) = node.do_write(&filename, payload, true, &msg_guard).await
+                        {
+                            log::error!("FileNode: Append error: {e}");
+                            error_variant = Some(Variant::String(format!("Append error: {e}")));
                         }
                     }
                 }

@@ -202,14 +202,14 @@ impl HttpInNode {
     }
 
     fn is_text_content(&self, headers: &Map<String, Value>) -> bool {
-        if let Some(content_type) = headers.get("content-type") {
-            if let Some(ct_str) = content_type.as_str() {
-                let ct_lower = ct_str.to_lowercase();
-                return ct_lower.starts_with("text/")
-                    || ct_lower.starts_with("application/json")
-                    || ct_lower.starts_with("application/xml")
-                    || ct_lower.contains("charset");
-            }
+        if let Some(content_type) = headers.get("content-type")
+            && let Some(ct_str) = content_type.as_str()
+        {
+            let ct_lower = ct_str.to_lowercase();
+            return ct_lower.starts_with("text/")
+                || ct_lower.starts_with("application/json")
+                || ct_lower.starts_with("application/xml")
+                || ct_lower.contains("charset");
         }
         false
     }
@@ -434,10 +434,10 @@ impl HttpInNode {
         }
 
         // Send response body
-        if !response.body.is_empty() {
-            if let Err(e) = stream.write_all(&response.body).await {
-                log::error!("HTTP in: Failed to send response body: {e}");
-            }
+        if !response.body.is_empty()
+            && let Err(e) = stream.write_all(&response.body).await
+        {
+            log::error!("HTTP in: Failed to send response body: {e}");
         }
 
         let _ = stream.flush().await;

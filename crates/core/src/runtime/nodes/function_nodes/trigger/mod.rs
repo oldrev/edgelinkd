@@ -308,7 +308,6 @@ impl TriggerNode {
     }
 
     async fn handle_message(self: Arc<Self>, msg: MsgHandle, cancel: CancellationToken) -> crate::Result<()> {
-        // 1. 解析 topic 和其他消息属性，确保与 Node-RED JS 行为一致
         let (topic, original_payload, is_reset, delay_override) = {
             let msg_guard = msg.read().await;
             // Node-RED JS: topic = RED.util.getMessageProperty(msg, node.topic) || "_none"
@@ -323,7 +322,6 @@ impl TriggerNode {
             };
             let original_payload = msg_guard.get("payload").cloned();
 
-            // Node-RED JS: msg.reset 或 payload == reset
             let is_reset = msg_guard.contains("reset")
                 || (!self.config.reset.is_empty() && {
                     if let Some(payload) = msg_guard.get("payload") {
@@ -351,7 +349,6 @@ impl TriggerNode {
 
         let mut mut_state = self.mut_state.lock().await;
 
-        // 2. reset 逻辑
         if is_reset {
             if let Some(event) = mut_state.events.remove(&topic) {
                 event.cancel_token.cancel();
@@ -359,20 +356,17 @@ impl TriggerNode {
             return Ok(());
         }
 
-        // 3. 阻断逻辑：已有定时器且 extend=false 时丢弃新消息
         let should_block = mut_state.events.contains_key(&topic) && !self.config.extend;
         if should_block {
             return Ok(());
         }
 
-        // 4. extend=true 时，先取消旧定时器
-        if self.config.extend {
-            if let Some(event) = mut_state.events.remove(&topic) {
-                event.cancel_token.cancel();
-            }
+        if self.config.extend
+            && let Some(event) = mut_state.events.remove(&topic)
+        {
+            event.cancel_token.cancel();
         }
 
-        // 6. 循环模式（loop）：duration < 0
         let mut loop_mode = false;
         let mut duration_ms = if let Some(override_val) = delay_override {
             override_val * 1000.0
@@ -384,7 +378,6 @@ impl TriggerNode {
             duration_ms = -duration_ms;
         }
 
-        // 7. 先插入阻断事件（非循环模式且duration>0）
         if duration_ms > 0.0 && !loop_mode {
             let node = Arc::clone(&self);
             let cancel_clone = cancel.clone();
@@ -424,7 +417,6 @@ impl TriggerNode {
                                 let _ = node.fan_out_one(Envelope { port: output_port, msg: timer_msg }, cancel_clone).await;
                             }
                         }
-                        // 清理 topic
                         let mut mut_state = node.mut_state.lock().await;
                         mut_state.events.remove(&topic_clone);
                     }
@@ -446,7 +438,6 @@ impl TriggerNode {
             );
         }
 
-        // 8. 立即输出 op1（null 类型不输出）
         if self.config.op1_type != PayloadType::Null {
             let msg_for_template = {
                 let msg_guard = msg.read().await;
@@ -472,7 +463,6 @@ impl TriggerNode {
             }
         }
 
-        // 9. 循环模式（loop）：interval 模式，定时输出 op1
         if duration_ms > 0.0 && loop_mode {
             let node = Arc::clone(&self);
             let cancel_clone = cancel.clone();
@@ -515,7 +505,6 @@ impl TriggerNode {
                         }
                     }
                 }
-                // 清理 topic
                 let mut mut_state = node.mut_state.lock().await;
                 mut_state.events.remove(&topic_loop);
             });

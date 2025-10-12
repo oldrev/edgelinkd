@@ -300,29 +300,29 @@ impl WebSocketClientNode {
         let msg_guard = msg.read().await;
 
         // Handle control commands
-        if let Some(command) = msg_guard.get("connect") {
-            if command.as_bool().unwrap_or(false) {
-                log::info!("WebSocket client: Received connect command");
-                // Connection is handled by the main loop
-            }
+        if let Some(command) = msg_guard.get("connect")
+            && command.as_bool().unwrap_or(false)
+        {
+            log::info!("WebSocket client: Received connect command");
+            // Connection is handled by the main loop
         }
 
-        if let Some(command) = msg_guard.get("disconnect") {
-            if command.as_bool().unwrap_or(false) {
-                log::info!("WebSocket client: Received disconnect command");
+        if let Some(command) = msg_guard.get("disconnect")
+            && command.as_bool().unwrap_or(false)
+        {
+            log::info!("WebSocket client: Received disconnect command");
 
-                let connection_guard = self.connection.lock().await;
-                if let Some(ref connection) = *connection_guard {
-                    let mut stream_guard = connection.stream.lock().await;
-                    if let Some(mut stream) = stream_guard.take() {
-                        if let Err(e) = stream.close(None).await {
-                            log::error!("WebSocket client: Failed to close connection: {e}");
-                        }
-                    }
-
-                    let mut connected_guard = connection.connected.lock().await;
-                    *connected_guard = false;
+            let connection_guard = self.connection.lock().await;
+            if let Some(ref connection) = *connection_guard {
+                let mut stream_guard = connection.stream.lock().await;
+                if let Some(mut stream) = stream_guard.take()
+                    && let Err(e) = stream.close(None).await
+                {
+                    log::error!("WebSocket client: Failed to close connection: {e}");
                 }
+
+                let mut connected_guard = connection.connected.lock().await;
+                *connected_guard = false;
             }
         }
 
@@ -378,10 +378,10 @@ impl FlowNodeBehavior for WebSocketClientNode {
             let mut conn_guard = self.connection.lock().await;
             if let Some(connection) = conn_guard.take() {
                 let mut stream_guard = connection.stream.lock().await;
-                if let Some(mut stream) = stream_guard.take() {
-                    if let Err(e) = stream.close(None).await {
-                        log::error!("WebSocket client: Failed to close connection during cleanup: {e}");
-                    }
+                if let Some(mut stream) = stream_guard.take()
+                    && let Err(e) = stream.close(None).await
+                {
+                    log::error!("WebSocket client: Failed to close connection during cleanup: {e}");
                 }
             }
         }

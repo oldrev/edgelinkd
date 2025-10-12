@@ -427,20 +427,20 @@ async fn get_fallback_node_messages(state: &WebState, requested_lang: &str) -> R
         let primary_lang = requested_lang.split('-').next().unwrap();
         let primary_path = static_dir.join("locales").join(primary_lang).join("messages.json");
 
-        if let Ok(content) = tokio::fs::read_to_string(&primary_path).await {
-            if let Ok(json) = serde_json::from_str::<Value>(&content) {
-                return Ok(Json(json));
-            }
+        if let Ok(content) = tokio::fs::read_to_string(&primary_path).await
+            && let Ok(json) = serde_json::from_str::<Value>(&content)
+        {
+            return Ok(Json(json));
         }
     }
 
     // Strategy 2: Try en-US as ultimate fallback
     if requested_lang != "en-US" {
         let en_us_path = static_dir.join("locales/en-US/messages.json");
-        if let Ok(content) = tokio::fs::read_to_string(&en_us_path).await {
-            if let Ok(json) = serde_json::from_str::<Value>(&content) {
-                return Ok(Json(json));
-            }
+        if let Ok(content) = tokio::fs::read_to_string(&en_us_path).await
+            && let Ok(json) = serde_json::from_str::<Value>(&content)
+        {
+            return Ok(Json(json));
         }
     }
 
@@ -462,17 +462,17 @@ async fn get_fallback_node_set_messages(
         let primary_lang = requested_lang.split('-').next().unwrap();
         let primary_path = static_dir.join("locales").join(primary_lang).join("messages.json");
 
-        if let Ok(content) = tokio::fs::read_to_string(&primary_path).await {
-            if let Ok(full_locale) = serde_json::from_str::<Value>(&content) {
-                // Look for the specific namespace in the locale data
-                let formatted_slash = format!("{module_name}/{set_name}");
-                let formatted_underscore = format!("{module_name}_{set_name}");
-                let possible_keys = vec![module_name, set_name, &formatted_slash, &formatted_underscore];
+        if let Ok(content) = tokio::fs::read_to_string(&primary_path).await
+            && let Ok(full_locale) = serde_json::from_str::<Value>(&content)
+        {
+            // Look for the specific namespace in the locale data
+            let formatted_slash = format!("{module_name}/{set_name}");
+            let formatted_underscore = format!("{module_name}_{set_name}");
+            let possible_keys = vec![module_name, set_name, &formatted_slash, &formatted_underscore];
 
-                for key in possible_keys {
-                    if let Some(namespace_data) = full_locale.get(key) {
-                        return Ok(Json(namespace_data.clone()));
-                    }
+            for key in possible_keys {
+                if let Some(namespace_data) = full_locale.get(key) {
+                    return Ok(Json(namespace_data.clone()));
                 }
             }
         }
@@ -481,16 +481,16 @@ async fn get_fallback_node_set_messages(
     // Strategy 2: Try en-US as ultimate fallback
     if requested_lang != "en-US" {
         let en_us_path = static_dir.join("locales/en-US/messages.json");
-        if let Ok(content) = tokio::fs::read_to_string(&en_us_path).await {
-            if let Ok(full_locale) = serde_json::from_str::<Value>(&content) {
-                let formatted_slash = format!("{module_name}/{set_name}");
-                let formatted_underscore = format!("{module_name}_{set_name}");
-                let possible_keys = vec![module_name, set_name, &formatted_slash, &formatted_underscore];
+        if let Ok(content) = tokio::fs::read_to_string(&en_us_path).await
+            && let Ok(full_locale) = serde_json::from_str::<Value>(&content)
+        {
+            let formatted_slash = format!("{module_name}/{set_name}");
+            let formatted_underscore = format!("{module_name}_{set_name}");
+            let possible_keys = vec![module_name, set_name, &formatted_slash, &formatted_underscore];
 
-                for key in possible_keys {
-                    if let Some(namespace_data) = full_locale.get(key) {
-                        return Ok(Json(namespace_data.clone()));
-                    }
+            for key in possible_keys {
+                if let Some(namespace_data) = full_locale.get(key) {
+                    return Ok(Json(namespace_data.clone()));
                 }
             }
         }

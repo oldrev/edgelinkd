@@ -82,58 +82,58 @@ impl HttpOutNode {
         let mut headers = self.config.headers.clone();
 
         // Add headers from message
-        if let Some(msg_headers) = msg_guard.get("headers") {
-            if let Some(msg_headers_obj) = msg_headers.as_object() {
-                for (key, value) in msg_headers_obj {
-                    if let Some(value_str) = value.as_str() {
-                        headers.insert(key.clone(), value_str.to_string());
-                    }
+        if let Some(msg_headers) = msg_guard.get("headers")
+            && let Some(msg_headers_obj) = msg_headers.as_object()
+        {
+            for (key, value) in msg_headers_obj {
+                if let Some(value_str) = value.as_str() {
+                    headers.insert(key.clone(), value_str.to_string());
                 }
             }
         }
 
         // Handle cookies
-        if let Some(cookies) = msg_guard.get("cookies") {
-            if let Some(cookies_obj) = cookies.as_object() {
-                for (name, cookie_value) in cookies_obj {
-                    let cookie_str = match cookie_value {
-                        Variant::String(s) => format!("{name}={s}"),
-                        Variant::Object(cookie_obj) => {
-                            let mut cookie_parts = vec![format!(
-                                "{}={}",
-                                name,
-                                cookie_obj.get("value").and_then(|v| v.as_str()).unwrap_or("")
-                            )];
+        if let Some(cookies) = msg_guard.get("cookies")
+            && let Some(cookies_obj) = cookies.as_object()
+        {
+            for (name, cookie_value) in cookies_obj {
+                let cookie_str = match cookie_value {
+                    Variant::String(s) => format!("{name}={s}"),
+                    Variant::Object(cookie_obj) => {
+                        let mut cookie_parts = vec![format!(
+                            "{}={}",
+                            name,
+                            cookie_obj.get("value").and_then(|v| v.as_str()).unwrap_or("")
+                        )];
 
-                            if let Some(domain) = cookie_obj.get("domain").and_then(|v| v.as_str()) {
-                                cookie_parts.push(format!("Domain={domain}"));
-                            }
-                            if let Some(path) = cookie_obj.get("path").and_then(|v| v.as_str()) {
-                                cookie_parts.push(format!("Path={path}"));
-                            }
-                            if let Some(max_age) =
-                                cookie_obj.get("maxAge").and_then(|v| v.as_number()).and_then(|n| n.as_u64())
-                            {
-                                cookie_parts.push(format!("Max-Age={max_age}"));
-                            }
-                            if cookie_obj.get("httpOnly").and_then(|v| v.as_bool()).unwrap_or(false) {
-                                cookie_parts.push("HttpOnly".to_string());
-                            }
-                            if cookie_obj.get("secure").and_then(|v| v.as_bool()).unwrap_or(false) {
-                                cookie_parts.push("Secure".to_string());
-                            }
-
-                            cookie_parts.join("; ")
+                        if let Some(domain) = cookie_obj.get("domain").and_then(|v| v.as_str()) {
+                            cookie_parts.push(format!("Domain={domain}"));
                         }
-                        _ => continue,
-                    };
+                        if let Some(path) = cookie_obj.get("path").and_then(|v| v.as_str()) {
+                            cookie_parts.push(format!("Path={path}"));
+                        }
+                        if let Some(max_age) =
+                            cookie_obj.get("maxAge").and_then(|v| v.as_number()).and_then(|n| n.as_u64())
+                        {
+                            cookie_parts.push(format!("Max-Age={max_age}"));
+                        }
+                        if cookie_obj.get("httpOnly").and_then(|v| v.as_bool()).unwrap_or(false) {
+                            cookie_parts.push("HttpOnly".to_string());
+                        }
+                        if cookie_obj.get("secure").and_then(|v| v.as_bool()).unwrap_or(false) {
+                            cookie_parts.push("Secure".to_string());
+                        }
 
-                    // Add to headers
-                    if let Some(existing) = headers.get("Set-Cookie") {
-                        headers.insert("Set-Cookie".to_string(), format!("{existing}, {cookie_str}"));
-                    } else {
-                        headers.insert("Set-Cookie".to_string(), cookie_str);
+                        cookie_parts.join("; ")
                     }
+                    _ => continue,
+                };
+
+                // Add to headers
+                if let Some(existing) = headers.get("Set-Cookie") {
+                    headers.insert("Set-Cookie".to_string(), format!("{existing}, {cookie_str}"));
+                } else {
+                    headers.insert("Set-Cookie".to_string(), cookie_str);
                 }
             }
         }
