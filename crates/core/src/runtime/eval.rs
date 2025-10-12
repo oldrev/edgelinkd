@@ -79,7 +79,7 @@ pub async fn evaluate_raw_node_property(
                         .with_context(|| format!("Cannot get the property(s) from `msg`: {value}"))
                 }
             } else {
-                Err(EdgelinkError::BadArgument("msg")).with_context(|| ("`msg` is not existed!".to_owned()))
+                Err(EdgelinkError::BadArgument("msg")).with_context(|| "`msg` is not existed!".to_owned())
             }
         }
 
