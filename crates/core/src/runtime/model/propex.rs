@@ -144,15 +144,15 @@ fn string_literal<'a, E: ParseError<&'a str>>(input: &'a str) -> IResult<&'a str
     Ok((input, content))
 }
 
-fn first_string_literal_property(i: &str) -> IResult<&str, PropexSegment, nom::error::Error<&str>> {
+fn first_string_literal_property(i: &str) -> IResult<&str, PropexSegment<'_>, nom::error::Error<&str>> {
     token(string_literal).map(|x| PropexSegment::Property(Cow::Borrowed(x))).parse(i)
 }
 
-fn first_direct_property(i: &str) -> IResult<&str, PropexSegment, nom::error::Error<&str>> {
+fn first_direct_property(i: &str) -> IResult<&str, PropexSegment<'_>, nom::error::Error<&str>> {
     nom_parsers::js_identifier.map(|x| PropexSegment::Property(Cow::Borrowed(x))).parse(i)
 }
 
-fn first_property(i: &str) -> IResult<&str, PropexSegment, nom::error::Error<&str>> {
+fn first_property(i: &str) -> IResult<&str, PropexSegment<'_>, nom::error::Error<&str>> {
     context(
         "first_property",
         alt((
@@ -167,25 +167,25 @@ fn first_property(i: &str) -> IResult<&str, PropexSegment, nom::error::Error<&st
 }
 
 /// `['prop']` or `["prop"]`
-fn quoted_index_property(i: &str) -> IResult<&str, PropexSegment, nom::error::Error<&str>> {
+fn quoted_index_property(i: &str) -> IResult<&str, PropexSegment<'_>, nom::error::Error<&str>> {
     delimited(token(char('[')), string_literal, token(char(']')))
         .map(|x| PropexSegment::Property(Cow::Borrowed(x)))
         .parse(i)
 }
 
 /// `.property`
-fn direct_identifier_property(i: &str) -> IResult<&str, PropexSegment, nom::error::Error<&str>> {
+fn direct_identifier_property(i: &str) -> IResult<&str, PropexSegment<'_>, nom::error::Error<&str>> {
     context("direct_property", preceded(char('.'), nom_parsers::js_identifier))
         .map(|x: &str| PropexSegment::Property(Cow::Borrowed(x)))
         .parse(i)
 }
 
 /// `.123`
-fn direct_numbers_index(i: &str) -> IResult<&str, PropexSegment, nom::error::Error<&str>> {
+fn direct_numbers_index(i: &str) -> IResult<&str, PropexSegment<'_>, nom::error::Error<&str>> {
     context("direct_numbers_index", preceded(token(char('.')), token(parse_usize))).map(PropexSegment::Index).parse(i)
 }
 
-fn subproperty(i: &str) -> IResult<&str, PropexSegment, nom::error::Error<&str>> {
+fn subproperty(i: &str) -> IResult<&str, PropexSegment<'_>, nom::error::Error<&str>> {
     context(
         "subproperty",
         alt((
@@ -199,13 +199,13 @@ fn subproperty(i: &str) -> IResult<&str, PropexSegment, nom::error::Error<&str>>
     .parse(i)
 }
 
-fn bracket_index(i: &str) -> IResult<&str, PropexSegment, nom::error::Error<&str>> {
+fn bracket_index(i: &str) -> IResult<&str, PropexSegment<'_>, nom::error::Error<&str>> {
     context("index", delimited(token(char('[')), token(parse_usize), token(char(']'))))
         .map(PropexSegment::Index)
         .parse(i)
 }
 
-fn nested(i: &str) -> IResult<&str, PropexSegment, nom::error::Error<&str>> {
+fn nested(i: &str) -> IResult<&str, PropexSegment<'_>, nom::error::Error<&str>> {
     let (i, _) = token(char('[')).parse(i)?;
     let (i, first) = first_direct_property.parse(i)?;
     let (i, rest) = many1(subproperty).parse(i)?;
@@ -216,7 +216,7 @@ fn nested(i: &str) -> IResult<&str, PropexSegment, nom::error::Error<&str>> {
     Ok((i, PropexSegment::Nested(result)))
 }
 
-fn expression(input: &str) -> IResult<&str, PropexPath, nom::error::Error<&str>> {
+fn expression(input: &str) -> IResult<&str, PropexPath<'_>, nom::error::Error<&str>> {
     let (input, first) = first_property.parse(input)?;
 
     let (input, rest) = context(
@@ -238,7 +238,7 @@ fn expression(input: &str) -> IResult<&str, PropexPath, nom::error::Error<&str>>
     }
 }
 
-pub fn parse(expr: &str) -> Result<PropexPath, PropexError> {
+pub fn parse(expr: &str) -> Result<PropexPath<'_>, PropexError> {
     if expr.is_empty() {
         return Err(PropexError::BadArguments);
     }

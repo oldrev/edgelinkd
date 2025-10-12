@@ -28,7 +28,7 @@ fn edgelink_pymod(_py: Python, m: &PyModule) -> PyResult<()> {
 }
 
 #[pyfunction]
-fn rust_sleep(py: Python) -> PyResult<&PyAny> {
+fn rust_sleep(py: Python<'_>) -> PyResult<&PyAny> {
     pyo3_asyncio::tokio::future_into_py(py, async {
         eprintln!("Sleeping in Rust!");
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;

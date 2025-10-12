@@ -110,7 +110,7 @@ where
     }
 
     impl BoolVisitor {
-        fn convert_to_bool<E>(v: &str) -> Option<Result<<BoolVisitor as Visitor>::Value, E>>
+        fn convert_to_bool<E>(v: &str) -> Option<Result<<BoolVisitor as Visitor<'_>>::Value, E>>
         where
             E: Error,
         {

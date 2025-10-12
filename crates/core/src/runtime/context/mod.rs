@@ -283,7 +283,7 @@ fn parse_store_expr(input: &str) -> nom::IResult<&str, &str, nom::error::Error<&
     Ok((input, store))
 }
 
-fn context_store_parser(input: &str) -> nom::IResult<&str, ContextKey, nom::error::Error<&str>> {
+fn context_store_parser(input: &str) -> nom::IResult<&str, ContextKey<'_>, nom::error::Error<&str>> {
     // use crate::text::nom_parsers::*;
     use nom::combinator::{opt, rest};
 

@@ -34,7 +34,7 @@ pub enum PropexEnv<'a> {
 pub trait PropexEnvSliceExt<'a> {
     fn find(&self, seg: &str, this: &'a Variant) -> Option<&'a Variant>;
     fn find_ext(&self, seg: &str) -> Option<&'a Variant>;
-    fn find_seg(&self, seg: &str) -> Option<&PropexEnv>;
+    fn find_seg(&self, seg: &str) -> Option<&PropexEnv<'_>>;
 }
 
 #[derive(Debug, Clone)]

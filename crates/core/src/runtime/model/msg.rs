@@ -406,11 +406,11 @@ impl MsgHandle {
         MsgHandle::new(msg)
     }
 
-    pub async fn read(&self) -> tokio::sync::RwLockReadGuard<Msg> {
+    pub async fn read(&self) -> tokio::sync::RwLockReadGuard<'_, Msg> {
         self.inner.read().await
     }
 
-    pub async fn write(&self) -> tokio::sync::RwLockWriteGuard<Msg> {
+    pub async fn write(&self) -> tokio::sync::RwLockWriteGuard<'_, Msg> {
         self.inner.write().await
     }
 
