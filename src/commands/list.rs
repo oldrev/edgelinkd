@@ -5,6 +5,7 @@ use crate::cliargs::CliArgs;
 use crate::commands::Command;
 use crate::registry::list_available_nodes;
 
+#[allow(dead_code)]
 pub struct ListCommand;
 
 #[async_trait::async_trait]

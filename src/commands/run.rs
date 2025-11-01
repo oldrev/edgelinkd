@@ -5,6 +5,7 @@ use crate::cliargs::{CliArgs, Commands};
 use crate::commands::Command;
 use crate::runner::run_app_internal;
 
+#[allow(dead_code)]
 pub struct RunCommand;
 
 #[async_trait::async_trait]
