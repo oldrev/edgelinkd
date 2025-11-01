@@ -291,7 +291,7 @@ impl MqttInNode {
                 match std::str::from_utf8(payload) {
                     Ok(s) => {
                         match serde_json::from_str::<serde_json::Value>(s) {
-                            Ok(json_val) => self.json_value_to_variant(json_val),
+                            Ok(json_val) => Self::json_value_to_variant(json_val),
                             Err(_) => Variant::String(s.to_string()), // Fallback to string
                         }
                     }
@@ -305,7 +305,7 @@ impl MqttInNode {
                     if datatype == &MqttDataType::AutoDetect
                         && let Ok(json_val) = serde_json::from_str::<serde_json::Value>(utf8_str)
                     {
-                        return self.json_value_to_variant(json_val);
+                        return Self::json_value_to_variant(json_val);
                     }
                     // Return as string
                     Variant::String(utf8_str.to_string())
@@ -318,19 +318,19 @@ impl MqttInNode {
     }
 
     /// Convert JSON value to Variant
-    fn json_value_to_variant(&self, json_val: serde_json::Value) -> Variant {
+    fn json_value_to_variant(json_val: serde_json::Value) -> Variant {
         match json_val {
             serde_json::Value::Null => Variant::Null,
             serde_json::Value::Bool(b) => Variant::Bool(b),
             serde_json::Value::Number(n) => Variant::Number(n),
             serde_json::Value::String(s) => Variant::String(s),
             serde_json::Value::Array(arr) => {
-                let variants: Vec<Variant> = arr.into_iter().map(|v| self.json_value_to_variant(v)).collect();
+                let variants: Vec<Variant> = arr.into_iter().map(Self::json_value_to_variant).collect();
                 Variant::Array(variants)
             }
             serde_json::Value::Object(obj) => {
                 let map: std::collections::BTreeMap<String, Variant> =
-                    obj.into_iter().map(|(k, v)| (k, self.json_value_to_variant(v))).collect();
+                    obj.into_iter().map(|(k, v)| (k, Self::json_value_to_variant(v))).collect();
                 Variant::Object(map)
             }
         }
