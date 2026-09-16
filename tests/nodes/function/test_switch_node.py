@@ -732,7 +732,6 @@ class TestSwitchNode:
         assert len(msgs) == 1
         assert msgs[0]["payload"] == "Hello"
 
-    @pytest.mark.skip
     @pytest.mark.asyncio
     @pytest.mark.it("should handle JSONata expression")
     async def test_it_should_handle_jsonata_expression(self):
@@ -746,7 +745,6 @@ class TestSwitchNode:
         ]
         await _custom_flow_switch_test(flow, True, -5)  # abs(-5) = 5, between sqrt(16)=4 and sqrt(36)=6
 
-    @pytest.mark.skip
     @pytest.mark.asyncio
     @pytest.mark.it("should handle flow and global contexts with JSONata expression")
     async def test_it_should_handle_flow_and_global_contexts_with_jsonata_expression(self):
@@ -773,7 +771,6 @@ class TestSwitchNode:
         assert len(msgs) == 1
         assert msgs[0]["payload"] == "pass"
 
-    @pytest.mark.skip
     @pytest.mark.asyncio
     @pytest.mark.it("should handle persistable flow and global contexts with JSONata expression")
     async def test_it_should_handle_persistable_flow_and_global_contexts_with_jsonata_expression(self):
@@ -797,6 +794,33 @@ class TestSwitchNode:
         msgs = await run_flow_with_msgs_ntimes(flows_obj=flows, msgs=injections, nexpected=1, timeout=0.5)
         assert len(msgs) == 1
         assert msgs[0]["payload"] == "pass"
+
+    @pytest.mark.skip(reason="the head/tail/index switch rules are not implemented: sequence repair is out of scope")
+    @pytest.mark.asyncio
+    @pytest.mark.it("should take head of message sequence (w. JSONata)")
+    async def test_it_should_take_head_of_message_sequence_w_jsonata(self):
+        flow = [
+            {"id": "100", "type": "tab"},
+            {"id": "1", "z": "100", "type": "switch", "name": "switchNode", "property": "payload",
+             "rules": [{"t": "head", "v": "1+4/2", "vt": "jsonata"}], "checkall": False, "repair": True,
+             "outputs": 1, "wires": [["2"]]},
+            {"id": "2", "z": "100", "type": "test-once"}
+        ]
+
+        injections = []
+        for i in range(5):
+            injections.append({
+                "nid": "1",
+                "msg": {
+                    "payload": i,
+                    "parts": {"index": i, "count": 5, "id": 222}
+                }
+            })
+
+        msgs = await run_flow_with_msgs_ntimes(flows_obj=flow, msgs=injections, nexpected=3, timeout=0.5)
+        assert len(msgs) == 3
+        for i, msg in enumerate(msgs):
+            assert msg["payload"] == i
 
     @pytest.mark.asyncio 
     @pytest.mark.it("should handle env var expression")
@@ -928,7 +952,6 @@ class TestSwitchNode:
         for i, msg in enumerate(msgs):
             assert msg["payload"] == expected_values[i]
 
-    @pytest.mark.skip
     @pytest.mark.asyncio
     @pytest.mark.it("should check JSONata expression is true")
     async def test_it_should_check_jsonata_expression_is_true(self):
@@ -941,7 +964,6 @@ class TestSwitchNode:
         ]
         await _custom_flow_switch_test(flow, True, 9)  # 9 % 2 = 1 (true)
 
-    @pytest.mark.skip
     @pytest.mark.asyncio
     @pytest.mark.it("should be able to use $I in JSONata expression")
     async def test_it_should_be_able_to_use_i_in_jsonata_expression(self):
@@ -969,7 +991,6 @@ class TestSwitchNode:
         assert msgs[0]["payload"] == 1
         assert msgs[1]["payload"] == 3
 
-    @pytest.mark.skip
     @pytest.mark.asyncio
     @pytest.mark.it("should be able to use $N in JSONata expression") 
     async def test_it_should_be_able_to_use_n_in_jsonata_expression(self):
@@ -1014,7 +1035,7 @@ class TestSwitchNode:
         msgs = await run_flow_with_msgs_ntimes(flows_obj=flow, msgs=injections, nexpected=0, timeout=0.2)
         assert len(msgs) == 0
 
-    @pytest.mark.skip 
+    @pytest.mark.skip(reason="`nexpected=0` returns without running the flow, so 'emits nothing' cannot be observed")
     @pytest.mark.asyncio
     @pytest.mark.it("should handle invalid jsonata expression")
     async def test_it_should_handle_invalid_jsonata_expression(self):

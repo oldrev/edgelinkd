@@ -71,6 +71,7 @@ tokio-tungstenite = { workspace = true, optional = true, features = ["rustls-tls
 futures-util.workspace = true
 reqwest = { workspace = true, optional = true }
 axum.workspace = true
+jsonata-core = { optional = true, workspace = true }
 
 [dev-dependencies]
 # Enable test-utilities in dev mode only. This is mostly for tests.
@@ -81,11 +82,12 @@ futures.workspace = true
 
 
 [features]
-default = ["core", "js", "nodes_network", "nodes_storage", "nodes_parser"]
+default = ["core", "js", "jsonata", "nodes_network", "nodes_storage", "nodes_parser"]
 core = []
 pymod = []
 #js = ["rquickjs", "rquickjs-extra", "llrt_modules"]
 js = ["rquickjs", "rquickjs-extra"]
+jsonata = ["jsonata-core"]
 rqjs_bindgen = ["rquickjs/bindgen"]
 nodes_network = ["nodes_mqtt", "nodes_udp", "nodes_tcp", "nodes_http", "nodes_websocket"]
 nodes_parser = ["nodes_xml", "nodes_yaml"]

@@ -7,14 +7,19 @@ whenToUse: "A task asks to implement, port, complete or debug a Node-RED node in
 # Port a Node-RED node into EdgeLinkd
 
 EdgeLinkd re-implements Node-RED nodes in Rust, and mirrors Node-RED's own mocha
-spec suite as pytest tests. A node is only **done** when all three artifacts exist
-and the coverage checker agrees:
+spec suite as pytest tests. For the behaviour we support, a node is only **done** when all
+three artifacts exist and the coverage checker agrees:
 
 | # | Artifact | Location |
 |---|---|---|
 | 1 | Rust node implementation (self-registering) | `crates/core/src/runtime/nodes/<category>/<name>.rs` |
-| 2 | Ported spec tests (one pytest test per upstream `it()`) | `tests/nodes/<category>/test_<name>_node.py` |
+| 2 | Ported spec tests (one pytest test per upstream `it()`, skipped with a reason when out of scope) | `tests/nodes/<category>/test_<name>_node.py` |
 | 3 | Audit entry mapping the two | `scripts/specs_diff.json` |
+
+EdgeLinkd is embedded-first, so a node may deliberately support only part of its upstream
+behaviour. Behaviour we support must match Node-RED exactly; out-of-scope behaviour is still
+ported as a title and marked `@pytest.mark.skip(reason=...)` (see step 4). Never ship a
+half-working option that looks supported — see the design philosophy in `AGENTS.md`.
 
 Verification is the `[✓] "<name>" (n/n)` line for the node you touched in
 `python scripts/specs_diff.py <absolute path to 3rd-party/node-red>`, plus
@@ -114,9 +119,12 @@ Rules that the coverage checker enforces:
   those strings, so a typo, a difference in spacing or a smart quote shows up as a gap).
 - One Python test per upstream `it()`. Keep the upstream order and number the test
   methods (`test_0001`, `test_0002`, ...) as the existing files do.
-- Not-yet-supported behaviour still needs its title: keep the test but mark it
-  `@pytest.mark.skip` (the title is still collected, so coverage stays complete) —
-  this is the repo's convention for known gaps.
+- **Every upstream `it()` gets a title, including the ones we do not support.** Mark those
+  `@pytest.mark.skip(reason="<feature> is out of scope: <why>")`. `specs_diff.py` collects
+  with `-p no:skip`, so a skipped test still counts as covered — the `reason=` string is the
+  only written record of the gap, which is why it is mandatory and has to name the
+  unsupported feature. A `skip` never means "not fixed yet": never skip a spec for behaviour
+  we claim to support.
 - "should be loaded"-style tests are usually ported as a bare `pass` body.
 
 Drive the node with the helpers from `tests/__init__.py`
@@ -166,8 +174,14 @@ tracked — refresh it deliberately only when it is part of the change you inten
   or the `fullTitle` misses the prefix and the checker reports every test of that block as
   missing. See `references/python-spec-tests.md`.
 - **The pytest bridge cannot carry Buffers.** `Variant::Bytes` has no JSON representation,
-  so binary-payload spec tests are unportable; skip them with that reason. `nexpected=0`
+  so binary-payload spec tests are unportable; skip them with
+  `reason="binary payloads cannot cross the pytest bridge"`. `nexpected=0`
   returns without running the flow, so "should emit nothing" cannot be observed that way.
+- **Half-working behaviour that looks supported.** An option that is accepted and then
+  ignored, a `todo!()`, or a fabricated value is worse than an honest gap, because the user
+  cannot tell the difference. When a code path reaches something we do not support, return
+  `EdgelinkError::NotSupported` (or a node error/status) — and port the corresponding spec as
+  a `skip` carrying the reason.
 - **Never copy an upstream node id into flow JSON.** An `ElementId` is a `u64` written in hex
   (1..16 digits), so a copied id (`n1`, `splitNode1`) — and even a hex-encoded long name —
   is rejected with "failed to parse ElementId". Convert with the harness helper `red_id()`,

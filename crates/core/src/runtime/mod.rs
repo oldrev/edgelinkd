@@ -16,3 +16,6 @@ pub mod subflow;
 
 #[cfg(feature = "js")]
 pub mod js;
+
+#[cfg(feature = "jsonata")]
+pub mod jsonata;

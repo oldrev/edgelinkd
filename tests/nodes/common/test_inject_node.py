@@ -427,7 +427,7 @@ class TestInjectNode:
                     {"p": "topic", "v": "t1", "vt": "str"},
                     {"p": "payload", "v": "foo", "vt": "str"},
                     {"p": "x", "v": "10", "vt": "num"},
-                    # {"p": "y", "v": "x+2", "vt": "jsonata"} #TODO FIXME
+                    {"p": "y", "v": "x+2", "vt": "jsonata"}
                 ],
                 "wires": [["2"]],
             },
@@ -439,7 +439,7 @@ class TestInjectNode:
         assert msg["topic"] == "t1"
         assert msg["payload"] == "foo"
         assert msg["x"] == 10
-        # assert msg["y"] == 12
+        assert msg["y"] == 12
 
     """
     # EdgeLink doesn't support the msg injection for `inject` node
@@ -508,5 +508,55 @@ class TestInjectNode:
         assert msg["topic"] == "foo"
         assert msg["payload"] == 123
 
-    # 0211: should report invalid JSONata expression
-    # We don't support JSONata yet...
+    @pytest.mark.skip(reason="an inject property that fails is dropped, and the pytest harness cannot observe node error events")
+    @pytest.mark.asyncio
+    @pytest.mark.it('should report invalid JSONata expression')
+    async def test_0211(self):
+        flows = [
+            {"id": "100", "type": "tab"},  # flow 1
+            {
+                "id": "1",
+                "type": "inject",
+                "z": "100",
+                "once": True,
+                "props": [
+                    {"p": "topic", "v": "t1", "vt": "str"},
+                    {"p": "payload", "v": "@", "vt": "jsonata"}
+                ],
+                "wires": [["2"]],
+            },
+            {"id": "2", "z": "100", "type": "test-once"},
+        ]
+        injections = []
+        msgs = await run_flow_with_msgs_ntimes(flows, injections, 1)
+        assert msgs[0]["topic"] == "t1"
+        assert "payload" not in msgs[0]
+
+
+@pytest.mark.describe('post')
+class TestInjectPost:
+    @pytest.mark.skip(reason="the inject node does not support the `__user_inject_props__` message override")
+    @pytest.mark.asyncio
+    @pytest.mark.it('should inject custom properties in posted message')
+    async def test_post_custom_properties(self):
+        flows = [
+            {"id": "100", "type": "tab"},  # flow 1
+            {
+                "id": "1",
+                "type": "inject",
+                "z": "100",
+                "once": True,
+                "props": [
+                    {"p": "payload", "v": "static", "vt": "str"},
+                    {"p": "topic", "v": "static", "vt": "str"}
+                ],
+                "wires": [["2"]],
+            },
+            {"id": "2", "z": "100", "type": "test-once"},
+        ]
+        injections = [{"nid": "1", "msg": {"__user_inject_props__": [
+            {"p": "payload", "v": '"A" & "B"', "vt": "jsonata"},
+        ]}}]
+        msgs = await run_flow_with_msgs_ntimes(flows, injections, 1)
+        assert msgs[0]["payload"] == "AB"
+

@@ -200,6 +200,10 @@ impl SwitchRuleOperator {
                 _ => Ok(false),
             },
             Self::Else => Ok(false),
+
+            // Node-RED: `'jsonata_exp': function(a, b) { return (b === true); }`
+            Self::JsonataExp => Ok(b.as_bool() == Some(true)),
+
             _ => Err(EdgelinkError::NotSupported("Unsupported operator".to_owned()).into()),
         }
     }
@@ -467,6 +471,13 @@ impl SwitchNode {
     async fn get_v1(&self, rule: &SwitchRule, msg: &Msg) -> crate::Result<Variant> {
         match rule.value_type {
             SwitchPropertyType::Prev => Ok(self.prev_value.read().await.clone()),
+
+            // Node-RED assigns `$I`/`$N` from `msg.parts` for `jsonata_exp` rules.
+            #[cfg(feature = "jsonata")]
+            SwitchPropertyType::Jsonata if rule.operator == SwitchRuleOperator::JsonataExp => {
+                self.evaluate_jsonata_exp(rule, msg)
+            }
+
             _ => {
                 eval::evaluate_node_property_value(
                     rule.value.clone(),
@@ -478,6 +489,29 @@ impl SwitchNode {
                 .await
             }
         }
+    }
+
+    #[cfg(feature = "jsonata")]
+    fn evaluate_jsonata_exp(&self, rule: &SwitchRule, msg: &Msg) -> crate::Result<Variant> {
+        use crate::runtime::jsonata::{JsonataExpression, JsonataHost};
+
+        let source = match &rule.value {
+            RedPropertyValue::Runtime(source) => source.as_str(),
+            RedPropertyValue::Constant(value) => value.as_str().unwrap_or_default(),
+        };
+
+        let mut host = JsonataHost::new(self.flow().as_ref(), Some(self));
+        if let Some(parts) = msg.parts() {
+            if let Some(index) = parts.get("index") {
+                host.bind("I", index.clone());
+            }
+            if let Some(count) = parts.get("count") {
+                host.bind("N", count.clone());
+            }
+        }
+
+        let expression = JsonataExpression::compile(source)?;
+        Ok(expression.evaluate(Some(msg), &host)?.unwrap_or(Variant::Null))
     }
 
     async fn get_v2(&self, rule: &SwitchRule, msg: &Msg) -> crate::Result<Variant> {

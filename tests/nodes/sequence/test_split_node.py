@@ -255,18 +255,9 @@ class TestSplitNode:
         assert len(msgs[0]["payload"]) == 2
         assert len(msgs[1]["payload"]) == 1
 
-    # JSONata 相关测试跳过
-    @pytest.mark.skip(reason="JSONata not supported yet")
-    @pytest.mark.asyncio
-    @pytest.mark.it('should split using JSONata expression')
-    async def test_0021(self):
-        pass
+    # `should split using JSONata expression` has no upstream counterpart; the split node's
+    # JSONata handling is covered by the reduce/fixup specs further down this file.
 
-    @pytest.mark.skip(reason="JSONata not supported yet")
-    @pytest.mark.asyncio
-    @pytest.mark.it('should split using JSONata expression with context')
-    async def test_0022(self):
-        pass
 
 def _mapi_flow(node_json):
     """Build the flow the upstream mapiDone*TestHelper()s load.

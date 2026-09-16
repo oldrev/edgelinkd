@@ -235,6 +235,9 @@ impl RedPropertyValue {
             (RedPropertyType::Bool, Variant::Bool(_)) => Ok(Self::Constant(value.clone())),
             (RedPropertyType::Bin, Variant::Bytes(_)) => Ok(Self::Constant(value.clone())),
             (RedPropertyType::Json, Variant::Object(_) | Variant::Array(_)) => Ok(Self::Constant(value.clone())),
+            // A JSONata expression is literal source text that runs per message, so it stays a
+            // runtime property (Node-RED compiles one per node at deploy time).
+            (RedPropertyType::Jsonata, _) => Ok(Self::Runtime(value.as_str().unwrap_or_default().to_owned())),
             (_, _) => Self::parse_constant(value.as_str().unwrap_or(""), _type),
         }
     }
@@ -262,7 +265,9 @@ impl RedPropertyValue {
 
             RedPropertyType::Bool => Variant::Bool(value.trim_ascii().parse::<bool>()?),
 
-            RedPropertyType::Jsonata => todo!(),
+            // Reached only when a JSONata property arrives wrapped in a non-string constant;
+            // the expression source itself is kept as a runtime property.
+            RedPropertyType::Jsonata => Variant::String(value.into()),
 
             _ => {
                 return Err(EdgelinkError::BadArgument("_type"))
