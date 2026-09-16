@@ -381,7 +381,7 @@ impl Engine {
         self.run_once_with_inject(expected_msgs, timeout, Vec::with_capacity(0)).await
     }
 
-    /// How long a windowed run waits for the first output before it starts sampling.
+    /// How long a sampling run waits for the first output before it starts sampling.
     ///
     /// Only the *first* output is awaited with this bound; engine start-up cost is what it
     /// absorbs. A run that never produces anything gives up after this.
@@ -395,7 +395,8 @@ impl Engine {
     /// samples the flow for a fixed duration and returns whatever arrived in that window.
     /// Node-RED's rate-limiting specs are written that way (inject a burst, sample for
     /// `runtimeInMillis`, then count and check the spacing), which is impossible to
-    /// express with a count. Offsets are relative to the first observed output.
+    /// express with a count. Offsets are relative to the first observed output. Reached
+    /// from pytest through the `run_flows_for_once` binding.
     #[cfg(any(test, feature = "pymod"))]
     pub async fn run_window_with_inject(
         &self,
