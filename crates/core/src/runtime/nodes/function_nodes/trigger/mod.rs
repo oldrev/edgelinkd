@@ -1,4 +1,6 @@
+use crate::runtime::eval;
 use crate::runtime::flow::Flow;
+use crate::runtime::model::RedPropertyType;
 use crate::runtime::nodes::{with_uow, *};
 use edgelink_macro::*;
 use mustache::MapBuilder;
@@ -83,6 +85,20 @@ enum PayloadType {
     Json,
     #[serde(rename = "date")]
     Date,
+    /// `bin`: a byte payload built from a JSON array or string (`Buffer.from(JSON.parse(value))`).
+    #[serde(rename = "bin")]
+    Binary,
+    /// `env`: read the named environment variable.
+    #[serde(rename = "env")]
+    Environment,
+    /// `flow` / `global`: read the named flow or global context variable.
+    #[serde(rename = "flow")]
+    FlowContext,
+    #[serde(rename = "global")]
+    GlobalContext,
+    /// `jsonata`: evaluate the value as a JSONata expression.
+    #[serde(rename = "jsonata")]
+    Jsonata,
     #[serde(rename = "pay")]
     Payload,
     #[serde(rename = "payl")]
@@ -322,11 +338,56 @@ impl TriggerNodeConfig {
             PayloadType::Null => Some(Variant::Null),
             // `nul` never reaches here: both call sites check for it first.
             PayloadType::NoOutput => None,
+            // These need the node, the flow or the message, so they go through
+            // `TriggerNode::evaluate_payload` instead.
+            PayloadType::Binary
+            | PayloadType::Environment
+            | PayloadType::FlowContext
+            | PayloadType::GlobalContext
+            | PayloadType::Jsonata => None,
         }
     }
 }
 
 impl TriggerNode {
+    /// Evaluate the configured `op1`/`op2` value the way Node-RED's `evaluateNodeProperty` does.
+    ///
+    /// A `str` holding `{{...}}` is a mustache template and `nul` produces no edge at all; the
+    /// context, environment, binary and JSONata types go through the runtime's property
+    /// evaluator, which is what the inject and change nodes use as well.
+    async fn evaluate_payload(
+        self: &Arc<Self>,
+        payload_type: PayloadType,
+        value: &str,
+        msg: &Msg,
+    ) -> crate::Result<Option<Variant>> {
+        let property_type = match payload_type {
+            PayloadType::Binary => Some(RedPropertyType::Bin),
+            PayloadType::Environment => Some(RedPropertyType::Env),
+            PayloadType::FlowContext => Some(RedPropertyType::Flow),
+            PayloadType::GlobalContext => Some(RedPropertyType::Global),
+            PayloadType::Jsonata => Some(RedPropertyType::Jsonata),
+            PayloadType::Date => Some(RedPropertyType::Date),
+            _ => None,
+        };
+
+        if let Some(property_type) = property_type {
+            let flow = self.flow();
+            let evaluated =
+                eval::evaluate_raw_node_property(value, property_type, Some(self.as_ref()), flow.as_ref(), Some(msg))
+                    .await?;
+            return Ok(Some(evaluated));
+        }
+
+        match payload_type {
+            PayloadType::NoOutput => Ok(None),
+            PayloadType::String if value.contains("{{") => {
+                Ok(Some(Variant::String(render_mustache_template(value, msg).unwrap_or_else(|_| value.to_string()))))
+            }
+            other => Ok(self.config.get_payload_value(other, value, msg.get("payload"))),
+        }
+    }
+
     fn build(
         _flow: &Flow,
         base: BaseFlowNodeState,
@@ -389,14 +450,17 @@ impl TriggerNode {
             return;
         }
 
-        let original_payload = event.msg.get("payload").cloned();
-        let op2_payload = if self.config.op2_type == PayloadType::String && self.config.op2.contains("{{") {
-            match render_mustache_template(&self.config.op2, &event.msg) {
-                Ok(rendered) => Some(Variant::String(rendered)),
-                Err(_) => Some(Variant::String(self.config.op2.clone())),
+        let op2_payload = match self.evaluate_payload(self.config.op2_type, &self.config.op2, &event.msg).await {
+            Ok(payload) => payload,
+            Err(e) => {
+                // Upstream's promise rejects and reports through `node.error`, and the second
+                // edge is not sent.
+                if let Some(flow) = self.flow() {
+                    let message = e.to_string();
+                    let _ = flow.handle_error(self.as_ref(), &message, None, None, cancel.clone()).await;
+                }
+                return;
             }
-        } else {
-            self.config.get_payload_value(self.config.op2_type, &self.config.op2, original_payload.as_ref())
         };
 
         if let Some(payload) = op2_payload {
@@ -507,11 +571,10 @@ impl TriggerNode {
         }
 
         let mut loop_mode = false;
-        let mut duration_ms = if let Some(override_val) = delay_override {
-            override_val * 1000.0
-        } else {
-            self.config.get_duration_in_ms()
-        };
+        // `msg.delay` is in milliseconds, exactly as upstream hands it to `setTimeout`; the
+        // configured `duration` is the one that goes through the units conversion.
+        let mut duration_ms =
+            if let Some(override_val) = delay_override { override_val } else { self.config.get_duration_in_ms() };
         if duration_ms < 0.0 {
             loop_mode = true;
             duration_ms = -duration_ms;
@@ -545,15 +608,7 @@ impl TriggerNode {
         }
 
         if !is_extend && self.config.op1_type != PayloadType::NoOutput {
-            let op1_payload = if self.config.op1_type == PayloadType::String && self.config.op1.contains("{{") {
-                match render_mustache_template(&self.config.op1, &msg_snapshot) {
-                    Ok(rendered) => Some(Variant::String(rendered)),
-                    Err(_) => Some(Variant::String(self.config.op1.clone())),
-                }
-            } else {
-                let original_payload = msg_snapshot.get("payload").cloned();
-                self.config.get_payload_value(self.config.op1_type, &self.config.op1, original_payload.as_ref())
-            };
+            let op1_payload = self.evaluate_payload(self.config.op1_type, &self.config.op1, &msg_snapshot).await?;
             if let Some(payload) = op1_payload {
                 let mut new_msg_data = msg_snapshot.as_variant_object().clone();
                 new_msg_data.insert("payload".to_string(), payload);
@@ -580,14 +635,12 @@ impl TriggerNode {
                 loop {
                     tokio::select! {
                         _ = interval.tick() => {
-                            let op1_payload = if op1_type == PayloadType::String && op1_value.contains("{{") {
-                                match render_mustache_template(&op1_value, &msg_for_template) {
-                                    Ok(rendered) => Some(Variant::String(rendered)),
-                                    Err(_) => Some(Variant::String(op1_value.clone())),
+                            let op1_payload = match node.evaluate_payload(op1_type, &op1_value, &msg_for_template).await {
+                                Ok(payload) => payload,
+                                Err(e) => {
+                                    log::error!("Failed to evaluate the repeated value: {e}");
+                                    continue;
                                 }
-                            } else {
-                                let original_payload = msg_for_template.get("payload").cloned();
-                                node.config.get_payload_value(op1_type, &op1_value, original_payload.as_ref())
                             };
                             if let Some(payload) = op1_payload {
                                 let mut new_msg_data = msg_data_loop.clone();

@@ -1,8 +1,10 @@
 import json
+import datetime
 import pytest
 import pytest_asyncio
 import asyncio
 import os
+import time
 
 from tests import *
 
@@ -145,6 +147,147 @@ class TestTriggerNode:
         expected = json.loads(val_json)
         assert msgs[0]['payload'] == "foo"
         assert msgs[1]['payload'] == expected
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('should output 1st value when triggered (bin)')
+    async def test_0011b(self):
+        val_buf = "[1,2,3,4,5]"
+        node = {
+            "type": "trigger", "name": "triggerNode", "op1": val_buf, "op1type": "bin",
+            "op2": "", "op2type": "nul", "duration": "20"
+        }
+        msgs = await run_single_node_with_msgs_ntimes(node, [{"payload": None}], 1)
+        # Upstream compares the payload to `Buffer.from(JSON.parse(val_buf))`.
+        assert msgs[0]['payload'] == json.loads(val_buf)
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('should output 2st value when triggered (bin)')
+    async def test_0011c(self):
+        val_buf = "[1,2,3,4,5]"
+        node = {
+            "type": "trigger", "name": "triggerNode", "op1": "foo", "op1type": "str",
+            "op2": val_buf, "op2type": "bin", "duration": "20"
+        }
+        msgs = await run_single_node_with_msgs_ntimes(node, [{"payload": None}], 2)
+        assert msgs[0]['payload'] == "foo"
+        assert msgs[1]['payload'] == json.loads(val_buf)
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('should output 1st value when triggered (env)')
+    async def test_0011d(self):
+        # Upstream sets a process environment variable; the equivalent here is the flow's own
+        # environment, which the node reads through the same evaluator.
+        flows = [
+            {"id": "0", "type": "tab", "env": [{"name": "NR-TEST", "type": "str", "value": "env-val"}]},
+            {"id": "1", "z": "0", "type": "trigger", "name": "triggerNode", "op1": "NR-TEST",
+             "op1type": "env", "op2": "", "op2type": "nul", "duration": "20", "wires": [["2"]]},
+            {"id": "2", "z": "0", "type": "test-once"},
+        ]
+        msgs = await run_flow_with_msgs_ntimes(flows, [{"payload": None}], 1, "1")
+        assert msgs[0]['payload'] == "env-val"
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('should output 2st value when triggered (env)')
+    async def test_0011e(self):
+        flows = [
+            {"id": "0", "type": "tab", "env": [{"name": "NR-TEST", "type": "str", "value": "env-val"}]},
+            {"id": "1", "z": "0", "type": "trigger", "name": "triggerNode", "op1": "foo",
+             "op1type": "str", "op2": "NR-TEST", "op2type": "env", "duration": "20", "wires": [["2"]]},
+            {"id": "2", "z": "0", "type": "test-once"},
+        ]
+        msgs = await run_flow_with_msgs_ntimes(flows, [{"payload": None}], 2, "1")
+        assert msgs[0]['payload'] == "foo"
+        assert msgs[1]['payload'] == "env-val"
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('should output 1st value when triggered (date)')
+    async def test_0011f(self):
+        # `date` with the value "1" (upstream rewrites it to the empty string) is "now".
+        node = {
+            "type": "trigger", "name": "triggerNode", "op1": "1", "op1type": "date",
+            "op2": "", "op2type": "nul", "duration": "20"
+        }
+        before = time.time() * 1000
+        msgs = await run_single_node_with_msgs_ntimes(node, [{"payload": None}], 1)
+        after = time.time() * 1000
+        assert before - 1000 <= msgs[0]['payload'] <= after + 1000
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('should output 1st value when triggered (date)')
+    async def test_0011g(self):
+        node = {
+            "type": "trigger", "name": "triggerNode", "op1": "iso", "op1type": "date",
+            "op2": "", "op2type": "nul", "duration": "20"
+        }
+        msgs = await run_single_node_with_msgs_ntimes(node, [{"payload": None}], 1)
+        # Upstream compares the date part of the ISO string.
+        assert msgs[0]['payload'][:11] == datetime.datetime.now(datetime.timezone.utc).isoformat()[:11]
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('should output 2st value when triggered (date)')
+    async def test_0011h(self):
+        node = {
+            "type": "trigger", "name": "triggerNode", "op1": "foo", "op1type": "str",
+            "op2": "0", "op2type": "date", "duration": "20"
+        }
+        before = time.time() * 1000
+        msgs = await run_single_node_with_msgs_ntimes(node, [{"payload": None}], 2)
+        after = time.time() * 1000
+        assert msgs[0]['payload'] == "foo"
+        assert before - 1000 <= msgs[1]['payload'] <= after + 1000
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('should output 2st value when triggered (date)')
+    async def test_0011i(self):
+        node = {
+            "type": "trigger", "name": "triggerNode", "op1": "foo", "op1type": "str",
+            "op2": "iso", "op2type": "date", "duration": "20"
+        }
+        msgs = await run_single_node_with_msgs_ntimes(node, [{"payload": None}], 2)
+        assert msgs[0]['payload'] == "foo"
+        assert msgs[1]['payload'][:11] == datetime.datetime.now(datetime.timezone.utc).isoformat()[:11]
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('should be able to return things from flow and global context variables')
+    async def test_0011j(self):
+        # Upstream stubs `evaluateNodeProperty` here; reading real context values is the same
+        # contract without the stub.
+        flows = [
+            {"id": "0", "type": "tab"},
+            {"id": "2", "z": "0", "type": "change", "name": "set-context", "reg": False,
+             "rules": [
+                 {"t": "set", "p": "foo", "pt": "flow", "to": "flow-value", "tot": "str"},
+                 {"t": "set", "p": "bar", "pt": "global", "to": "global-value", "tot": "str"},
+             ], "wires": [["1"]]},
+            {"id": "1", "z": "0", "type": "trigger", "name": "triggerNode", "op1": "foo",
+             "op1type": "flow", "op2": "bar", "op2type": "global", "duration": "20", "wires": [["3"]]},
+            {"id": "3", "z": "0", "type": "test-once"},
+        ]
+        msgs = await run_flow_with_msgs_ntimes(flows, [{"nid": "2", "msg": {"payload": None}}], 2)
+        assert msgs[0]['payload'] == "flow-value"
+        assert msgs[1]['payload'] == "global-value"
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('should ignore msg.delay if overrideDelay not set')
+    async def test_0011k(self):
+        node = {"type": "trigger", "name": "triggerNode", "duration": "50"}
+        start = time.time()
+        msgs = await run_single_node_with_msgs_ntimes(node, [{"payload": None, "delay": 300}], 2)
+        elapsed = time.time() - start
+        assert len(msgs) == 2
+        # The node's own 50ms duration wins over the 300ms in the message.
+        assert 0.03 <= elapsed <= 0.1
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('should use msg.delay if overrideDelay is set')
+    async def test_0011l(self):
+        node = {"type": "trigger", "name": "triggerNode", "overrideDelay": True, "duration": "50"}
+        start = time.time()
+        msgs = await run_single_node_with_msgs_ntimes(node, [{"payload": None, "delay": 300}], 2)
+        elapsed = time.time() - start
+        assert len(msgs) == 2
+        # `msg.delay` is in seconds and replaces the configured duration.
+        assert 0.27 <= elapsed <= 0.38
 
     @pytest.mark.asyncio
     @pytest.mark.it('should output 1 then 0 when triggered (default)')
