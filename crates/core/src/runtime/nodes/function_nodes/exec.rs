@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::AsyncReadExt;
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
@@ -300,22 +300,50 @@ impl ExecNode {
 
         let (code, signal) = tokio::select! {
             _ = cancel.cancelled() => {
-                let _ = child.kill().await;
+                let _ = Self::stop_child(child, Some("SIGTERM")).await;
                 return Err(crate::EdgelinkError::TaskCancelled.into());
             }
             status = child.wait() => (status?.code(), None),
             signal = timer_future => {
-                let _ = child.kill().await;
+                let _ = Self::stop_child(child, Some(&signal)).await;
                 let _ = child.wait().await;
                 (None, Some(signal))
             }
             signal = kill_future => {
-                let _ = child.kill().await;
+                let _ = Self::stop_child(child, Some(&signal)).await;
                 let _ = child.wait().await;
                 (None, Some(signal))
             }
         };
         Ok((code, signal))
+    }
+
+    /// Stop the child with the signal it was asked for.
+    ///
+    /// Node-RED passes the name straight to `child.kill(sig)`. On Unix that is a real signal, so a
+    /// child that traps SIGTERM gets the chance to clean up; `Child::kill()` would always send
+    /// SIGKILL. Windows has no signal delivery (Node ignores the name there and just terminates the
+    /// process), so the terminate behaviour is what this does on that platform too.
+    #[allow(unused_variables)]
+    async fn stop_child(child: &mut Child, signal: Option<&str>) -> std::io::Result<()> {
+        #[cfg(unix)]
+        if let Some(pid) = child.id() {
+            let signal = match signal.unwrap_or("SIGTERM").to_ascii_uppercase().as_str() {
+                "SIGINT" => libc::SIGINT,
+                "SIGQUIT" => libc::SIGQUIT,
+                "SIGKILL" => libc::SIGKILL,
+                "SIGHUP" => libc::SIGHUP,
+                "SIGTERM" => libc::SIGTERM,
+                _ => libc::SIGTERM,
+            };
+            // Safety: `kill` takes a pid and a signal number, and the return value is ignored
+            // (a process that is already gone is not an error worth reporting here).
+            unsafe {
+                libc::kill(pid as libc::pid_t, signal);
+            }
+            return Ok(());
+        }
+        child.kill().await
     }
 
     /// Parse command string into parts for spawn mode
@@ -397,20 +425,26 @@ impl ExecNode {
         let kill_rx = self.register_process(&child).await;
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
-        // 直接等待输出并 fan-out
+        // 直接等待输出并 fan-out。Upstream forwards each `data` chunk as it arrives, so the
+        // payload keeps the chunk's bytes - its trailing newline included - instead of being
+        // split into lines.
         let node_clone = node.clone();
         let msg_clone = msg.clone();
         let cancel_clone = cancel.clone();
         let stdout_task = tokio::spawn(async move {
-            if let Some(stdout) = stdout {
-                let mut reader = BufReader::new(stdout).lines();
-                while let Ok(Some(line)) = reader.next_line().await {
-                    if cancel_clone.is_cancelled() {
-                        break;
+            if let Some(mut stdout) = stdout {
+                let mut buf = vec![0u8; 4096];
+                loop {
+                    match stdout.read(&mut buf).await {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => {
+                            if cancel_clone.is_cancelled() {
+                                break;
+                            }
+                            let payload = Self::payload_from_bytes(&buf[..n]);
+                            node_clone.send_output(&node_clone, &msg_clone, 0, payload, None, &cancel_clone).await;
+                        }
                     }
-                    node_clone
-                        .send_output(&node_clone, &msg_clone, 0, Variant::String(line), None, &cancel_clone)
-                        .await;
                 }
             }
         });
@@ -418,15 +452,19 @@ impl ExecNode {
         let msg_clone = msg.clone();
         let cancel_clone = cancel.clone();
         let stderr_task = tokio::spawn(async move {
-            if let Some(stderr) = stderr {
-                let mut reader = BufReader::new(stderr).lines();
-                while let Ok(Some(line)) = reader.next_line().await {
-                    if cancel_clone.is_cancelled() {
-                        break;
+            if let Some(mut stderr) = stderr {
+                let mut buf = vec![0u8; 4096];
+                loop {
+                    match stderr.read(&mut buf).await {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => {
+                            if cancel_clone.is_cancelled() {
+                                break;
+                            }
+                            let payload = Self::payload_from_bytes(&buf[..n]);
+                            node_clone.send_output(&node_clone, &msg_clone, 1, payload, None, &cancel_clone).await;
+                        }
                     }
-                    node_clone
-                        .send_output(&node_clone, &msg_clone, 1, Variant::String(line), None, &cancel_clone)
-                        .await;
                 }
             }
         });
@@ -504,21 +542,30 @@ impl ExecNode {
 
         // Node-RED always sends the stdout message in this mode - an empty payload included -
         // and carries the return code on it.
-        let stdout_payload = Variant::String(String::from_utf8_lossy(&stdout).trim_end().to_string());
+        let stdout_payload = Self::payload_from_bytes(&stdout);
         self.send_output(&node, &msg, 0, stdout_payload, Some(rc.clone()), &cancel).await;
 
+        // stderr is only forwarded when the command actually wrote something there.
         if !stderr.is_empty() {
-            let stderr_payload = Variant::String(String::from_utf8_lossy(&stderr).trim_end().to_string());
-            if let Variant::String(text) = &stderr_payload
-                && !text.is_empty()
-            {
-                self.send_output(&node, &msg, 1, stderr_payload, Some(rc.clone()), &cancel).await;
-            }
+            let stderr_payload = Self::payload_from_bytes(&stderr);
+            self.send_output(&node, &msg, 1, stderr_payload, Some(rc.clone()), &cancel).await;
         }
 
         // rc 端口
         self.send_output(&node, &msg, 2, rc, None, &cancel).await;
         Ok(())
+    }
+
+    /// Build a payload from a chunk of command output the way Node-RED does.
+    ///
+    /// Upstream keeps the exact bytes: `Buffer.from(stdout, "binary")` and only converts to a
+    /// string when the bytes are valid UTF-8 (`isUtf8`). Nothing is trimmed either, so the
+    /// trailing newline a command prints is part of the payload.
+    fn payload_from_bytes(bytes: &[u8]) -> Variant {
+        match std::str::from_utf8(bytes) {
+            Ok(text) => Variant::String(text.to_string()),
+            Err(_) => Variant::Bytes(bytes.to_vec()),
+        }
     }
 
     /// Kill process by PID or kill all processes

@@ -53,11 +53,11 @@ class TestExecNode:
             
             # A real `echo` writes to stdout only: upstream's spec stubs `child_process.exec`
             # so that the same call also produces stderr, which no real command does here.
-            # stdout (carrying the rc) and the return code output are what remain. The text
-            # itself is shell-dependent (`echo` with no argument), so only its shape is
-            # asserted.
+            # stdout (carrying the rc, with the bytes the command wrote - trailing newline
+            # included) and the return code output are what remain.
             stdout_msg = next((m for m in msgs if isinstance(m.get('payload'), str)), None)
             assert stdout_msg is not None, f"Expected a stdout message, got {msgs}"
+            assert stdout_msg['payload'].endswith("\n"), f"stdout was trimmed: {stdout_msg['payload']!r}"
             assert stdout_msg['rc']['code'] == 0
 
             rc_msg = next((m for m in msgs if isinstance(m.get('payload'), dict)), None)
@@ -466,10 +466,12 @@ class TestExecNode:
             
             msgs = await run_flow_with_msgs_ntimes(flow, [{"payload": None, "fred": 123}], 2, "1")
             
-            # Should get stdout output and return code
-            stdout_msg = next((m for m in msgs if 'payload' in m and isinstance(m['payload'], str)), None)
-            if stdout_msg:
-                assert "this now works" in stdout_msg['payload']
+            # Upstream asserts the exact payload, terminator included: spawn mode forwards the
+            # raw chunk the child wrote rather than a line with its newline stripped.
+            expected = "this now works\r\n" if platform.system() == "Windows" else "this now works\n"
+            stdout_msg = next((m for m in msgs if isinstance(m.get('payload'), str)), None)
+            assert stdout_msg is not None, f"Expected a stdout message, got {msgs}"
+            assert stdout_msg['payload'] == expected
 
         @pytest.mark.asyncio
         @pytest.mark.it('should return an error for a bad command')

@@ -35,6 +35,8 @@ strip = true      # Automatically strip symbols from the binary.
 opt-level = 1 # Enables thin local LTO and some optimizations.
 
 [workspace.dependencies]
+# `libc` is only used on Unix, to deliver the stop signal the exec node is asked for.
+libc = "0.2"
 bincode = { version = "^2.0", features = ["serde"] }
 async-trait = "0.1"
 anyhow = { version = "1", features = ["backtrace"] }
