@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import os
 import platform
@@ -216,24 +217,35 @@ async def run_edgelink(flows_path: str, nexpected: int, timeout: float = 5) -> l
 
 """
 
-def red_id(name: str) -> str:
-    """Convert an upstream Node-RED spec node id into a hex `ElementId`.
+_RED_ID_NAMES: dict[str, str] = {}
 
-    `ElementId::from_str` is `u64::from_str_radix(_, 16)`, so the readable ids Node-RED's
-    spec files use (`n1`, `s1`, `splitNode1`) cannot go into flow JSON as-is. Convert the id
-    *and every reference to it* (`z`, `wires`, `scope`, injection targets) with this helper
-    so the correspondence with the upstream spec stays visible in the test:
+
+def red_id(name: str) -> str:
+    """Map an upstream Node-RED spec node id onto a 16-digit hex `ElementId`.
+
+    `ElementId` is a `u64` parsed with `u64::from_str_radix(_, 16)`, so an id may be at most
+    16 hex digits (and `to_string()` prints exactly 16). Hex-encoding the upstream name
+    therefore only works for names up to 8 bytes long: `helperNode1` becomes 22 digits and is
+    rejected with "failed to parse ElementId". Hash the name into 64 bits instead —
+    deterministic, always 16 digits, and the upstream name stays readable at the call site.
+    Convert the id *and every reference to it* (`z`, `wires`, `scope`, injection targets):
 
         flows = [
             {"id": red_id("s1"), "type": "split", "z": red_id("tab"), "wires": [[red_id("j1")]]},
-            {"id": red_id("j1"), "type": "join", "z": red_id("tab"), "wires": [[red_id("helper")]]},
-            {"id": red_id("helper"), "type": "test-once", "z": red_id("tab")},
+            {"id": red_id("j1"), "type": "join", "z": red_id("tab"), "wires": [[red_id("helperNode1")]]},
+            {"id": red_id("helperNode1"), "type": "test-once", "z": red_id("tab")},
         ]
 
-    The helpers that build a flow for you (`run_single_node_with_msgs_ntimes` and friends)
-    assign "1"/"2"/"3" themselves, so this is only needed for hand-written flows.
+    Two different names sharing an id would make the engine reject the flow with "This flow
+    node already existed", so a collision is raised here where the cause is obvious. The
+    helpers that build a flow for you (`run_single_node_with_msgs_ntimes` and friends) assign
+    "1"/"2"/"3" themselves, so this is only needed for hand-written flows.
     """
-    return name.encode().hex()
+    digest = hashlib.blake2b(name.encode("utf-8"), digest_size=8).hexdigest()
+    previous = _RED_ID_NAMES.setdefault(digest, name)
+    if previous != name:
+        raise AssertionError(f"red_id() collision: {previous!r} and {name!r} both map to {digest}")
+    return digest
 
 
 async def run_with_single_node_ntimes(payload_type: str | None, payload, node_json: object,

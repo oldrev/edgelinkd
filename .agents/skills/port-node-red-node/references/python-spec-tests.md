@@ -125,18 +125,20 @@ Message injection forms accepted by `msgs`:
 
 Notes:
 
-- **Node ids must be hex `ElementId`s → convert them, never copy them.** Upstream specs use
-  readable ids (`n1`, `s1`, `splitNode1`, `helperNode1`) and `ElementId::from_str` is
-  `u64::from_str_radix(_, 16)`, so a copied id makes `run_flows_once` fail with
-  "failed to parse ElementId". Convert them with the harness helper `red_id()`
-  (`tests/__init__.py`, exported by the `from tests import *` every test file uses), which
-  keeps the upstream name readable at the point of use:
+- **Node ids must be 1..16 hex digits → convert them, never copy them.** Upstream specs use
+  readable ids (`n1`, `s1`, `splitNode1`, `helperNode1`) and `ElementId` is a `u64` parsed
+  with `u64::from_str_radix(_, 16)`: a copied id makes `run_flows_once` fail with "failed to
+  parse ElementId", and so does a hex-encoding that overflows 16 digits (`helperNode1` →
+  22 digits; 16 digits work, 17 are rejected). Use the harness helper `red_id()`
+  (`tests/__init__.py`, exported by the `from tests import *` every test file uses): it
+  hashes the upstream name into 64 bits, so any name length works, the result is always a
+  valid id, and the upstream name stays readable at the call site.
 
   ```python
   flows = [
       {"id": red_id("s1"), "type": "split", "z": red_id("tab"), "wires": [[red_id("j1")]]},
-      {"id": red_id("j1"), "type": "join", "z": red_id("tab"), "wires": [[red_id("helper")]]},
-      {"id": red_id("helper"), "type": "test-once", "z": red_id("tab")},
+      {"id": red_id("j1"), "type": "join", "z": red_id("tab"), "wires": [[red_id("helperNode1")]]},
+      {"id": red_id("helperNode1"), "type": "test-once", "z": red_id("tab")},
   ]
   msgs = await run_flow_with_msgs_ntimes(flows, [{"nid": red_id("s1"), "msg": {...}}], 1)
   ```
