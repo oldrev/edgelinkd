@@ -371,7 +371,10 @@ fn xml_to_variant(xml_string: &str, options: &Xml2jsOptions) -> crate::Result<Va
             }
 
             Ok(Event::Text(e)) => {
-                text_buf.push_str(&e.unescape().unwrap_or_default());
+                // quick-xml 0.38 removed `BytesText::unescape()`; decoding and
+                // unescaping are now two separate steps.
+                let decoded = e.decode().unwrap_or_default();
+                text_buf.push_str(&quick_xml::escape::unescape(&decoded).unwrap_or_default());
             }
 
             Ok(Event::End(ref e)) => {
