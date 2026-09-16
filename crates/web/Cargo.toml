@@ -7,7 +7,7 @@ edition = "2024"
 inventory.workspace = true
 axum.workspace = true
 tower = { version = "0.4", features = ["util"] }
-tower-http = { version = "0.6.6", features = ["fs", "cors"] }
+tower-http = { version = "0.6.8", features = ["fs", "cors"] }
 
 tokio = { workspace = true, features = ["full"] }
 tokio-util = { workspace = true }
