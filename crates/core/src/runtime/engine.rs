@@ -59,6 +59,9 @@ struct InnerEngine {
     shutdown: tokio::sync::RwLock<bool>,
     stop_token: CancellationToken,
     _args: EngineArgs,
+    /// The configuration this engine was built with. A redeploy without its own configuration
+    /// (the web deploy path) reuses this instead of silently falling back to the defaults.
+    elcfg: Option<config::Config>,
     envs: RedEnvs,
     context_manager: Arc<ContextManager>,
     context: Context,
@@ -138,6 +141,7 @@ impl Engine {
                 _context: Variant::empty_object(),
                 envs,
                 _args: EngineArgs::load(elcfg.as_ref())?,
+                elcfg: elcfg.clone(),
                 context_manager,
                 context,
                 http_response_registry: Arc::new(HttpResponseRegistry::new()),
@@ -602,6 +606,10 @@ impl Engine {
     ) -> crate::Result<()> {
         log::info!("-- Redeploying flows...");
 
+        // A caller with no configuration of its own (the web deploy path passes `None`) must not
+        // silently drop the settings the engine was built with.
+        let elcfg = elcfg.or(self.inner.elcfg.as_ref());
+
         // 发布流部署开始事件
         self.publish_event(EngineEvent::FlowDeploymentStarted);
 
@@ -764,5 +772,30 @@ mod tests {
             let res = build_test_engine(flows_json.clone());
             assert!(res.is_ok());
         }
+    }
+
+    /// A deploy from the web API has no configuration of its own; the settings the engine was
+    /// built with must survive it, otherwise every `runtime.*` knob silently reverts to its default
+    /// the first time a user hits deploy.
+    #[tokio::test]
+    async fn test_redeploy_should_keep_the_engine_configuration() {
+        let registry = crate::runtime::registry::RegistryBuilder::default().build().unwrap();
+        let elcfg = config::Config::builder()
+            .set_override("runtime.context.default", "memory")
+            .unwrap()
+            .set_override("runtime.context.stores.memory.provider", "memory")
+            .unwrap()
+            .set_override("runtime.flow.node_message_buffer_max_length", 2i64)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let flows_json = make_simple_flows_json();
+        let engine = Engine::with_json(&registry, flows_json.clone(), Some(elcfg)).unwrap();
+        engine.redeploy_flows(flows_json, &registry, None).await.unwrap();
+
+        let flow = engine.get_flow(&"100".parse().expect("valid flow id")).expect("The flow must be loaded");
+        assert_eq!(flow.settings().node_message_buffer_max_length, 2);
+        engine.stop().await.unwrap();
     }
 }

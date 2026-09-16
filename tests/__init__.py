@@ -283,7 +283,8 @@ async def run_with_single_node_ntimes(payload_type: str | None, payload, node_js
 
 async def run_flow_with_msgs_ntimes(flows_obj: list[object],
                                     msgs: list[object] | None,
-                                    nexpected: int, injectee_node_id: str = '1', timeout: float = 3) -> list[object]:
+                                    nexpected: int, injectee_node_id: str = '1', timeout: float = 3,
+                                    config: dict | None = None) -> list[object]:
     msgs_to_inject = []
     for msg in msgs:
         msg_injection = None
@@ -292,12 +293,14 @@ async def run_flow_with_msgs_ntimes(flows_obj: list[object],
         else:
             msg_injection = (injectee_node_id, msg)
         msgs_to_inject.append(msg_injection)
-    msgs = await edgelink.run_flows_once(nexpected, timeout, flows_obj, msgs_to_inject, TEST_EDGELINLKD_CONFIG)
+    msgs = await edgelink.run_flows_once(nexpected, timeout, flows_obj, msgs_to_inject,
+                                         TEST_EDGELINLKD_CONFIG if config is None else config)
     return msgs
 
 
 async def run_single_node_with_msgs_ntimes(node_json: object, msgs: list[object] | None,
-                                           nexpected: int, injectee_node_id: str = '1', timeout: float = 3):
+                                           nexpected: int, injectee_node_id: str = '1', timeout: float = 3,
+                                           config: dict | None = None):
     user_node = copy.deepcopy(node_json)
     user_node["id"] = "1"
     user_node["z"] = "0"
@@ -305,7 +308,7 @@ async def run_single_node_with_msgs_ntimes(node_json: object, msgs: list[object]
         user_node["wires"] = [["2"]]
     console_node = {"id": "2", "type": "test-once", "z": "0"}
     final_flows_json = [{"id": "0", "type": "tab"}, user_node, console_node]
-    return await run_flow_with_msgs_ntimes(final_flows_json, msgs, nexpected, injectee_node_id, timeout)
+    return await run_flow_with_msgs_ntimes(final_flows_json, msgs, nexpected, injectee_node_id, timeout, config)
 
 
 async def run_flow_for_seconds(flows_obj: list[object], msgs: list[object] | None,

@@ -62,13 +62,21 @@ impl Default for SortNodeConfig {
 #[derive(Debug, Default)]
 #[allow(dead_code)]
 struct SortNodeState {
-    // Upstream (18-sort.js) also tracks a `pending_count` here, but only to enforce the
-    // `nodeMessageBufferMaxLength` cap, which drops the oldest incomplete group when the buffer
-    // grows past it. That setting and its overflow path are not offered by this engine, so the
-    // counter would be dead state - and a counter whose increment is missing while its decrement
-    // remains is exactly what used to underflow and panic the node.
     pending: HashMap<String, PendingGroup>, // Pending groups for sequence sorting
-    seq: u64,                               // Sequence counter
+    /// How many messages are buffered across all pending groups. Upstream keeps this to enforce the
+    /// `nodeMessageBufferMaxLength` cap: it is incremented for every buffered message and
+    /// decremented by the size of the group that leaves the buffer (completed or dropped).
+    pending_count: usize,
+    seq: u64, // Sequence counter
+}
+
+impl SortNodeState {
+    /// Upstream `removeOldestPending()`: take the incomplete group that was created first, so the
+    /// buffer can make room for the newer messages.
+    fn remove_oldest_pending(&mut self) -> Option<PendingGroup> {
+        let oldest_id = self.pending.iter().min_by_key(|(_id, group)| group.seq_no).map(|(id, _)| id.clone())?;
+        self.pending.remove(&oldest_id)
+    }
 }
 
 #[derive(Debug)]
@@ -84,18 +92,27 @@ struct PendingGroup {
 pub struct SortNode {
     base: BaseFlowNodeState,
     config: SortNodeConfig,
+    /// How many messages may stay buffered across incomplete groups before the oldest group is
+    /// dropped: Node-RED's `nodeMessageBufferMaxLength` (`0` = no limit).
+    max_kept_msgs: usize,
     state: Mutex<SortNodeState>,
 }
 
 impl SortNode {
     pub fn build(
-        _flow: &Flow,
+        flow: &Flow,
         base_node: BaseFlowNodeState,
         config: &RedFlowNodeConfig,
         _options: Option<&config::Config>,
     ) -> crate::Result<Box<dyn FlowNodeBehavior>> {
         let config = SortNodeConfig::deserialize(&config.rest)?;
-        Ok(Box::new(SortNode { base: base_node, config, state: Mutex::new(SortNodeState::default()) }))
+        let node = SortNode {
+            base: base_node,
+            config,
+            max_kept_msgs: flow.settings().node_message_buffer_max_length,
+            state: Mutex::new(SortNodeState::default()),
+        };
+        Ok(Box::new(node))
     }
 
     fn cmp_variant(&self, a: &Variant, b: &Variant) -> std::cmp::Ordering {
@@ -176,6 +193,7 @@ impl FlowNodeBehavior for SortNode {
                 if msg_guard.get("reset").is_some() {
                     let mut state = node.state.lock().await;
                     state.pending.clear();
+                    state.pending_count = 0;
                     return Ok(());
                 }
                 // Sort by msg.parts grouping
@@ -198,10 +216,16 @@ impl FlowNodeBehavior for SortNode {
                         if let Some(c) = count {
                             group.count = Some(c);
                         }
-                        let should_sort = if let Some(c) = group.count { group.msgs.len() == c } else { false };
+                        // Read the group out before touching the counter: the entry borrow of
+                        // `state.pending` has to end first.
+                        let group_len = group.msgs.len();
+                        let group_count = group.count;
+                        state.pending_count += 1;
+                        let should_sort = if let Some(c) = group_count { group_len == c } else { false };
 
                         if should_sort {
                             let mut group = state.pending.remove(&id).unwrap();
+                            state.pending_count -= group.msgs.len();
                             drop(state);
                             // `sort_group` reads every message of the group, this one included, so
                             // the write guard taken above has to be released first: awaiting the
@@ -211,6 +235,25 @@ impl FlowNodeBehavior for SortNode {
                             for m in sorted {
                                 let env = Envelope { port: 0, msg: MsgHandle::new(m) };
                                 node.fan_out_one(env, cancel.child_token()).await?;
+                            }
+                        } else if node.max_kept_msgs > 0 && state.pending_count > node.max_kept_msgs {
+                            // Upstream `removeOldestPending()`: the buffer grew past
+                            // `nodeMessageBufferMaxLength`, so drop the group that has been waiting
+                            // longest and report the reason on its last message. The other messages
+                            // of the dropped group are just discarded.
+                            if let Some(dropped) = state.remove_oldest_pending() {
+                                state.pending_count -= dropped.msgs.len();
+                                drop(state);
+                                // Same lock order as above: the dropped group may hold this message.
+                                drop(msg_guard);
+                                if let Some(last) = dropped.msgs.last() {
+                                    node.report_error(
+                                        "Too many pending messages in sort node".to_owned(),
+                                        last.clone(),
+                                        cancel.child_token(),
+                                    )
+                                    .await;
+                                }
                             }
                         }
                         return Ok(());
@@ -230,6 +273,17 @@ impl FlowNodeBehavior for SortNode {
             })
             .await;
         }
+
+        // Upstream clears the pending buffer when the node closes (`sort.clear` per group): the
+        // buffered messages are neither sent nor completed.
+        {
+            let mut state = self.state.lock().await;
+            for (_id, group) in state.pending.drain() {
+                log::debug!("clear pending message in sort node: {} message(s) dropped", group.msgs.len());
+            }
+            state.pending_count = 0;
+        }
+
         log::debug!("SortNode process() task has been terminated.");
     }
 }

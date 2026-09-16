@@ -1,3 +1,5 @@
+import copy
+
 import pytest
 from tests import *
 
@@ -270,13 +272,31 @@ class TestSortNode:
     async def test_handle_jsonata_error(self):
         pass
 
-    @pytest.mark.skip(reason="no nodeMessageBufferMaxLength setting / overflow semantics in this engine: upstream with nodeMessageBufferMaxLength=2 drops the oldest incomplete group and reports sort.too-many on its last message")
     @pytest.mark.asyncio
     @pytest.mark.it('should handle too many pending messages')
     async def test_handle_too_many_pending(self):
-        pass
+        # Upstream sets nodeMessageBufferMaxLength = 2, sends four messages of an incomplete group
+        # and expects `sort.too-many` to be reported: once the buffer holds more messages than the
+        # limit, the group that has been waiting longest is dropped and the reason is reported on
+        # its last message.
+        config = copy.deepcopy(TEST_EDGELINLKD_CONFIG)
+        config["runtime"]["flow"] = {"node_message_buffer_max_length": 2}
+        flows = [
+            {"id": "100", "type": "tab"},
+            {"id": "1", "z": "100", "type": "sort", "order": "ascending", "as_num": False,
+             "target": "payload", "targetType": "seq", "seqKey": "payload", "seqKeyType": "msg",
+             "wires": [["3"]]},
+            {"id": "2", "z": "100", "type": "catch", "scope": ["1"], "uncaught": False, "wires": [["3"]]},
+            {"id": "3", "z": "100", "type": "test-once"},
+        ]
+        injections = []
+        for i in range(4):
+            injections.append({"payload": f"V{i}", "parts": {"id": "X", "index": i, "count": 4}})
+        msgs = await run_flow_with_msgs_ntimes(flows, injections, 1, config=config)
+        # Only the dropped group is reported: the sort node itself emits nothing.
+        assert msgs[0]["error"]["message"] == "Too many pending messages in sort node"
 
-    @pytest.mark.skip(reason="the runtime has no node close hook and the harness cannot observe node logs, so upstream's sort.clear log on close cannot be asserted")
+    @pytest.mark.skip(reason="upstream asserts the sort.clear node log written when the node closes, and the harness cannot observe node logs")
     @pytest.mark.asyncio
     @pytest.mark.it('should clear pending messages on close')
     async def test_clear_pending_on_close(self):

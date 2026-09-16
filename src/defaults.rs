@@ -88,6 +88,9 @@ memory = { provider = "memory" }
 
 [runtime.flow]
 node_msg_queue_capacity = 16
+# How many messages a node may keep buffered while working on a message sequence; 0 means no limit.
+# This is the equivalent of Node-RED's `nodeMessageBufferMaxLength` settings.js property.
+node_message_buffer_max_length = 0
 
 [ui-host]
 host = "127.0.0.1"
