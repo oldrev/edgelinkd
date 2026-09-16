@@ -1,3 +1,4 @@
 [submodule "3rd-party/node-red"]
 	path = 3rd-party/node-red
 	url = https://github.com/node-red/node-red.git
+	shallow = true
