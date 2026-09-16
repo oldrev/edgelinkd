@@ -35,7 +35,21 @@ A list of categories, each holding `[display name, python test path, node-red sp
 ```bash
 # prerequisites: 3rd-party/node-red populated *with* node_modules (mocha),
 #                pip install -r ./tests/requirements.txt
-python scripts/specs_diff.py 3rd-party/node-red -o tests/REDNODES-SPECS-DIFF.md
+# The Node-RED path must be ABSOLUTE: the script chdir()s into that directory and then
+# resolves each spec path against it, so a relative argument makes mocha report
+# "No test files found" and the script crashes with a JSONDecodeError.
+python scripts/specs_diff.py "$PWD/3rd-party/node-red" -o tests/REDNODES-SPECS-DIFF.md
+```
+
+If `mocha` is not on `PATH`, prepend the checkout's bin directory
+(`3rd-party/node-red/node_modules/.bin`) before running.
+
+On Windows the script crashes with `UnicodeEncodeError: 'gbk' codec can't encode
+character '\u2713'` whenever the console code page is not UTF-8 (e.g. a Chinese locale),
+because it prints `✓`/`×`. Force UTF-8 for the run:
+
+```powershell
+$env:PYTHONUTF8="1"; $env:PYTHONIOENCODING="utf-8"
 ```
 
 - Exits `0` only when the Python side covers every upstream title of **every registered
@@ -92,7 +106,9 @@ plus a count. It compares **leaf titles only** (no `describe` prefix joining, no
 fuzzy matching), so:
 
 - a title that only differs in the `describe` part is not reported — use the real checker
-  before declaring done;
+  before declaring done. This is a real trap: porting `17-split_spec.js` needs
+  `JOIN node should be loaded` in addition to the existing `SPLIT node should be loaded`,
+  and the fallback reports 70 gaps where the authoritative checker reports 71;
 - if two different blocks in one spec use the same `it()` text, it de-duplicates by title;
 - it accepts `--nr-root` (default `3rd-party/node-red`) and `--map`
   (default `scripts/specs_diff.json`) for `--all`.

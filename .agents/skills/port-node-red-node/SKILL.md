@@ -17,9 +17,10 @@ and the coverage checker agrees:
 | 3 | Audit entry mapping the two | `scripts/specs_diff.json` |
 
 Verification is the `[✓] "<name>" (n/n)` line for the node you touched in
-`python scripts/specs_diff.py 3rd-party/node-red`, plus `cargo fmt --check`, clippy and the
-Rust tests. (The checker's own exit code is global — the repo still has nodes with
-unported specs, so it can be non-zero even when your node is complete.)
+`python scripts/specs_diff.py <absolute path to 3rd-party/node-red>`, plus
+`cargo fmt --check`, clippy and the Rust tests. (The checker's own exit code is global —
+the repo still has nodes with unported specs, so it can be non-zero even when your node is
+complete.)
 
 ## Prerequisites
 
@@ -135,8 +136,9 @@ cargo build --all
 pytest ./tests/nodes/<category>/test_<name>_node.py -v
 
 # authoritative coverage check for every registered node; writes the report and
-# exits 0 only when the Python suite covers every upstream it()
-python scripts/specs_diff.py 3rd-party/node-red -o tests/REDNODES-SPECS-DIFF.md
+# exits 0 only when the Python suite covers every upstream it().
+# Use an ABSOLUTE Node-RED path: the script chdir()s into it before resolving specs.
+python scripts/specs_diff.py "$PWD/3rd-party/node-red" -o tests/REDNODES-SPECS-DIFF.md
 
 cargo fmt --check
 cargo clippy --all-features --tests --all
