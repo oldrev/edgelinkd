@@ -1,5 +1,7 @@
-use serde::Deserialize;
 use std::sync::Arc;
+
+#[cfg(feature = "nodes_yaml")]
+use serde::Deserialize;
 
 use crate::runtime::flow::Flow;
 use crate::runtime::nodes::*;
@@ -27,23 +29,34 @@ use serde_yaml_ng as yaml;
 #[flow_node("yaml", red_name = "YAML")]
 struct YamlNode {
     base: BaseFlowNodeState,
+    /// Only the `nodes_yaml` implementation reads this, so it is absent from builds that
+    /// do not carry the YAML backend.
+    #[cfg(feature = "nodes_yaml")]
     config: YamlNodeConfig,
 }
 
 impl YamlNode {
+    /// `config` is only deserialised by the `nodes_yaml` implementation.
+    #[allow(unused_variables)]
     fn build(
         _flow: &Flow,
         state: BaseFlowNodeState,
         config: &RedFlowNodeConfig,
         _options: Option<&config::Config>,
     ) -> crate::Result<Box<dyn FlowNodeBehavior>> {
-        let yaml_config = YamlNodeConfig::deserialize(&config.rest)?;
-
-        let node = YamlNode { base: state, config: yaml_config };
-        Ok(Box::new(node))
+        #[cfg(feature = "nodes_yaml")]
+        {
+            let yaml_config = YamlNodeConfig::deserialize(&config.rest)?;
+            Ok(Box::new(YamlNode { base: state, config: yaml_config }))
+        }
+        #[cfg(not(feature = "nodes_yaml"))]
+        {
+            Ok(Box::new(YamlNode { base: state }))
+        }
     }
 }
 
+#[cfg(feature = "nodes_yaml")]
 #[derive(Deserialize, Debug)]
 struct YamlNodeConfig {
     /// Property name to operate on (default: "payload")
@@ -56,10 +69,12 @@ struct YamlNodeConfig {
     outputs: usize,
 }
 
+#[cfg(feature = "nodes_yaml")]
 fn default_property() -> String {
     "payload".to_string()
 }
 
+#[cfg(feature = "nodes_yaml")]
 fn default_outputs() -> usize {
     1
 }
