@@ -101,7 +101,7 @@ jobs:
           (cd 3rd-party/node-red && if [ ! -f package-lock.json ]; then npm install --package-lock-only; fi)
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '18'
           cache: 'npm'
@@ -183,7 +183,7 @@ jobs:
           (cd 3rd-party/node-red && if [ ! -f package-lock.json ]; then npm install --package-lock-only; fi)
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '18'
           cache: 'npm'
@@ -273,7 +273,7 @@ jobs:
           (cd 3rd-party/node-red && if [ ! -f package-lock.json ]; then npm install --package-lock-only; fi)
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '18'
           cache: 'npm'
