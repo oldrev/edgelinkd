@@ -69,6 +69,25 @@ Strings are compared after `rstrip()`, so:
 - if upstream renames or adds a test, the checker reports a `-`/`+` pair — treat it as a
   rename and update the Python title rather than adding a duplicate test.
 
+**Nested `describe` blocks must be stacked as markers.** `tests/conftest.py` joins every
+`describe`/`context` marker on an item (outer first) with `" "` before appending the `it`
+title, so mocha's nested `fullTitle` is reproduced by declaring the markers in the same
+order:
+
+```python
+# upstream:  describe('JOIN node', ...) { ... describe('messaging API', ...) { it('x') } }
+# mocha fullTitle: "JOIN node messaging API x"
+@pytest.mark.describe('JOIN node')        # outer
+@pytest.mark.describe('messaging API')    # inner
+class TestMessagingApi:
+    @pytest.mark.it('x')
+```
+
+A class with only the inner marker looks correct to a leaf-title comparison (and to
+`scripts/spec-gaps.py`) but shows up as missing in `specs_diff.py`. Also watch for an
+`it()` that upstream places *after* the nested block: it belongs to the outer describe
+again, so it must live in the outer class (`17-split_spec.js` has exactly this shape).
+
 ### Tests you cannot pass yet
 
 Keep the title and mark the test skipped — the title is still collected, so the node stays
@@ -105,6 +124,25 @@ Message injection forms accepted by `msgs`:
 ```
 
 Notes:
+
+- **Node ids in flow JSON must be hex-parseable.** `ElementId::from_str` is
+  `u64::from_str_radix(_, 16)`, so upstream's readable ids (`splitNode1`, `n1`, `s1`) make
+  `run_flows_once` fail with "failed to parse ElementId". Use `"1"`..`"5"` (or any hex
+  string) in the flows you build.
+- **`nexpected=0` never runs the flow.** `Engine::run_once_with_inject` returns as soon as
+  zero messages are expected, so a test cannot observe "the node emitted nothing" that
+  way; upstream's `setTimeout(...); assert no input` idiom has no equivalent here. Port
+  those titles as skipped tests with a note instead of a false pass.
+- **Python `bytes` cannot reach the engine.** The bridge converts Python → `serde_json`
+  → `Msg`, and `Variant::Bytes` has no JSON representation (`variant/ser.rs` serialises
+  bytes as an int array, which deserialises back as `Variant::Array`). Every
+  Buffer/binary-payload spec test is therefore unportable until the bridge grows a real
+  bytes encoding; skip them with that reason rather than weakening the assertion.
+- **No per-message delays.** Every message is injected up front, so upstream tests that
+  interleave `setTimeout` between `receive()` calls (and then assert *when* something was
+  emitted) cannot be reproduced faithfully. Skip them with the timing reason.
+- **One message at a time per node.** A node processes its queue strictly in order, so a
+  test that expects two outputs from one input must wait for both; use `nexpected=2`.
 
 - `nexpected` is exact: the helper waits for that many messages and then fails with a
   timeout if they never arrive. Assert partial output by splitting the upstream `it()`

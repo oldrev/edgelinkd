@@ -162,6 +162,12 @@ tracked — refresh it deliberately only when it is part of the change you inten
   `specs_diff.py`; regenerate, don't patch.
 - **Title drift.** Moving/renaming an `it()` in Python breaks coverage silently; the
   checker only reports a `-`/`+` pair, not a rename.
+- **Nested `describe` blocks.** Stack one `@pytest.mark.describe` per level, outer first,
+  or the `fullTitle` misses the prefix and the checker reports every test of that block as
+  missing. See `references/python-spec-tests.md`.
+- **The pytest bridge cannot carry Buffers.** `Variant::Bytes` has no JSON representation,
+  so binary-payload spec tests are unportable; skip them with that reason. Node ids in
+  flow JSON must also be hex-parseable, and `nexpected=0` returns without running the flow.
 - **`nexpected` mismatch.** The Python helpers wait for exactly `nexpected` messages and
   then fail with a timeout; assert on fewer messages by splitting into several tests.
 - **Forgetting the `mod` declaration.** The macro self-registers, but the file still has
