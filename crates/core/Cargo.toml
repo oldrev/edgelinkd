@@ -68,7 +68,7 @@ arrayvec = { workspace = true, features = ["std", "serde"] }
 notify = { version = "^8.0", optional = true }
 rumqttc = { version = "0.24", optional = true }
 tokio-tungstenite = { workspace = true, optional = true, features = ["rustls-tls-native-roots"] }
-futures-util = { version = "0.3", optional = true }
+futures-util.workspace = true
 reqwest = { workspace = true, optional = true }
 axum.workspace = true
 
@@ -94,7 +94,7 @@ nodes_mqtt = ["rumqttc"]
 nodes_http = ["tokio/net", "reqwest", "urlencoding"]
 nodes_tcp = ["tokio/net"]
 nodes_udp = ["tokio/net"]
-nodes_websocket = ["tokio-tungstenite", "futures-util"]
+nodes_websocket = ["tokio-tungstenite"]
 nodes_storage_watch = ["notify"]
 nodes_xml = ["quick-xml", "serde-xml-rs"]
 nodes_yaml = ["serde_yaml_ng"]

@@ -204,16 +204,40 @@ pub trait FlowNodeBehavior: Send + Sync + FlowsElement {
         Ok(())
     }
 
+    /// Fan out one envelope per output port.
+    ///
+    /// Unlike a plain loop over the ports, every envelope is dispatched
+    /// concurrently, so a saturated (or slow) wire on one output port no longer
+    /// holds back the messages leaving through the other ports. The wire order
+    /// *within* a single port is still preserved by [`Self::fan_out_one`], but
+    /// the relative order of the messages sent to *different* ports is not
+    /// deterministic anymore.
     async fn fan_out_many(&self, envelopes: SmallVec<[Envelope; 4]>, cancel: CancellationToken) -> crate::Result<()> {
         if self.get_base().ports.is_empty() {
             log::warn!("No output wires in this node: Node(id='{}')", self.id());
             return Ok(());
         }
 
-        for e in envelopes.into_iter() {
-            self.fan_out_one(e, cancel.child_token()).await?;
+        // The single-envelope case (by far the most common one) has nothing to parallelize.
+        if envelopes.len() < 2 {
+            for e in envelopes.into_iter() {
+                self.fan_out_one(e, cancel.child_token()).await?;
+            }
+            return Ok(());
         }
-        Ok(())
+
+        // Once the sends are in flight, dropping the remaining futures would silently
+        // lose those messages, so we always drive every send to completion and report
+        // the first error afterwards.
+        let results = futures_util::future::join_all(
+            envelopes.into_iter().map(|envelope| self.fan_out_one(envelope, cancel.child_token())),
+        )
+        .await;
+
+        match results.into_iter().find_map(|result| result.err()) {
+            Some(err) => Err(err),
+            None => Ok(()),
+        }
     }
 
     async fn report_status(&self, status: StatusObject, cancel: CancellationToken) {
@@ -479,5 +503,168 @@ impl<'de> Deserialize<'de> for FlowNodeScope {
         }
 
         deserializer.deserialize_any(NodeScopeVisitor)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use async_trait::async_trait;
+    use serde_json::json;
+
+    use super::*;
+    use crate::runtime::engine::build_test_engine;
+
+    /// A do-nothing node; these tests only exercise the default `fan_out_*` implementations.
+    struct FanOutTestNode {
+        base: BaseFlowNodeState,
+    }
+
+    impl FlowsElement for FanOutTestNode {
+        fn id(&self) -> ElementId {
+            self.base.id
+        }
+
+        fn name(&self) -> &str {
+            &self.base.name
+        }
+
+        fn type_str(&self) -> &'static str {
+            self.base.type_str
+        }
+
+        fn ordering(&self) -> usize {
+            self.base.ordering
+        }
+
+        fn is_disabled(&self) -> bool {
+            self.base.disabled
+        }
+
+        fn as_any(&self) -> &dyn ::std::any::Any {
+            self
+        }
+
+        fn parent_element(&self) -> Option<ElementId> {
+            self.base.flow.upgrade().map(|flow| flow.id())
+        }
+
+        fn get_path(&self) -> String {
+            format!("{}/{}", self.base.flow.upgrade().expect("flow").get_path(), self.id())
+        }
+    }
+
+    #[async_trait]
+    impl FlowNodeBehavior for FanOutTestNode {
+        fn get_base(&self) -> &BaseFlowNodeState {
+            &self.base
+        }
+
+        async fn run(self: Arc<Self>, _stop_token: CancellationToken) {
+            unreachable!("The fan-out test node is never started")
+        }
+    }
+
+    fn make_test_node(ports: Vec<Port>) -> Arc<FanOutTestNode> {
+        let engine = build_test_engine(json!([{ "id": "100", "type": "tab", "label": "Fan-out test flow" }])).unwrap();
+        let flow = engine.get_flow(&"100".parse().expect("valid flow id")).expect("The flow must be loaded");
+        let context = engine.get_context_manager().new_context(engine.context(), "fan-out-test".to_owned());
+        let (msg_tx, msg_rx) = tokio::sync::mpsc::channel(NODE_MSG_CHANNEL_CAPACITY);
+
+        let base = BaseFlowNodeState {
+            id: ElementId::new(),
+            name: "fan-out-test".to_owned(),
+            type_str: "fan-out-test",
+            ordering: 0,
+            disabled: false,
+            flow: flow.downgrade(),
+            msg_tx,
+            msg_rx: MsgReceiverHolder::new(msg_rx),
+            ports,
+            group: None,
+            envs: crate::runtime::red_env::RedEnvStoreBuilder::default().build(),
+            context,
+            on_received: MsgEventSender::new(1),
+            on_completed: MsgEventSender::new(1),
+            on_error: MsgEventSender::new(1),
+        };
+
+        Arc::new(FanOutTestNode { base })
+    }
+
+    fn make_port(msg_sender: MsgSender) -> Port {
+        Port { wires: vec![PortWire { msg_sender }] }
+    }
+
+    fn make_envelope(port: usize, payload: &str) -> Envelope {
+        Envelope { port, msg: MsgHandle::with_payload(Variant::from(payload)) }
+    }
+
+    async fn payload_of(msg: MsgHandle) -> Variant {
+        let guard = msg.read().await;
+        guard["payload"].clone()
+    }
+
+    /// Regression test: an output port whose queue is already saturated must not delay
+    /// the fan-out of the messages leaving through the other output ports.
+    #[tokio::test]
+    async fn test_fan_out_many_should_not_be_blocked_by_a_saturated_port() {
+        let (tx0, mut rx0) = tokio::sync::mpsc::channel::<MsgHandle>(1);
+        let (tx1, mut rx1) = tokio::sync::mpsc::channel::<MsgHandle>(1);
+
+        // Saturate port 0, so that any further send to it can only ever block.
+        tx0.send(MsgHandle::default()).await.unwrap();
+
+        // Port 0 is released only *after* the message addressed to port 1 got through.
+        // A sequential fan-out never reaches port 1, so this would deadlock.
+        let release_port0 = tokio::spawn(async move {
+            let msg = rx1.recv().await.expect("The message addressed to port 1 must not be delayed");
+            assert_eq!(payload_of(msg).await, Variant::from("port-1"));
+            let _ = rx0.recv().await;
+            // Hand the receivers back so that they outlive `fan_out_many()`; dropping them
+            // here would close the channels and make the still pending send to port 0 fail.
+            (rx0, rx1)
+        });
+
+        let node = make_test_node(vec![make_port(tx0), make_port(tx1)]);
+        let envelopes: SmallVec<[Envelope; 4]> =
+            SmallVec::from_vec(vec![make_envelope(0, "port-0"), make_envelope(1, "port-1")]);
+
+        tokio::time::timeout(Duration::from_secs(5), node.fan_out_many(envelopes, CancellationToken::new()))
+            .await
+            .expect("fan_out_many() was blocked by the saturated output port")
+            .expect("fan_out_many() must succeed");
+
+        let _receivers = release_port0.await.expect("The message addressed to port 1 must have been delivered");
+    }
+
+    /// Without back-pressure every envelope must still reach its own port.
+    #[tokio::test]
+    async fn test_fan_out_many_should_deliver_every_port() {
+        let (tx0, mut rx0) = tokio::sync::mpsc::channel::<MsgHandle>(NODE_MSG_CHANNEL_CAPACITY);
+        let (tx1, mut rx1) = tokio::sync::mpsc::channel::<MsgHandle>(NODE_MSG_CHANNEL_CAPACITY);
+
+        let node = make_test_node(vec![make_port(tx0), make_port(tx1)]);
+        let envelopes: SmallVec<[Envelope; 4]> =
+            SmallVec::from_vec(vec![make_envelope(0, "port-0"), make_envelope(1, "port-1")]);
+
+        node.fan_out_many(envelopes, CancellationToken::new()).await.unwrap();
+
+        assert_eq!(payload_of(rx0.recv().await.unwrap()).await, Variant::from("port-0"));
+        assert_eq!(payload_of(rx1.recv().await.unwrap()).await, Variant::from("port-1"));
+    }
+
+    /// An out-of-range port index must still be reported as an error.
+    #[tokio::test]
+    async fn test_fan_out_many_should_report_an_invalid_port() {
+        let (tx0, _rx0) = tokio::sync::mpsc::channel::<MsgHandle>(NODE_MSG_CHANNEL_CAPACITY);
+        let (tx1, _rx1) = tokio::sync::mpsc::channel::<MsgHandle>(NODE_MSG_CHANNEL_CAPACITY);
+
+        let node = make_test_node(vec![make_port(tx0), make_port(tx1)]);
+        let envelopes: SmallVec<[Envelope; 4]> =
+            SmallVec::from_vec(vec![make_envelope(0, "port-0"), make_envelope(7, "port-7")]);
+
+        assert!(node.fan_out_many(envelopes, CancellationToken::new()).await.is_err());
     }
 }
