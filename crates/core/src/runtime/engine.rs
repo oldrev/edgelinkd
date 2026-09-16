@@ -412,7 +412,7 @@ impl Engine {
         &self,
         window: std::time::Duration,
         msgs_to_inject: Vec<(ElementId, Msg)>,
-    ) -> crate::Result<Vec<(Msg, f64)>> {
+    ) -> crate::Result<Vec<(Msg, f64, f64)>> {
         let scheduled = msgs_to_inject.into_iter().map(|(id, msg)| (id, msg, 0.0)).collect();
         self.run_window_with_schedule(window, scheduled).await
     }
@@ -423,12 +423,19 @@ impl Engine {
     /// Node-RED's drop-rate specs feed the node a *stream* rather than a burst - their helper
     /// spaces the injections out with `setTimeout` - and a burst cannot exercise a rate limit
     /// that drops what arrives too soon. A delay of zero injects immediately.
+    ///
+    /// Each output is reported with two offsets in milliseconds: the first is relative to the
+    /// first observed output (upstream's sampling helper measures the gap to the previous
+    /// message, and the first one has none), the second is relative to the start of the run.
+    /// The delay-node specs assert *when* a node completes a message, which needs the second
+    /// one; the sampling window starts at the first output, so the first keeps that window
+    /// independent of engine start-up cost.
     #[cfg(any(test, feature = "pymod"))]
     pub async fn run_window_with_schedule(
         &self,
         window: std::time::Duration,
         mut msgs_to_inject: Vec<(ElementId, Msg, f64)>,
-    ) -> crate::Result<Vec<(Msg, f64)>> {
+    ) -> crate::Result<Vec<(Msg, f64, f64)>> {
         self.start().await?;
 
         // Clear the final_msgs channel
@@ -437,6 +444,7 @@ impl Engine {
             while rx.try_recv().is_ok() {}
         }
 
+        let run_start = std::time::Instant::now();
         let cancel = CancellationToken::new();
         let mut deferred = Vec::new();
         for (node_id, msg, delay_ms) in msgs_to_inject.drain(..) {
@@ -469,7 +477,8 @@ impl Engine {
             tokio::time::timeout(Self::FIRST_MSG_GRACE, self.inner.final_msgs_rx.recv_msg(cancel.clone())).await;
         if let Ok(Ok(msg)) = first {
             start = Some(std::time::Instant::now());
-            received.push((msg.unwrap_async().await, 0.0));
+            let since_start_ms = run_start.elapsed().as_secs_f64() * 1000.0;
+            received.push((msg.unwrap_async().await, 0.0, since_start_ms));
         }
 
         if start.is_some() {
@@ -480,7 +489,8 @@ impl Engine {
                         Err(_) => break,
                     };
                     let arrival_ms = start.unwrap().elapsed().as_secs_f64() * 1000.0;
-                    received.push((msg.unwrap_async().await, arrival_ms));
+                    let since_start_ms = run_start.elapsed().as_secs_f64() * 1000.0;
+                    received.push((msg.unwrap_async().await, arrival_ms, since_start_ms));
                 }
             })
             .await;
@@ -491,7 +501,8 @@ impl Engine {
             let mut rx = self.inner.final_msgs_rx.rx.lock().await;
             while let Ok(msg) = rx.try_recv() {
                 let arrival_ms = start.get_or_insert_with(std::time::Instant::now).elapsed().as_secs_f64() * 1000.0;
-                received.push((msg.unwrap_async().await, arrival_ms));
+                let since_start_ms = run_start.elapsed().as_secs_f64() * 1000.0;
+                received.push((msg.unwrap_async().await, arrival_ms, since_start_ms));
             }
         }
 

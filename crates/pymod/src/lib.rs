@@ -167,11 +167,12 @@ fn run_flows_for_once<'a>(
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 
         let mut out = Vec::with_capacity(msgs.len());
-        for (msg, arrival_ms) in msgs {
+        for (msg, arrival_ms, since_start_ms) in msgs {
             let mut val = serde_json::to_value(&msg)
                 .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
             if let serde_json::Value::Object(ref mut map) = val {
                 map.insert("_arrival_ms".to_string(), serde_json::Value::from(arrival_ms));
+                map.insert("_since_start_ms".to_string(), serde_json::Value::from(since_start_ms));
             }
             out.push(val);
         }

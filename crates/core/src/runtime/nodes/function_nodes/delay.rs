@@ -1,6 +1,6 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use serde::{Deserialize, Deserializer};
@@ -8,7 +8,7 @@ use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 use crate::runtime::flow::Flow;
-use crate::runtime::nodes::{with_uow, *};
+use crate::runtime::nodes::*;
 use edgelink_macro::*;
 
 // Helper function to deserialize string or number as f64
@@ -55,8 +55,9 @@ struct DelayNode {
     next_delay_id: AtomicU64,
     // For rate limiting: use simplified approach
     last_sent: Mutex<Option<std::time::Instant>>,
-    // For queue/timed modes: track message queues by topic
-    topic_queues: Mutex<HashMap<String, VecDeque<MsgInfo>>>,
+    // For queue/timed modes: the pending messages, one entry per topic (a message with the same
+    // topic replaces the one already waiting), drained by `queue_timer`.
+    queue_buffer: Mutex<VecDeque<MsgInfo>>,
     // For queue/timed modes: timer for processing queues
     queue_timer: Mutex<Option<tokio::task::JoinHandle<()>>>,
     // For rate mode: message buffer
@@ -66,12 +67,19 @@ struct DelayNode {
     // Dynamic rate and timeout tracking
     current_rate: Mutex<f64>,
     current_timeout: Mutex<f64>,
+    /// Node-RED's `nodeMessageBufferMaxLength`: how many messages the rate queue may hold
+    /// before the whole backlog is dropped and `delay.errors.too-many` is reported. `0` means
+    /// no limit.
+    max_kept_msgs: usize,
 }
 
 #[derive(Debug, Clone)]
 struct MsgInfo {
     msg: MsgHandle,
     envelope: Envelope,
+    /// The buffered message's completion, raised when the message is actually emitted (or, for a
+    /// replaced/flushed entry, when it is dropped or sent on).
+    completion: Option<Arc<DelayCompletion>>,
 }
 
 /// One message waiting for its own delay timer.
@@ -84,6 +92,32 @@ struct PendingDelay {
     id: u64,
     msg: MsgHandle,
     interrupt: CancellationToken,
+    completion: Arc<DelayCompletion>,
+}
+
+/// Node-RED raises `done()` exactly once for every message the delay-like modes accept: after the
+/// message is sent, or when a `reset`/`flush` clears or triggers the timer that was holding it.
+///
+/// The completion is shared between the sleeping task and the control paths, and the flag makes
+/// sure whichever of them gets there first is the one that raises it.
+#[derive(Debug)]
+struct DelayCompletion {
+    msg: MsgHandle,
+    cancel: CancellationToken,
+    completed: AtomicBool,
+}
+
+impl DelayCompletion {
+    fn new(msg: MsgHandle, cancel: CancellationToken) -> Arc<Self> {
+        Arc::new(Self { msg, cancel, completed: AtomicBool::new(false) })
+    }
+
+    /// Raise the completion, unless another path already did.
+    async fn complete(&self, node: &Arc<DelayNode>) {
+        if !self.completed.swap(true, Ordering::AcqRel) {
+            node.notify_uow_completed(self.msg.clone(), self.cancel.clone()).await;
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
@@ -172,13 +206,6 @@ struct DelayNodeConfig {
 
     #[serde(rename = "allowrate", default)]
     allow_rate: bool,
-
-    #[serde(
-        rename = "maxQueueLength",
-        default = "default_max_queue_length",
-        deserialize_with = "deserialize_string_or_usize"
-    )]
-    max_queue_length: usize,
 }
 
 fn default_timeout() -> f64 {
@@ -195,10 +222,6 @@ fn default_rate() -> f64 {
 
 fn default_nb_rate_units() -> usize {
     1
-}
-
-fn default_max_queue_length() -> usize {
-    1000
 }
 
 impl DelayNodeConfig {
@@ -280,12 +303,13 @@ impl DelayNodeConfig {
 
 impl DelayNode {
     fn build(
-        _flow: &Flow,
+        flow: &Flow,
         base: BaseFlowNodeState,
         red_config: &RedFlowNodeConfig,
         _options: Option<&config::Config>,
     ) -> crate::Result<Box<dyn FlowNodeBehavior>> {
         let config = DelayNodeConfig::deserialize(&red_config.rest)?;
+        let flow_settings = flow.settings();
 
         let node = DelayNode {
             base,
@@ -293,12 +317,13 @@ impl DelayNode {
             pending_delays: Mutex::new(Vec::new()),
             next_delay_id: AtomicU64::new(1),
             last_sent: Mutex::new(None),
-            topic_queues: Mutex::new(HashMap::new()),
+            queue_buffer: Mutex::new(VecDeque::new()),
             queue_timer: Mutex::new(None),
             rate_buffer: Mutex::new(VecDeque::new()),
             rate_timer: Mutex::new(None),
             current_rate: Mutex::new(config.rate),
             current_timeout: Mutex::new(config.timeout),
+            max_kept_msgs: flow_settings.node_message_buffer_max_length,
         };
 
         Ok(Box::new(node))
@@ -328,12 +353,23 @@ impl DelayNode {
     ///
     /// The unit of work returns immediately, so the message loop keeps consuming while the
     /// message is still waiting; that is what lets `flush`/`reset` reach it.
-    async fn schedule_delayed(self: &Arc<Self>, msg: MsgHandle, delay: Duration, cancel: CancellationToken) {
+    async fn schedule_delayed(
+        self: &Arc<Self>,
+        msg: MsgHandle,
+        delay: Duration,
+        cancel: CancellationToken,
+        completion: Arc<DelayCompletion>,
+    ) {
         let id = self.next_delay_id.fetch_add(1, Ordering::Relaxed);
         let interrupt = cancel.child_token();
         {
             let mut pending = self.pending_delays.lock().await;
-            pending.push(PendingDelay { id, msg: msg.clone(), interrupt: interrupt.clone() });
+            pending.push(PendingDelay {
+                id,
+                msg: msg.clone(),
+                interrupt: interrupt.clone(),
+                completion: Arc::clone(&completion),
+            });
         }
 
         let this = Arc::clone(self);
@@ -346,6 +382,8 @@ impl DelayNode {
             // `flush` may have taken it over while this task was sleeping.
             if this.take_pending_delay(id).await {
                 let _ = this.fan_out_one(Envelope { port: 0, msg }, interrupt).await;
+                // Upstream calls `done()` right after the delayed send.
+                completion.complete(&this).await;
             }
         });
     }
@@ -363,13 +401,15 @@ impl DelayNode {
     }
 
     /// `reset`: drop every pending delay without sending anything.
-    async fn clear_pending_delays(&self) {
+    async fn clear_pending_delays(self: &Arc<Self>) {
         let entries: Vec<PendingDelay> = {
             let mut pending = self.pending_delays.lock().await;
             pending.drain(..).collect()
         };
         for entry in entries {
             entry.interrupt.cancel();
+            // Upstream clears the timers through `clearDelayList`, whose handler calls `done()`.
+            entry.completion.complete(self).await;
         }
     }
 
@@ -388,17 +428,23 @@ impl DelayNode {
             // Stop the sleeping task first: this function owns the message now.
             entry.interrupt.cancel();
             self.fan_out_one(Envelope { port: 0, msg: entry.msg }, cancel.clone()).await?;
+            // A triggered timer runs the same handler as a fired one, `done()` included.
+            entry.completion.complete(self).await;
         }
         Ok(())
     }
 
     /// Apply the `flush`/`reset` control messages the delay-like modes share.
+    ///
+    /// `own_completion` is the completion of the message that carried the control flag: upstream
+    /// clears its own timer when it is a bare `flush`, so that message completes here as well.
     async fn handle_delay_controls(
         self: &Arc<Self>,
         is_reset: bool,
         is_flush: bool,
         flush_count: Option<usize>,
         cancel: CancellationToken,
+        own_completion: Option<&Arc<DelayCompletion>>,
     ) -> crate::Result<()> {
         if is_reset {
             // Upstream checks `reset` before `flush` in the delay-like modes.
@@ -406,10 +452,36 @@ impl DelayNode {
         } else if is_flush {
             self.flush_pending_delays(flush_count, cancel).await?;
         }
+        if let Some(completion) = own_completion {
+            completion.complete(self).await;
+        }
         Ok(())
     }
 
-    async fn handle_delay_mode(self: &Arc<Self>, msg: MsgHandle, cancel: CancellationToken) -> crate::Result<()> {
+    /// Dispatch one received message to its mode handler.
+    async fn handle_msg(
+        self: &Arc<Self>,
+        msg: MsgHandle,
+        cancel: CancellationToken,
+        completion: Arc<DelayCompletion>,
+    ) -> crate::Result<()> {
+        match self.config.pause_type {
+            DelayPauseType::Delay => self.handle_delay_mode(msg, cancel, completion).await,
+            DelayPauseType::DelayVariable => self.handle_delay_variable_mode(msg, cancel, completion).await,
+            DelayPauseType::Random => self.handle_random_mode(msg, cancel, completion).await,
+            DelayPauseType::Rate => self.handle_rate_mode(msg, cancel, completion).await,
+            DelayPauseType::Queue | DelayPauseType::Timed => {
+                self.handle_queue_and_timed_modes(msg, cancel, completion).await
+            }
+        }
+    }
+
+    async fn handle_delay_mode(
+        self: &Arc<Self>,
+        msg: MsgHandle,
+        cancel: CancellationToken,
+        completion: Arc<DelayCompletion>,
+    ) -> crate::Result<()> {
         let (is_reset, is_flush, flush_count, is_data) = Self::control_flags(&msg).await;
 
         // Handle dynamic timeout change
@@ -426,19 +498,24 @@ impl DelayNode {
         }
 
         // Every message gets its own timer, so the delay does not serialize the message
-        // stream and `flush`/`reset` can still reach the timers that are pending.
-        if is_data {
+        // stream and `flush`/`reset` can still reach the timers that are pending. The message
+        // that carries a bare control flag has no timer of its own and completes here.
+        let own_completion = if is_data {
             let timeout = self.get_current_timeout_duration().await;
-            self.schedule_delayed(msg, timeout, cancel.clone()).await;
-        }
+            self.schedule_delayed(msg, timeout, cancel.clone(), Arc::clone(&completion)).await;
+            None
+        } else {
+            Some(&completion)
+        };
 
-        self.handle_delay_controls(is_reset, is_flush, flush_count, cancel).await
+        self.handle_delay_controls(is_reset, is_flush, flush_count, cancel, own_completion).await
     }
 
     async fn handle_delay_variable_mode(
         self: &Arc<Self>,
         msg: MsgHandle,
         cancel: CancellationToken,
+        completion: Arc<DelayCompletion>,
     ) -> crate::Result<()> {
         let (is_reset, is_flush, flush_count, is_data) = Self::control_flags(&msg).await;
 
@@ -451,25 +528,41 @@ impl DelayNode {
             None => self.get_current_timeout_duration().await,
         };
 
-        if is_data {
-            self.schedule_delayed(msg, timeout, cancel.clone()).await;
-        }
+        let own_completion = if is_data {
+            self.schedule_delayed(msg, timeout, cancel.clone(), Arc::clone(&completion)).await;
+            None
+        } else {
+            Some(&completion)
+        };
 
-        self.handle_delay_controls(is_reset, is_flush, flush_count, cancel).await
+        self.handle_delay_controls(is_reset, is_flush, flush_count, cancel, own_completion).await
     }
 
-    async fn handle_random_mode(self: &Arc<Self>, msg: MsgHandle, cancel: CancellationToken) -> crate::Result<()> {
+    async fn handle_random_mode(
+        self: &Arc<Self>,
+        msg: MsgHandle,
+        cancel: CancellationToken,
+        completion: Arc<DelayCompletion>,
+    ) -> crate::Result<()> {
         let (is_reset, is_flush, flush_count, is_data) = Self::control_flags(&msg).await;
 
-        if is_data {
+        let own_completion = if is_data {
             let timeout = self.config.random_duration();
-            self.schedule_delayed(msg, timeout, cancel.clone()).await;
-        }
+            self.schedule_delayed(msg, timeout, cancel.clone(), Arc::clone(&completion)).await;
+            None
+        } else {
+            Some(&completion)
+        };
 
-        self.handle_delay_controls(is_reset, is_flush, flush_count, cancel).await
+        self.handle_delay_controls(is_reset, is_flush, flush_count, cancel, own_completion).await
     }
 
-    async fn handle_rate_mode(self: &Arc<Self>, msg: MsgHandle, cancel: CancellationToken) -> crate::Result<()> {
+    async fn handle_rate_mode(
+        self: &Arc<Self>,
+        msg: MsgHandle,
+        cancel: CancellationToken,
+        completion: Arc<DelayCompletion>,
+    ) -> crate::Result<()> {
         // Check for control messages and dynamic rate changes
         let (is_reset, is_flush, flush_count, is_data) = Self::control_flags(&msg).await;
         let msg_rate = if self.config.allow_rate {
@@ -480,7 +573,8 @@ impl DelayNode {
 
         if self.config.drop {
             // Drop mode: a dynamic rate simply replaces the current one, and `flush` is
-            // ignored entirely (upstream has no flush handling on this path).
+            // ignored entirely (upstream has no flush handling on this path). Upstream calls
+            // `done()` at the end of the branch, whether the message went out or was dropped.
             if let Some(new_rate) = msg_rate {
                 self.update_rate(new_rate).await;
             }
@@ -505,81 +599,120 @@ impl DelayNode {
                     self.fan_out_one(Envelope { port: 1, msg }, cancel.clone()).await?;
                 }
             }
-        } else {
-            // Queue mode. Upstream sends the very first message straight through and only
-            // then starts the interval, so the rate limit never delays the head of a burst.
-            let timer_running = self.rate_timer.lock().await.is_some();
+            // Buffered messages are completed by the timer that emits them, so the rate mode
+            // never completes on the way in.
+            completion.complete(self).await;
+            return Ok(());
+        }
 
-            if is_data && !is_reset {
-                if timer_running {
-                    {
-                        let mut buffer = self.rate_buffer.lock().await;
-                        if buffer.len() >= self.config.max_queue_length {
-                            // Remove oldest message if buffer is full
-                            buffer.pop_front();
-                        }
-                        buffer.push_back(MsgInfo { msg: msg.clone(), envelope: Envelope { port: 0, msg } });
-                    }
+        // Queue mode. Upstream sends the very first message straight through and only
+        // then starts the interval, so the rate limit never delays the head of a burst.
+        let timer_running = self.rate_timer.lock().await.is_some();
 
-                    // A rate change restarts the running interval with the new spacing but
-                    // keeps the message queued behind the ones already waiting.
-                    if let Some(new_rate) = msg_rate {
-                        let current_rate = *self.current_rate.lock().await;
-                        if (new_rate - current_rate).abs() > f64::EPSILON {
-                            self.update_rate(new_rate).await;
-                            let mut timer = self.rate_timer.lock().await;
-                            if let Some(handle) = timer.take() {
-                                handle.abort();
-                            }
-                        }
+        let mut completion_owned = true;
+        if is_data && !is_reset {
+            if timer_running {
+                // `nodeMessageBufferMaxLength` caps the queue: once it is reached upstream drops
+                // the whole backlog and reports `delay.errors.too-many` on the incoming message,
+                // rather than dropping the oldest entry.
+                let mut overflowed = false;
+                {
+                    let mut buffer = self.rate_buffer.lock().await;
+                    if self.max_kept_msgs > 0 && buffer.len() >= self.max_kept_msgs {
+                        buffer.clear();
+                        overflowed = true;
+                    } else {
+                        buffer.push_back(MsgInfo {
+                            msg: msg.clone(),
+                            envelope: Envelope { port: 0, msg: msg.clone() },
+                            completion: Some(Arc::clone(&completion)),
+                        });
                     }
-                    self.ensure_rate_timer_running(cancel.clone()).await?;
-                } else {
-                    if let Some(new_rate) = msg_rate {
+                }
+
+                if overflowed {
+                    if let Some(flow) = self.flow() {
+                        let _ = flow
+                            .handle_error(
+                                self.as_ref(),
+                                "too many pending messages in delay node",
+                                Some(msg),
+                                None,
+                                cancel.clone(),
+                            )
+                            .await;
+                    }
+                    // The dropped messages never complete, which is what upstream does: its
+                    // `node.buffer = []` calls no `done()`.
+                    return Ok(());
+                }
+
+                // The buffered message completes when the interval emits it.
+                completion_owned = false;
+
+                // A rate change restarts the running interval with the new spacing but
+                // keeps the message queued behind the ones already waiting.
+                if let Some(new_rate) = msg_rate {
+                    let current_rate = *self.current_rate.lock().await;
+                    if (new_rate - current_rate).abs() > f64::EPSILON {
                         self.update_rate(new_rate).await;
+                        let mut timer = self.rate_timer.lock().await;
+                        if let Some(handle) = timer.take() {
+                            handle.abort();
+                        }
                     }
-                    self.fan_out_one(Envelope { port: 0, msg }, cancel.clone()).await?;
-                    self.ensure_rate_timer_running(cancel.clone()).await?;
+                }
+                self.ensure_rate_timer_running(cancel.clone()).await?;
+            } else {
+                if let Some(new_rate) = msg_rate {
+                    self.update_rate(new_rate).await;
+                }
+                self.fan_out_one(Envelope { port: 0, msg }, cancel.clone()).await?;
+                self.ensure_rate_timer_running(cancel.clone()).await?;
+            }
+        }
+
+        // Handle flush command: send the requested number of buffered messages right away
+        // and restart the interval, as upstream's `setInterval` reset does.
+        if is_flush {
+            let (flushed, remaining) = {
+                let mut buffer = self.rate_buffer.lock().await;
+                let mut count = flush_count.unwrap_or(usize::MAX);
+                let mut flushed = Vec::new();
+                while count > 0 && !buffer.is_empty() {
+                    if let Some(msg_info) = buffer.pop_front() {
+                        flushed.push(msg_info);
+                        count -= 1;
+                    }
+                }
+                (flushed, buffer.len())
+            };
+
+            {
+                let mut timer = self.rate_timer.lock().await;
+                if let Some(handle) = timer.take() {
+                    handle.abort();
                 }
             }
 
-            // Handle flush command: send the requested number of buffered messages right away
-            // and restart the interval, as upstream's `setInterval` reset does.
-            if is_flush {
-                let (flushed, remaining) = {
-                    let mut buffer = self.rate_buffer.lock().await;
-                    let mut count = flush_count.unwrap_or(usize::MAX);
-                    let mut flushed = Vec::new();
-                    while count > 0 && !buffer.is_empty() {
-                        if let Some(msg_info) = buffer.pop_front() {
-                            flushed.push(msg_info);
-                            count -= 1;
-                        }
-                    }
-                    (flushed, buffer.len())
-                };
-
-                {
-                    let mut timer = self.rate_timer.lock().await;
-                    if let Some(handle) = timer.take() {
-                        handle.abort();
-                    }
+            for msg_info in flushed {
+                if let Err(e) = self.fan_out_one(msg_info.envelope, cancel.clone()).await {
+                    log::error!("Failed to send flushed message: {e}");
                 }
-
-                for msg_info in flushed {
-                    if let Err(e) = self.fan_out_one(msg_info.envelope, cancel.clone()).await {
-                        log::error!("Failed to send flushed message: {e}");
-                    }
+                // A flushed message is emitted here, so it completes here.
+                if let Some(flushed_completion) = &msg_info.completion {
+                    flushed_completion.complete(self).await;
                 }
+            }
 
-                if remaining > 0 {
-                    self.ensure_rate_timer_running(cancel.clone()).await?;
-                }
+            if remaining > 0 {
+                self.ensure_rate_timer_running(cancel.clone()).await?;
             }
         }
 
         // Handle reset command. Upstream runs it after the flush handling and keeps the newly
-        // started interval when the same message also carried a flush.
+        // started interval when the same message also carried a flush. It drops the buffered
+        // messages without completing them, which is what upstream does too.
         if is_reset {
             if !is_flush {
                 let mut last_sent = self.last_sent.lock().await;
@@ -602,15 +735,22 @@ impl DelayNode {
             // Reset rate to config default
             self.update_rate(self.config.rate).await;
         }
+
+        // The reset or bare-flush message itself always completes; a buffered message was
+        // either emitted by the flush above or dropped by upstream's `node.buffer = []`.
+        if completion_owned || is_reset || is_flush {
+            completion.complete(self).await;
+        }
         Ok(())
     }
 
     async fn handle_queue_and_timed_modes(
-        self: Arc<Self>,
+        self: &Arc<Self>,
         msg: MsgHandle,
         cancel: CancellationToken,
+        completion: Arc<DelayCompletion>,
     ) -> crate::Result<()> {
-        let (is_reset, is_flush, flush_count, topic, msg_rate, msg_timeout) = {
+        let (is_reset, is_flush, flush_count, topic, msg_rate, _msg_timeout) = {
             let msg_guard = msg.read().await;
             let is_reset = msg_guard.contains("reset");
             let is_flush = msg_guard.contains("flush");
@@ -633,139 +773,136 @@ impl DelayNode {
             (is_reset, is_flush, flush_count, topic, rate, timeout)
         };
 
-        // Handle dynamic rate/timeout change for queue/timed modes
+        // Handle a dynamic rate change for queue/timed modes: the interval is the rate interval,
+        // so a new rate restarts it. Upstream reads `msg.rate` only (`msg.timeout` has no effect
+        // on these modes).
         if let Some(new_rate) = msg_rate {
             let current_rate = *self.current_rate.lock().await;
             if (new_rate - current_rate).abs() > f64::EPSILON {
                 self.update_rate(new_rate).await;
 
-                // Restart queue timer with new rate
+                // Restart the queue timer with the new interval
                 let mut timer_guard = self.queue_timer.lock().await;
                 if let Some(handle) = timer_guard.take() {
                     handle.abort();
-                    drop(timer_guard);
+                }
+                drop(timer_guard);
+                if !self.queue_buffer.lock().await.is_empty() {
+                    self.ensure_queue_timer_running(cancel.clone()).await?;
                 }
             }
         }
 
-        if let Some(new_timeout) = msg_timeout {
-            let current_timeout = *self.current_timeout.lock().await;
-            if (new_timeout - current_timeout).abs() > f64::EPSILON {
-                self.update_timeout(new_timeout).await;
-
-                // Restart queue timer with new timeout
-                let mut timer_guard = self.queue_timer.lock().await;
-                if let Some(handle) = timer_guard.take() {
-                    handle.abort();
-                    drop(timer_guard);
-                }
-            }
-        }
-
-        // Handle reset command
+        // Handle reset command: upstream drains the queue and completes every dropped entry.
         if is_reset {
-            let mut queues = self.topic_queues.lock().await;
-            queues.clear();
+            let mut buffer = self.queue_buffer.lock().await;
+            while let Some(msg_info) = buffer.pop_front() {
+                if let Some(dropped) = &msg_info.completion {
+                    dropped.complete(self).await;
+                }
+            }
+            drop(buffer);
 
             // Stop current timer
             let mut timer = self.queue_timer.lock().await;
             if let Some(handle) = timer.take() {
                 handle.abort();
             }
+            drop(timer);
 
             // Reset rate and timeout to config defaults
             self.update_rate(self.config.rate).await;
             self.update_timeout(self.config.timeout).await;
+            completion.complete(self).await;
             return Ok(());
         }
 
-        // Handle flush command
+        // Handle flush command: the flushed entries and the flush message itself complete here.
         if is_flush {
-            let mut queues = self.topic_queues.lock().await;
-            let mut count = flush_count.unwrap_or(usize::MAX);
-
-            for queue in queues.values_mut() {
-                while count > 0 && !queue.is_empty() {
-                    if let Some(msg_info) = queue.pop_front() {
-                        // Send the message immediately
-                        if let Err(e) = self.fan_out_one(msg_info.envelope, cancel.clone()).await {
-                            log::error!("Failed to send flushed message: {e}");
-                        }
+            let flushed: Vec<MsgInfo> = {
+                let mut buffer = self.queue_buffer.lock().await;
+                let mut count = flush_count.unwrap_or(usize::MAX);
+                let mut flushed = Vec::new();
+                while count > 0 && !buffer.is_empty() {
+                    if let Some(msg_info) = buffer.pop_front() {
+                        flushed.push(msg_info);
                         count -= 1;
                     }
                 }
-                if count == 0 {
-                    break;
+                flushed
+            };
+            for msg_info in flushed {
+                if let Err(e) = self.fan_out_one(msg_info.envelope, cancel.clone()).await {
+                    log::error!("Failed to send flushed message: {e}");
+                }
+                if let Some(flushed_completion) = &msg_info.completion {
+                    flushed_completion.complete(self).await;
                 }
             }
+            completion.complete(self).await;
             return Ok(());
         }
 
-        // Add message to topic queue
+        // Add the message to the queue. Both queue and timed mode replace an entry that is
+        // already waiting for the same topic, which is what keeps the queue one message deep
+        // per topic.
         {
-            let mut queues = self.topic_queues.lock().await;
-            let queue = queues.entry(topic.clone()).or_insert_with(VecDeque::new);
-
-            let max_queue_length = self.config.max_queue_length;
-
-            if self.config.pause_type == DelayPauseType::Queue {
-                // Queue mode: replace existing message with same topic (strict topic match)
-                // Only replace if a message with the same topic exists
-                // 由于 async/await，不能用 position 闭包直接 await，需要手动查找
-                let mut existing_pos = None;
-                for (i, info) in queue.iter().enumerate() {
-                    let guard = info.msg.read().await;
-                    let msg_topic = guard.get("topic").and_then(|v| v.as_str()).unwrap_or("");
-                    if msg_topic == topic {
-                        existing_pos = Some(i);
-                        break;
-                    }
+            let mut buffer = self.queue_buffer.lock().await;
+            let mut existing_pos = None;
+            for (i, info) in buffer.iter().enumerate() {
+                let guard = info.msg.read().await;
+                let msg_topic = guard.get("topic").and_then(|v| v.as_str()).unwrap_or("");
+                if msg_topic == topic {
+                    existing_pos = Some(i);
+                    break;
                 }
-                if let Some(existing_pos) = existing_pos {
-                    // Replace existing message
-                    if self.config.outputs >= 2 {
-                        // Send replaced message to second output
-                        if let Some(old_msg) = queue.get(existing_pos)
-                            && let Err(e) =
-                                self.fan_out_one(Envelope { port: 1, msg: old_msg.msg.clone() }, cancel.clone()).await
-                        {
-                            log::error!("Failed to send replaced message: {e}");
-                        }
-                    }
-                    queue[existing_pos] = MsgInfo { msg: msg.clone(), envelope: Envelope { port: 0, msg } };
-                } else {
-                    // Add new message, but check max queue length
-                    if queue.len() >= max_queue_length {
-                        // 超出最大队列长度，丢弃最早的消息
-                        queue.pop_front();
-                    }
-                    queue.push_back(MsgInfo { msg: msg.clone(), envelope: Envelope { port: 0, msg } });
+            }
+
+            if let Some(existing_pos) = existing_pos {
+                // Send the replaced message to the second output when the node has one.
+                if self.config.outputs >= 2
+                    && let Some(old_msg) = buffer.get(existing_pos)
+                    && let Err(e) =
+                        self.fan_out_one(Envelope { port: 1, msg: old_msg.msg.clone() }, cancel.clone()).await
+                {
+                    log::error!("Failed to send replaced message: {e}");
                 }
+                // The replaced entry is discarded, so it completes right away.
+                if let Some(replaced) = buffer.get(existing_pos).and_then(|info| info.completion.clone()) {
+                    replaced.complete(self).await;
+                }
+                buffer[existing_pos] = MsgInfo {
+                    msg: msg.clone(),
+                    envelope: Envelope { port: 0, msg },
+                    completion: Some(Arc::clone(&completion)),
+                };
             } else {
-                // Timed mode: just add to queue
-                if queue.len() >= max_queue_length {
-                    // 超出最大队列长度，丢弃最早的消息
-                    queue.pop_front();
-                }
-                queue.push_back(MsgInfo { msg: msg.clone(), envelope: Envelope { port: 0, msg } });
+                buffer.push_back(MsgInfo {
+                    msg: msg.clone(),
+                    envelope: Envelope { port: 0, msg },
+                    completion: Some(Arc::clone(&completion)),
+                });
             }
         }
 
         // Start timer if not already running
         self.ensure_queue_timer_running(cancel).await?;
 
+        // The buffered message completes when the timer emits it.
         Ok(())
     }
 
-    async fn ensure_queue_timer_running(self: Arc<Self>, cancel: CancellationToken) -> crate::Result<()> {
+    async fn ensure_queue_timer_running(self: &Arc<Self>, cancel: CancellationToken) -> crate::Result<()> {
         let mut timer_guard = self.queue_timer.lock().await;
         if timer_guard.is_some() {
             // Timer already running
             return Ok(());
         }
 
-        let interval = self.get_current_timeout_duration().await;
-        let this = Arc::clone(&self);
+        // Queue and timed modes release on the rate interval, and their interval is the rate
+        // interval upstream (`setInterval(sendMsgFromBuffer, node.rate)`).
+        let interval = self.get_current_rate_interval().await;
+        let this = Arc::clone(self);
         let cancel_token = cancel.child_token();
 
         let handle = tokio::spawn(async move {
@@ -781,24 +918,32 @@ impl DelayNode {
                     break;
                 }
 
-                let mut queues = this.topic_queues.lock().await;
+                let mut buffer = this.queue_buffer.lock().await;
                 let mut to_send = Vec::new();
-                for queue in queues.values_mut() {
-                    if let Some(msg_info) = queue.pop_front() {
+                if this.config.pause_type == DelayPauseType::Queue {
+                    // Queue mode releases the head of the queue, one message per interval.
+                    if let Some(msg_info) = buffer.pop_front() {
+                        to_send.push(msg_info);
+                    }
+                } else {
+                    // Timed mode releases the whole queue on every interval.
+                    while let Some(msg_info) = buffer.pop_front() {
                         to_send.push(msg_info);
                     }
                 }
-                drop(queues);
+                drop(buffer);
                 for msg_info in to_send {
                     let _ = this.fan_out_one(msg_info.envelope, cancel_token.clone()).await;
+                    // Queued messages complete when the timer sends them, not when they arrive.
+                    if let Some(completion) = &msg_info.completion {
+                        completion.complete(&this).await;
+                    }
                 }
 
-                // Check if all queues are empty, stop timer if so
-                let queues = this.topic_queues.lock().await;
-                let all_empty = queues.values().all(|q| q.is_empty());
-                drop(queues);
+                // Check if the queue is empty, stop timer if so
+                let is_empty = this.queue_buffer.lock().await.is_empty();
 
-                if all_empty {
+                if is_empty {
                     let mut timer_guard = this.queue_timer.lock().await;
                     *timer_guard = None;
                     break;
@@ -843,6 +988,10 @@ impl DelayNode {
                     if let Err(e) = this.fan_out_one(msg_info.envelope, cancel_token.clone()).await {
                         log::error!("Failed to send rate-limited message: {e}");
                     }
+                    // The buffered message is emitted now, so it completes now.
+                    if let Some(completion) = &msg_info.completion {
+                        completion.complete(&this).await;
+                    }
                 } else {
                     // No more messages in buffer, stop timer
                     let mut timer_guard = this.rate_timer.lock().await;
@@ -886,24 +1035,40 @@ impl FlowNodeBehavior for DelayNode {
     }
 
     async fn run(self: Arc<Self>, stop_token: CancellationToken) {
+        // Every mode owns its completion: Node-RED calls `done()` when the message is actually
+        // emitted (or when a reset/flush consumes the entry holding it), which can be long after
+        // the message was received. `with_uow` would raise it as soon as the handler returns.
         while !stop_token.is_cancelled() {
             let cancel = stop_token.clone();
             let arc_self = Arc::clone(&self);
-            with_uow(self.as_ref(), cancel.child_token(), move |node, msg| {
-                let arc_self = Arc::clone(&arc_self);
-                async move {
-                    match node.config.pause_type {
-                        DelayPauseType::Delay => arc_self.handle_delay_mode(msg, cancel).await,
-                        DelayPauseType::DelayVariable => arc_self.handle_delay_variable_mode(msg, cancel).await,
-                        DelayPauseType::Random => arc_self.handle_random_mode(msg, cancel).await,
-                        DelayPauseType::Rate => arc_self.handle_rate_mode(msg, cancel).await,
-                        DelayPauseType::Queue | DelayPauseType::Timed => {
-                            arc_self.handle_queue_and_timed_modes(msg, cancel).await
-                        }
+
+            let msg = match self.recv_msg(cancel.clone()).await {
+                Ok(msg) => msg,
+                Err(ref err) => {
+                    if let Some(EdgelinkError::TaskCancelled) = err.downcast_ref::<EdgelinkError>() {
+                        return;
+                    }
+                    log::warn!("[{}:{}] {}", self.type_str(), self.name(), err);
+                    continue;
+                }
+            };
+
+            let completion = DelayCompletion::new(msg.clone(), cancel.clone());
+            if let Err(err) = arc_self.handle_msg(msg.clone(), cancel.clone(), Arc::clone(&completion)).await {
+                if let Some(flow) = arc_self.flow() {
+                    let error_message = err.to_string();
+                    if let Err(e) = flow
+                        .handle_error(arc_self.as_ref(), &error_message, Some(msg.clone()), None, cancel.clone())
+                        .await
+                    {
+                        log::error!("Failed to handle error: {e:?}");
                     }
                 }
-            })
-            .await;
+                // A message that failed before anything could take it over still has to
+                // complete, or the flow would never see it finish. The flag keeps this from
+                // double-notifying a message the handler already completed.
+                completion.complete(&arc_self).await;
+            }
         }
     }
 }
@@ -928,7 +1093,6 @@ mod tests {
             nb_rate_units: 2,
             drop: false,
             allow_rate: false,
-            max_queue_length: 1000,
         };
 
         let interval = config.rate_interval();
@@ -949,12 +1113,73 @@ mod tests {
             nb_rate_units: 1,
             drop: false,
             allow_rate: false,
-            max_queue_length: 1000,
         };
 
         let interval2 = config2.rate_interval();
         println!("Calculated interval2: {interval2:?}");
         assert_eq!(interval2, Duration::from_millis(500));
+    }
+
+    /// `nodeMessageBufferMaxLength` caps the rate queue: once the backlog reaches the limit,
+    /// upstream clears the whole buffer and reports `delay.errors.too-many` on the incoming
+    /// message instead of quietly dropping the oldest entry.
+    #[tokio::test]
+    async fn test_rate_queue_overflow_reports_too_many() {
+        use crate::runtime::engine::Engine;
+        use crate::runtime::model::{ElementId, Msg};
+        use serde::Deserialize;
+        use serde_json::json;
+        use std::time::Duration;
+
+        let flows_json = json!([
+            { "id": "100", "type": "tab", "label": "Flow 1" },
+            {
+                "id": "6001",
+                "z": "100",
+                "type": "delay",
+                "name": "rate limiter",
+                "pauseType": "rate",
+                "timeout": 5,
+                "timeoutUnits": "seconds",
+                // One message per second, so everything after the first is buffered.
+                "rate": 1,
+                "rateUnits": "second",
+                "nbRateUnits": 1,
+                "drop": false,
+                // No output wires: the rate limit's own output is not what this test observes.
+                "wires": [[]]
+            },
+            { "id": "6003", "z": "100", "type": "catch", "scope": ["6001"], "uncaught": false, "wires": [["6004"]] },
+            { "id": "6004", "z": "100", "type": "test-once" }
+        ]);
+
+        let registry = crate::runtime::registry::RegistryBuilder::default().build().unwrap();
+        let elcfg = config::Config::builder()
+            .set_override("runtime.context.default", "memory")
+            .unwrap()
+            .set_override("runtime.context.stores.memory.provider", "memory")
+            .unwrap()
+            .set_override("runtime.flow.node_message_buffer_max_length", 2i64)
+            .unwrap()
+            .build()
+            .unwrap();
+        let engine = Engine::with_json(&registry, flows_json, Some(elcfg)).unwrap();
+
+        // The first message goes straight out, the next two fill the buffer (the cap is 2) and
+        // the fourth one overflows it.
+        let msgs_to_inject_json = json!([
+            ["6001", {"payload": 1}],
+            ["6001", {"payload": 2}],
+            ["6001", {"payload": 3}],
+            ["6001", {"payload": 4}],
+        ]);
+        let msgs_to_inject = Vec::<(ElementId, Msg)>::deserialize(msgs_to_inject_json).unwrap();
+
+        let msgs = engine.run_once_with_inject(1, Duration::from_millis(1500), msgs_to_inject).await.unwrap();
+
+        assert_eq!(msgs.len(), 1, "the overflow must be reported: {msgs:?}");
+        let reported = msgs[0].get_nav("error.message").and_then(|v| v.as_str()).unwrap_or_default();
+        assert!(reported.contains("too many pending"), "unexpected error message: {reported}");
     }
 
     #[tokio::test]
@@ -1286,7 +1511,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_timed_mode_with_dynamic_timeout() {
+    async fn test_timed_mode_ignores_msg_timeout() {
         use crate::runtime::engine::build_test_engine;
         use crate::runtime::model::{ElementId, Msg};
         use serde::Deserialize;
@@ -1315,10 +1540,11 @@ mod tests {
 
         let start_time = std::time::Instant::now();
 
-        // Test messages with dynamic timeout change
+        // `msg.timeout` has no effect on the queue/timed modes: their interval is the rate
+        // interval, so the messages are released on the first tick a second in.
         let msgs_to_inject_json = json!([
             ["1001", {"payload": "msg1"}],
-            ["1001", {"payload": "msg2", "timeout": 0.1}], // Change to 100ms
+            ["1001", {"payload": "msg2", "timeout": 0.1}],
             ["1001", {"payload": "msg3"}],
         ]);
         let msgs_to_inject = Vec::<(ElementId, Msg)>::deserialize(msgs_to_inject_json).unwrap();
@@ -1329,8 +1555,8 @@ mod tests {
 
         assert_eq!(msgs.len(), 3);
 
-        // Should complete faster due to dynamic timeout change
-        assert!(elapsed < Duration::from_millis(1000));
+        // The rate interval (1 message per second) is what releases them all at once.
+        assert!(elapsed >= Duration::from_millis(900), "elapsed was {elapsed:?}");
 
         let payloads: Vec<&str> =
             msgs.iter().map(|m| m.as_variant_object().get("payload").unwrap().as_str().unwrap()).collect();
@@ -1415,9 +1641,11 @@ mod tests {
                 "type": "delay",
                 "name": "dynamic queue node",
                 "pauseType": "queue",
-                "timeout": 1.0,     // Default 1 second processing interval
+                "timeout": 1.0,     // Unused by this mode: the interval is the rate interval
                 "timeoutUnits": "seconds",
-                "allowrate": true,  // Enable dynamic timeout control
+                "rate": 5,          // 5 messages per second, i.e. a 200ms interval
+                "rateUnits": "second",
+                "allowrate": true,
                 "outputs": 2,       // Two outputs: normal and replaced messages
                 "maxQueueLength": 5,
                 "wires": [["4002"], ["4003"]]
@@ -1430,12 +1658,13 @@ mod tests {
 
         let start_time = std::time::Instant::now();
 
-        // Test messages with topic replacement and dynamic timeout change
+        // Test messages with topic replacement: one topic holds one waiting message, and the
+        // queue releases the head every rate interval.
         let msgs_to_inject_json = json!([
             ["4001", {"payload": "sensor1_v1", "topic": "sensor1"}],
             ["4001", {"payload": "sensor2_v1", "topic": "sensor2"}],
             ["4001", {"payload": "sensor1_v2", "topic": "sensor1"}],  // Should replace sensor1_v1
-            ["4001", {"payload": "speed_up", "timeout": 0.2}],        // Change processing speed to 200ms
+            ["4001", {"payload": "speed_up"}],
             ["4001", {"payload": "sensor3_v1", "topic": "sensor3"}],
         ]);
         let msgs_to_inject = Vec::<(ElementId, Msg)>::deserialize(msgs_to_inject_json).unwrap();
@@ -1445,11 +1674,7 @@ mod tests {
         let elapsed = start_time.elapsed();
         println!("Dynamic queue test completed in: {elapsed:?}");
 
-        // Should receive messages faster due to timeout change
         assert!(msgs.len() >= 4);
-
-        // Should complete faster than original 1s intervals would allow
-        assert!(elapsed < Duration::from_millis(1500));
 
         let payloads: Vec<&str> =
             msgs.iter().map(|m| m.as_variant_object().get("payload").unwrap().as_str().unwrap()).collect();

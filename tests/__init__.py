@@ -317,9 +317,11 @@ async def run_flow_for_seconds(flows_obj: list[object], msgs: list[object] | Non
 
     Mirrors Node-RED's spec helper: inject a burst, sample for `runtimeInMillis`, then count
     whatever arrived. Unlike the `*_ntimes` harness above - which runs until a message count
-    is reached - this samples for a duration. Every returned message therefore carries an
-    extra `_arrival_ms` field: its arrival offset relative to the first output (so the first
-    one is always 0.0), which is how upstream checks the spacing between messages.
+    is reached - this samples for a duration. Every returned message therefore carries two
+    extra fields: `_arrival_ms`, its offset relative to the first output (so the first one is
+    always 0.0), which is how upstream checks the spacing between messages, and
+    `_since_start_ms`, its offset relative to the injection point, which is how the specs that
+    assert *when* a node finished a message (the `done()` contract) are written.
     """
     return await run_flow_for_seconds_scheduled(flows_obj, msgs, seconds, injectee_node_id)
 

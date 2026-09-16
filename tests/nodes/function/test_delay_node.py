@@ -1138,481 +1138,140 @@ class TestDelayNode:
 
         # Reset to empty queue should not send anything
         assert len(msgs) == 0
+    # Messaging API support: the port of upstream's `mapiDoneTestHelper`
+    # (`3rd-party/node-red/test/nodes/core/function/89-delay_spec.js` L1035-1125).
+    #
+    # What these specs observe is the node's `done()` callback, which the complete node turns
+    # into a message. The delay node is given no output wires, so the only messages the helper
+    # sees are completions, and each is checked against upstream's expected time
+    # (`(Date.now() - t).should.be.approximately(avr, var)`).
 
-    # Messaging API support tests - these test the done() callback functionality
-    # Since we don't have the complete Node context, we'll implement simpler versions
+    async def _mapi_done_test(self, pause_type, drop, msg_and_timings):
+        """Assert that every injected message completes, in order and at the expected time.
+
+        `msg_and_timings` holds `(msg, avr, var)` triples: the message to inject and when its
+        completion is due, in milliseconds from the injection point.
+        """
+        node = {
+            "id": "1", "z": "0", "type": "delay", "name": "delayNode", "pauseType": pause_type,
+            "timeout": "1", "timeoutUnits": "seconds", "rate": "1", "nbRateUnits": "1",
+            "rateUnits": "second", "randomFirst": "950", "randomLast": "1050",
+            "randomUnits": "milliseconds", "drop": drop, "wires": [[]],
+        }
+        flows = [
+            {"id": "0", "type": "tab"},
+            node,
+            {"id": "3", "z": "0", "type": "complete", "scope": ["1"], "uncaught": False, "wires": [["2"]]},
+            {"id": "2", "z": "0", "type": "test-once"},
+        ]
+        injections = [{"nid": "1", "msg": msg} for msg, _, _ in msg_and_timings]
+
+        # The sampling window starts at the first completion, so it only has to cover the rest.
+        last_due = max(avr + var for _, avr, var in msg_and_timings)
+        first_due = min(avr for _, avr, _ in msg_and_timings)
+        window = (last_due - first_due) / 1000.0 + 0.4
+
+        msgs = await run_flow_for_seconds(flows, injections, window)
+
+        assert [m["payload"] for m in msgs] == [msg["payload"] for msg, _, _ in msg_and_timings], (
+            f"Expected one completion per message, in injection order, got {msgs}"
+        )
+        for msg, (_, avr, var) in zip(msgs, msg_and_timings):
+            assert abs(msg["_since_start_ms"] - avr) <= var, (
+                f"Message {msg['payload']} completed after {msg['_since_start_ms']:.0f}ms, "
+                f"expected {avr}ms ± {var}ms"
+            )
 
     @pytest.mark.asyncio
     @pytest.mark.it('calls done when queued message is emitted (type: delay)')
     async def test_0039(self):
-        node = {
-            "type": "delay",
-            "name": "delayNode",
-            "pauseType": "delay",
-            "timeout": 1,
-            "timeoutUnits": "seconds",
-            "rate": "1",
-            "rateUnits": "second",
-            "randomFirst": "950",
-            "randomLast": "1050",
-            "randomUnits": "milliseconds",
-            "drop": False
-        }
-
-        start_time = time.time()
-        msgs = await run_single_node_with_msgs_ntimes(node, [{"payload": 1}], 1)
-        end_time = time.time()
-        elapsed = end_time - start_time
-
-        assert len(msgs) == 1
-        assert msgs[0]['payload'] == 1
-        assert 0.9 <= elapsed <= 1.1
+        await self._mapi_done_test("delay", False, [({"payload": 1}, 1000, 100)])
 
     @pytest.mark.asyncio
     @pytest.mark.it('calls done when queued message is emitted (type: delayv)')
     async def test_0040(self):
-        node = {
-            "type": "delay",
-            "name": "delayNode",
-            "pauseType": "delayv",
-            "timeout": 1,
-            "timeoutUnits": "seconds",
-            "rate": "1",
-            "rateUnits": "second",
-            "randomFirst": "950",
-            "randomLast": "1050",
-            "randomUnits": "milliseconds",
-            "drop": False
-        }
-
-        start_time = time.time()
-        msgs = await run_single_node_with_msgs_ntimes(node, [{"payload": 1, "delay": 1000}], 1)
-        end_time = time.time()
-        elapsed = end_time - start_time
-
-        assert len(msgs) == 1
-        assert msgs[0]['payload'] == 1
-        assert 0.9 <= elapsed <= 1.1
+        await self._mapi_done_test("delayv", False, [({"payload": 1, "delay": 1000}, 1000, 100)])
 
     @pytest.mark.asyncio
     @pytest.mark.it('calls done when queued message is emitted (type: delay)')
     async def test_0041(self):
-        # This appears to be a duplicate test name in the original - testing random type
-        node = {
-            "type": "delay",
-            "name": "delayNode",
-            "pauseType": "random",
-            "timeout": 1,
-            "timeoutUnits": "seconds",
-            "rate": "1",
-            "rateUnits": "second",
-            "randomFirst": "950",
-            "randomLast": "1050",
-            "randomUnits": "milliseconds",
-            "drop": False
-        }
-
-        start_time = time.time()
-        msgs = await run_single_node_with_msgs_ntimes(node, [{"payload": 1}], 1)
-        end_time = time.time()
-        elapsed = end_time - start_time
-
-        assert len(msgs) == 1
-        assert msgs[0]['payload'] == 1
-        assert 0.9 <= elapsed <= 1.1
+        # Upstream reuses the "delay" title for this one, but the helper runs the random mode.
+        await self._mapi_done_test("random", False, [({"payload": 1}, 1000, 100)])
 
     @pytest.mark.asyncio
     @pytest.mark.it('calls done when queued message is cleared (type: delay)')
     async def test_0042(self):
-        node = {
-            "type": "delay",
-            "name": "delayNode",
-            "pauseType": "delay",
-            "timeout": 1,
-            "timeoutUnits": "seconds",
-            "rate": "1",
-            "rateUnits": "second",
-            "randomFirst": "950",
-            "randomLast": "1050",
-            "randomUnits": "milliseconds",
-            "drop": False
-        }
-
-        messages = [
-            {"payload": 1},
-            {"payload": 2, "reset": True}
-        ]
-
-        start_time = time.time()
-        msgs = await run_single_node_with_msgs_ntimes(node, messages, 0, timeout=1.0)
-        end_time = time.time()
-
-        # Reset should clear the queue before first message is sent
-        assert len(msgs) == 0
-        assert (end_time - start_time) <= 0.5
+        await self._mapi_done_test("delay", False, [({"payload": 1}, 100, 100),
+                                                    ({"payload": 2, "reset": True}, 100, 100)])
 
     @pytest.mark.asyncio
     @pytest.mark.it('calls done when queued message is cleared (type: delayv)')
     async def test_0043(self):
-        node = {
-            "type": "delay",
-            "name": "delayNode",
-            "pauseType": "delayv",
-            "timeout": 1,
-            "timeoutUnits": "seconds",
-            "rate": "1",
-            "rateUnits": "second",
-            "randomFirst": "950",
-            "randomLast": "1050",
-            "randomUnits": "milliseconds",
-            "drop": False
-        }
-
-        messages = [
-            {"payload": 1, "delay": 1000},
-            {"payload": 2, "reset": True}
-        ]
-
-        start_time = time.time()
-        msgs = await run_single_node_with_msgs_ntimes(node, messages, 0, timeout=1.0)
-        end_time = time.time()
-
-        # Reset should clear the queue before first message is sent
-        assert len(msgs) == 0
-        assert (end_time - start_time) <= 0.5
+        await self._mapi_done_test("delayv", False, [({"payload": 1, "delay": 1000}, 100, 100),
+                                                     ({"payload": 2, "reset": True}, 100, 100)])
 
     @pytest.mark.asyncio
     @pytest.mark.it('calls done when queued message is cleared (type: random)')
     async def test_0044(self):
-        node = {
-            "type": "delay",
-            "name": "delayNode",
-            "pauseType": "random",
-            "timeout": 1,
-            "timeoutUnits": "seconds",
-            "rate": "1",
-            "rateUnits": "second",
-            "randomFirst": "950",
-            "randomLast": "1050",
-            "randomUnits": "milliseconds",
-            "drop": False
-        }
-
-        messages = [
-            {"payload": 1},
-            {"payload": 2, "reset": True}
-        ]
-
-        start_time = time.time()
-        msgs = await run_single_node_with_msgs_ntimes(node, messages, 0, timeout=1.0)
-        end_time = time.time()
-
-        # Reset should clear the queue before first message is sent
-        assert len(msgs) == 0
-        assert (end_time - start_time) <= 0.5
+        await self._mapi_done_test("random", False, [({"payload": 1}, 100, 100),
+                                                     ({"payload": 2, "reset": True}, 100, 100)])
 
     @pytest.mark.asyncio
     @pytest.mark.it('calls done when queued message is flushed (type: delay)')
     async def test_0045(self):
-        node = {
-            "type": "delay",
-            "name": "delayNode",
-            "pauseType": "delay",
-            "timeout": 1,
-            "timeoutUnits": "seconds",
-            "rate": "1",
-            "rateUnits": "second",
-            "randomFirst": "950",
-            "randomLast": "1050",
-            "randomUnits": "milliseconds",
-            "drop": False
-        }
-
-        messages = [
-            {"payload": 1},
-            {"payload": 2, "flush": True}
-        ]
-
-        start_time = time.time()
-        msgs = await run_single_node_with_msgs_ntimes(node, messages, 1, timeout=1.0)
-        end_time = time.time()
-
-        # Flush should immediately send the queued message
-        assert len(msgs) >= 1
-        assert (end_time - start_time) <= 0.5
+        await self._mapi_done_test("delay", False, [({"payload": 1}, 100, 100),
+                                                    ({"payload": 2, "flush": True}, 100, 100)])
 
     @pytest.mark.asyncio
     @pytest.mark.it('calls done when queued message is flushed (type: delayv)')
     async def test_0046(self):
-        node = {
-            "type": "delay",
-            "name": "delayNode",
-            "pauseType": "delayv",
-            "timeout": 1,
-            "timeoutUnits": "seconds",
-            "rate": "1",
-            "rateUnits": "second",
-            "randomFirst": "950",
-            "randomLast": "1050",
-            "randomUnits": "milliseconds",
-            "drop": False
-        }
-
-        messages = [
-            {"payload": 1, "delay": 1000},
-            {"payload": 2, "flush": True}
-        ]
-
-        start_time = time.time()
-        msgs = await run_single_node_with_msgs_ntimes(node, messages, 1, timeout=1.0)
-        end_time = time.time()
-
-        # Flush should immediately send the queued message
-        assert len(msgs) >= 1
-        assert (end_time - start_time) <= 0.5
+        await self._mapi_done_test("delayv", False, [({"payload": 1, "delay": 1000}, 100, 100),
+                                                     ({"payload": 2, "flush": True}, 100, 100)])
 
     @pytest.mark.asyncio
     @pytest.mark.it('calls done when queued message is flushed (type: random)')
     async def test_0047(self):
-        node = {
-            "type": "delay",
-            "name": "delayNode",
-            "pauseType": "random",
-            "timeout": 1,
-            "timeoutUnits": "seconds",
-            "rate": "1",
-            "rateUnits": "second",
-            "randomFirst": "950",
-            "randomLast": "1050",
-            "randomUnits": "milliseconds",
-            "drop": False
-        }
-
-        messages = [
-            {"payload": 1},
-            {"payload": 2, "flush": True}
-        ]
-
-        start_time = time.time()
-        msgs = await run_single_node_with_msgs_ntimes(node, messages, 1, timeout=1.0)
-        end_time = time.time()
-
-        # Flush should immediately send the queued message
-        assert len(msgs) >= 1
-        assert (end_time - start_time) <= 0.5
+        await self._mapi_done_test("random", False, [({"payload": 1}, 100, 100),
+                                                     ({"payload": 2, "flush": True}, 100, 100)])
 
     @pytest.mark.asyncio
     @pytest.mark.it('calls done when rated message is emitted (drop: false)')
     async def test_0048(self):
-        node = {
-            "type": "delay",
-            "name": "delayNode",
-            "pauseType": "rate",
-            "timeout": 1,
-            "timeoutUnits": "seconds",
-            "rate": 1,
-            "rateUnits": "second",
-            "randomFirst": "950",
-            "randomLast": "1050",
-            "randomUnits": "milliseconds",
-            "drop": False
-        }
-
-        messages = [
-            {"payload": 1},
-            {"payload": 2}
-        ]
-
-        start_time = time.time()
-        msgs = await run_single_node_with_msgs_ntimes(node, messages, 2, timeout=2.0)
-        end_time = time.time()
-
-        # First message immediate, second after 1 second
-        assert len(msgs) >= 1
-        assert 1.0 <= (end_time - start_time) <= 2.0
+        await self._mapi_done_test("rate", False, [({"payload": 1}, 0, 100), ({"payload": 2}, 1000, 100)])
 
     @pytest.mark.asyncio
     @pytest.mark.it('calls done when rated message is emitted (drop: true)')
     async def test_0049(self):
-        node = {
-            "type": "delay",
-            "name": "delayNode",
-            "pauseType": "rate",
-            "timeout": 1,
-            "timeoutUnits": "seconds",
-            "rate": 1,
-            "rateUnits": "second",
-            "randomFirst": "950",
-            "randomLast": "1050",
-            "randomUnits": "milliseconds",
-            "drop": True
-        }
-
-        # Upstream asserts on the `done` callback here, which the complete node surfaces:
-        # with `drop` the second message never reaches an output, yet it still completes the
-        # node straight away, exactly like the first one.
-        flows = [
-            {"id": "0", "type": "tab"},
-            {"id": "1", "z": "0", "type": "delay", **node, "wires": [[]]},
-            {"id": "3", "z": "0", "type": "complete", "scope": ["1"], "uncaught": False, "wires": [["2"]]},
-            {"id": "2", "z": "0", "type": "test-once"},
-        ]
-
-        start_time = time.time()
-        msgs = await run_flow_with_msgs_ntimes(flows, [{"payload": 1}, {"payload": 2}], 2, "1", timeout=1.0)
-        end_time = time.time()
-
-        # Both messages complete immediately, even though the rate limit drops the second one
-        assert [m["payload"] for m in msgs] == [1, 2]
-        assert (end_time - start_time) <= 0.5
+        await self._mapi_done_test("rate", True, [({"payload": 1}, 0, 100), ({"payload": 2}, 0, 100)])
 
     @pytest.mark.asyncio
     @pytest.mark.it('calls done when rated message is flushed')
     async def test_0050(self):
-        node = {
-            "type": "delay",
-            "name": "delayNode",
-            "pauseType": "rate",
-            "timeout": 1,
-            "timeoutUnits": "seconds",
-            "rate": 1,
-            "rateUnits": "second",
-            "randomFirst": "950",
-            "randomLast": "1050",
-            "randomUnits": "milliseconds",
-            "drop": False
-        }
-
-        messages = [
-            {"payload": 1},
-            {"payload": 2},
-            {"payload": 3, "flush": True}
-        ]
-
-        start_time = time.time()
-        msgs = await run_single_node_with_msgs_ntimes(node, messages, 3, timeout=1.0)
-        end_time = time.time()
-
-        # Flush should immediately send all rate-limited messages
-        assert len(msgs) >= 1
-        assert (end_time - start_time) <= 1.0
+        await self._mapi_done_test("rate", False, [({"payload": 1}, 0, 100), ({"payload": 2}, 0, 100),
+                                                   ({"payload": 3, "flush": True}, 0, 100)])
 
     @pytest.mark.asyncio
+    @pytest.mark.timeout(20)
     @pytest.mark.it('calls done when queued messages are sent (queue)')
     async def test_0051(self):
-        node = {
-            "type": "delay",
-            "name": "delayNode",
-            "pauseType": "queue",
-            "timeout": 1,
-            "timeoutUnits": "seconds",
-            "rate": 1,
-            "rateUnits": "second",
-            "randomFirst": "950",
-            "randomLast": "1050",
-            "randomUnits": "milliseconds",
-            "drop": False
-        }
-
-        messages = [
-            {"payload": 1, "topic": "A"},
-            {"payload": 2, "topic": "B"}
-        ]
-
-        start_time = time.time()
-        msgs = await run_single_node_with_msgs_ntimes(node, messages, 2, timeout=3.0)
-        end_time = time.time()
-
-        # Queue should send messages with different topics
-        assert len(msgs) >= 1
-        assert 1.0 <= (end_time - start_time) <= 3.0
+        await self._mapi_done_test("queue", False, [({"payload": 1, "topic": "A"}, 1000, 700),
+                                                    ({"payload": 2, "topic": "B"}, 2000, 700)])
 
     @pytest.mark.asyncio
+    @pytest.mark.timeout(20)
     @pytest.mark.it('calls done when queued messages are sent (timed)')
     async def test_0052(self):
-        node = {
-            "type": "delay",
-            "name": "delayNode",
-            "pauseType": "timed",
-            "timeout": 1,
-            "timeoutUnits": "seconds",
-            "rate": 2,
-            "rateUnits": "second",
-            "randomFirst": "950",
-            "randomLast": "1050",
-            "randomUnits": "milliseconds",
-            "drop": False
-        }
-
-        messages = [
-            {"payload": 1, "topic": "a"},
-            {"payload": 2, "topic": "b"}
-        ]
-
-        start_time = time.time()
-        msgs = await run_single_node_with_msgs_ntimes(node, messages, 2, timeout=2.0)
-        end_time = time.time()
-
-        # Timed queue should send messages at intervals
-        assert len(msgs) >= 1
-        assert 0.5 <= (end_time - start_time) <= 2.0
+        await self._mapi_done_test("timed", False, [({"payload": 1, "topic": "a"}, 500, 700),
+                                                    ({"payload": 2, "topic": "b"}, 500, 700)])
 
     @pytest.mark.asyncio
     @pytest.mark.it('calls done when queue is reset (queue/timed)')
     async def test_0053(self):
-        node = {
-            "type": "delay",
-            "name": "delayNode",
-            "pauseType": "timed",
-            "timeout": 1,
-            "timeoutUnits": "seconds",
-            "rate": 2,
-            "rateUnits": "second",
-            "randomFirst": "950",
-            "randomLast": "1050",
-            "randomUnits": "milliseconds",
-            "drop": False
-        }
-
-        messages = [
-            {"payload": 1, "topic": "a"},
-            {"payload": 2, "reset": True}
-        ]
-
-        start_time = time.time()
-        msgs = await run_single_node_with_msgs_ntimes(node, messages, 0, timeout=1.0)
-        end_time = time.time()
-
-        # Reset should clear the queue
-        assert len(msgs) == 0
-        assert (end_time - start_time) <= 0.5
+        await self._mapi_done_test("timed", False, [({"payload": 1, "topic": "a"}, 0, 500),
+                                                    ({"payload": 2, "reset": True}, 0, 500)])
 
     @pytest.mark.asyncio
     @pytest.mark.it('calls done when queue is flushed (queue/timed)')
     async def test_0054(self):
-        node = {
-            "type": "delay",
-            "name": "delayNode",
-            "pauseType": "timed",
-            "timeout": 1,
-            "timeoutUnits": "seconds",
-            "rate": 2,
-            "rateUnits": "second",
-            "randomFirst": "950",
-            "randomLast": "1050",
-            "randomUnits": "milliseconds",
-            "drop": False
-        }
-
-        messages = [
-            {"payload": 1, "topic": "a"},
-            {"payload": 2, "flush": True}
-        ]
-
-        start_time = time.time()
-        msgs = await run_single_node_with_msgs_ntimes(node, messages, 1, timeout=1.0)
-        end_time = time.time()
-
-        # Flush should immediately send queued messages
-        assert len(msgs) >= 1
-        assert (end_time - start_time) <= 0.5
+        await self._mapi_done_test("timed", False, [({"payload": 1, "topic": "a"}, 0, 500),
+                                                    ({"payload": 2, "flush": True}, 0, 500)])
