@@ -17,6 +17,9 @@ use edgelink_macro::*;
 enum JoinMode {
     #[default]
     Auto,
+    /// Node-RED's editor only emits `auto` and `custom`; the remaining variants are kept
+    /// for flows written against earlier revisions of this engine.
+    Custom,
     Array,
     Object,
     String,
@@ -50,8 +53,8 @@ struct JoinNodeConfig {
     #[serde(default)]
     count: RedOptionalUsize, // Expected count
 
-    #[serde(default)]
-    join_char: Option<String>, // Delimiter for string join
+    #[serde(rename = "joiner", default)]
+    join_char: Option<String>, // Delimiter for string join (Node-RED's `joiner` property)
 
     #[serde(default)]
     key_property: Option<String>, // Key property for object join
@@ -129,9 +132,11 @@ impl JoinNode {
 
         match &group.payload {
             GroupPayload::Array(arr) => {
-                // Convert indexed array to compact array
-                let compact_array: Vec<Variant> = arr.iter().filter_map(|opt| opt.clone()).collect();
-                out.set_nav(property, Variant::Array(compact_array), true).ok()?;
+                // Keep the holes: Node-RED joins into a sparse array indexed by
+                // msg.parts.index, so a missing index stays `undefined` (JSON null) rather
+                // than being dropped.
+                let joined: Vec<Variant> = arr.iter().map(|slot| slot.clone().unwrap_or(Variant::Null)).collect();
+                out.set_nav(property, Variant::Array(joined), true).ok()?;
             }
             GroupPayload::Object(obj) => {
                 out.set_nav(property, Variant::Object(obj.clone()), true).ok()?;
@@ -190,6 +195,7 @@ impl JoinNode {
             Variant::Object(obj) => Some(obj),
             _ => None,
         });
+        let is_auto = self.config.mode == JoinMode::Auto;
 
         let group_id = if let Some(parts) = parts {
             parts.get("id").and_then(|v| v.as_str()).unwrap_or("_").to_string()
@@ -228,7 +234,14 @@ impl JoinNode {
             };
 
             let join_char = if self.config.mode == JoinMode::Auto {
-                parts.and_then(|p| p.get("ch")).and_then(|v| v.as_str()).map(|s| s.to_string())
+                // Node-RED takes the joiner from msg.parts.ch and stringifies whatever it
+                // finds there (a number, a boolean, ...), not just strings.
+                parts.and_then(|p| p.get("ch")).map(|ch| match ch {
+                    Variant::String(s) => s.clone(),
+                    Variant::Number(n) => n.to_string(),
+                    Variant::Bool(b) => b.to_string(),
+                    _ => String::new(),
+                })
             } else {
                 self.config.join_char.clone()
             };
@@ -246,12 +259,15 @@ impl JoinNode {
         });
 
         // Update count if available
-        if let Some(parts) = parts {
-            if let Some(Variant::Number(count)) = parts.get("count") {
-                group.count = Some(count.as_u64().unwrap_or(0) as usize);
+        // "auto" takes the expected count from msg.parts; manual mode uses the node's own
+        // `count` setting. A count of 0 means "no count" in both cases.
+        if is_auto {
+            if let Some(Variant::Number(count)) = parts.and_then(|p| p.get("count")) {
+                let count = count.as_u64().unwrap_or(0) as usize;
+                group.count = if count > 0 { Some(count) } else { None };
             }
         } else if let Some(count) = *self.config.count {
-            group.count = Some(count);
+            group.count = if count > 0 { Some(count) } else { None };
         }
 
         // Add message to group
@@ -259,14 +275,28 @@ impl JoinNode {
 
         // Extract the value to add
         let property_name = group.property.as_deref().unwrap_or(&self.config.property);
-        let value = msg.get_nav(property_name).cloned().unwrap_or(Variant::Null);
+        let msg_value = msg.get_nav(property_name).cloned();
+        let value = msg_value.clone().unwrap_or(Variant::Null);
+        let explicit_complete = msg.get("complete").is_some();
+        // A `complete` marker flushes the group; a complete message that does not carry the
+        // joined property (the bare `{complete:true}` flush marker) is not added to it.
+        let add_payload = !(explicit_complete && msg_value.is_none());
+
+        // Only "auto" mode honours msg.parts.index; manual mode joins in arrival order.
+        let index = if is_auto {
+            parts.and_then(|p| match p.get("index") {
+                Some(Variant::Number(index)) => Some(index.as_u64().unwrap_or(0) as usize),
+                _ => None,
+            })
+        } else {
+            None
+        };
 
         // Add to appropriate payload structure
-        match &mut group.payload {
-            GroupPayload::Array(arr) => {
-                if let Some(parts) = parts {
-                    if let Some(Variant::Number(index)) = parts.get("index") {
-                        let idx = index.as_u64().unwrap_or(0) as usize;
+        if add_payload {
+            match &mut group.payload {
+                GroupPayload::Array(arr) => match index {
+                    Some(idx) => {
                         // Extend array if needed
                         while arr.len() <= idx {
                             arr.push(None);
@@ -275,64 +305,56 @@ impl JoinNode {
                             group.current_count += 1;
                         }
                         arr[idx] = Some(value);
-                    } else {
+                    }
+                    None => {
                         arr.push(Some(value));
                         group.current_count += 1;
                     }
-                } else {
-                    arr.push(Some(value));
-                    group.current_count += 1;
-                }
-            }
-            GroupPayload::Object(obj) => {
-                let key = if let Some(parts) = parts {
-                    parts.get("key").and_then(|v| v.as_str()).unwrap_or("").to_string()
-                } else {
-                    let key_prop = self.config.key_property.as_deref().unwrap_or("topic");
-                    msg.get_nav(key_prop).and_then(|v| v.as_str()).unwrap_or("").to_string()
-                };
+                },
+                GroupPayload::Object(obj) => {
+                    let key = if let Some(parts) = parts {
+                        parts.get("key").and_then(|v| v.as_str()).unwrap_or("").to_string()
+                    } else {
+                        let key_prop = self.config.key_property.as_deref().unwrap_or("topic");
+                        msg.get_nav(key_prop).and_then(|v| v.as_str()).unwrap_or("").to_string()
+                    };
 
-                if !key.is_empty() {
-                    if !obj.contains_key(&key) {
-                        group.current_count += 1;
-                    }
-                    obj.insert(key, value);
-                }
-            }
-            GroupPayload::String(parts_vec) => {
-                if let Some(parts) = parts {
-                    if let Some(Variant::Number(index)) = parts.get("index") {
-                        let idx = index.as_u64().unwrap_or(0) as usize;
-                        // Extend vector if needed
-                        while parts_vec.len() <= idx {
-                            parts_vec.push(String::new());
-                        }
-                        // Only count as new if this position was empty
-                        if parts_vec[idx].is_empty() {
+                    if !key.is_empty() {
+                        if !obj.contains_key(&key) {
                             group.current_count += 1;
                         }
-                        parts_vec[idx] = value.as_str().unwrap_or("").to_string();
-                    } else {
-                        parts_vec.push(value.as_str().unwrap_or("").to_string());
-                        group.current_count += 1;
+                        obj.insert(key, value);
                     }
-                } else {
-                    parts_vec.push(value.as_str().unwrap_or("").to_string());
-                    group.current_count += 1;
                 }
-                // Update current_count to be the number of non-empty slots
-                group.current_count = parts_vec.iter().filter(|s| !s.is_empty()).count();
-            }
-            GroupPayload::Buffer(buffers) => {
-                let buffer_data = match value {
-                    Variant::Bytes(bytes) => bytes,
-                    Variant::String(s) => s.into_bytes(),
-                    _ => Vec::new(),
-                };
+                GroupPayload::String(parts_vec) => {
+                    match index {
+                        Some(idx) => {
+                            // Extend vector if needed
+                            while parts_vec.len() <= idx {
+                                parts_vec.push(String::new());
+                            }
+                            // Only count as new if this position was empty
+                            if parts_vec[idx].is_empty() {
+                                group.current_count += 1;
+                            }
+                            parts_vec[idx] = value.as_str().unwrap_or("").to_string();
+                        }
+                        None => {
+                            parts_vec.push(value.as_str().unwrap_or("").to_string());
+                            group.current_count += 1;
+                        }
+                    }
+                    // Update current_count to be the number of non-empty slots
+                    group.current_count = parts_vec.iter().filter(|s| !s.is_empty()).count();
+                }
+                GroupPayload::Buffer(buffers) => {
+                    let buffer_data = match value {
+                        Variant::Bytes(bytes) => bytes,
+                        Variant::String(s) => s.into_bytes(),
+                        _ => Vec::new(),
+                    };
 
-                if let Some(parts) = parts {
-                    if let Some(Variant::Number(index)) = parts.get("index") {
-                        let idx = index.as_u64().unwrap_or(0) as usize;
+                    if let Some(idx) = index {
                         // Extend vector if needed
                         while buffers.len() <= idx {
                             buffers.push(Vec::new());
@@ -346,18 +368,16 @@ impl JoinNode {
                         buffers.push(buffer_data);
                         group.current_count += 1;
                     }
-                } else {
-                    buffers.push(buffer_data);
-                    group.current_count += 1;
+                    // Update current_count to be the number of non-empty buffers
+                    group.current_count = buffers.iter().filter(|b| !b.is_empty()).count();
                 }
-                // Update current_count to be the number of non-empty buffers
-                group.current_count = buffers.iter().filter(|b| !b.is_empty()).count();
             }
         }
 
-        // Check if group is complete
-        let is_complete =
-            if let Some(count) = group.count { group.current_count >= count } else { msg.get("complete").is_some() };
+        // An explicit msg.complete always flushes the group, even when the configured count
+        // has not been reached yet.
+        let count_reached = matches!(group.count, Some(count) if group.current_count >= count);
+        let is_complete = explicit_complete || count_reached;
 
         if is_complete {
             let result = self.join_msgs(group);
