@@ -694,7 +694,11 @@ impl Flow {
                 ("NR_NODE_PATH".into(), Variant::String(format!("{}/{}", self.get_path(), node_config.id))),
             ])
             .build();
-        let context = engine.get_context_manager().new_context(&self.inner.context, node_config.id.to_string());
+        // Node-RED scopes a node context as `"<node id>:<flow id>"`, which is also what decides
+        // where a persistent store files it (see `runtime::context::localfilesystem`).
+        let context = engine
+            .get_context_manager()
+            .new_context(&self.inner.context, format!("{}:{}", node_config.id, self.inner.id));
 
         Ok(BaseFlowNodeState {
             id: node_config.id,

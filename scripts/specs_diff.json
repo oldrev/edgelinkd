@@ -148,5 +148,15 @@
                 "test/nodes/subflow/subflow_spec.js"
             ]
         ]
+    },
+    {
+        "category": "context storage",
+        "nodes": [
+            [
+                "localfilesystem",
+                "context/test_localfilesystem_store.py",
+                "test/unit/@node-red/runtime/lib/nodes/context/localfilesystem_spec.js"
+            ]
+        ]
     }
 ]

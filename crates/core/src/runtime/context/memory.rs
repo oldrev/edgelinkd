@@ -1,10 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use async_trait::async_trait;
 use propex::PropexSegment;
 use tokio::sync::RwLock;
 
-use super::{EdgelinkError, ElementId, Variant};
+use super::{EdgelinkError, ElementId, GLOBAL_CONTEXT_NAME, Variant};
 use crate::Result;
 use crate::runtime::context::*;
 
@@ -12,15 +12,35 @@ inventory::submit! {
     ProviderMetadata { type_: "memory", factory: MemoryContextStore::build }
 }
 
-struct MemoryContextStore {
+pub(super) struct MemoryContextStore {
     name: String,
     scopes: RwLock<HashMap<String, Variant>>,
 }
 
 impl MemoryContextStore {
     fn build(name: String, _options: Option<&ContextStoreOptions>) -> crate::Result<Box<dyn ContextStore>> {
-        let this = MemoryContextStore { name, scopes: RwLock::new(HashMap::new()) };
-        Ok(Box::new(this))
+        Ok(Box::new(Self::create(name)))
+    }
+
+    /// Create the store directly, for callers that need the concrete type.
+    ///
+    /// The local file-system store uses a memory store as its cache, exactly like Node-RED's
+    /// `localfilesystem.js` does, and so needs to reach past the `dyn ContextStore` handle.
+    pub(super) fn create(name: String) -> Self {
+        MemoryContextStore { name, scopes: RwLock::new(HashMap::new()) }
+    }
+
+    /// Snapshot every scope, used to write the cache back to disk.
+    pub(super) async fn export(&self) -> HashMap<String, Variant> {
+        self.scopes.read().await.clone()
+    }
+
+    /// Replace the whole scope with `values`, used when loading a scope from disk.
+    ///
+    /// Unlike [`ContextStore::set_one`] this does not interpret the keys as property paths, so
+    /// a stored key that happens to contain a `.` survives the round trip.
+    pub(super) async fn import_scope(&self, scope: &str, values: VariantObjectMap) {
+        self.scopes.write().await.insert(scope.to_string(), Variant::Object(values));
     }
 }
 
@@ -67,7 +87,7 @@ impl ContextStore for MemoryContextStore {
     async fn get_keys(&self, scope: &str) -> Result<Vec<String>> {
         let scopes = self.scopes.read().await;
         if let Some(scope_map) = scopes.get(scope) {
-            return Ok(scope_map.as_object().unwrap().keys().cloned().collect::<Vec<_>>());
+            return Ok(scope_map.as_object().map(|m| m.keys().cloned().collect::<Vec<_>>()).unwrap_or_default());
         }
         Err(EdgelinkError::OutOfRange.into())
     }
@@ -91,7 +111,7 @@ impl ContextStore for MemoryContextStore {
     async fn remove_one(&self, scope: &str, path: &[PropexSegment]) -> Result<Variant> {
         let mut scopes = self.scopes.write().await;
         if let Some(scope_map) = scopes.get_mut(scope) {
-            if let Some(value) = scope_map.as_object_mut().unwrap().remove_segs_property(path) {
+            if let Some(value) = scope_map.as_object_mut().and_then(|m| m.remove_segs_property(path)) {
                 return Ok(value);
             } else {
                 return Err(EdgelinkError::OutOfRange.into());
@@ -106,14 +126,18 @@ impl ContextStore for MemoryContextStore {
         Ok(())
     }
 
-    async fn clean(&self, _active_nodes: &[ElementId]) -> Result<()> {
-        /*
-        let mut items = self.items.write().await;
-        let scopes = active_nodes. scope.parse::<ElementId>();
-        items.retain(|scope, _| active_nodes.contains(&scope));
+    /// Drop every scope that no longer belongs to an active node or flow.
+    ///
+    /// Mirrors Node-RED's `memory.js`: `global` is never cleaned, and a scope is kept only when
+    /// the part before the `:` (the node id of a local scope, or the flow id of a flow scope)
+    /// is still active.
+    async fn clean(&self, active_nodes: &[ElementId]) -> Result<()> {
+        let active: HashSet<String> = active_nodes.iter().map(ElementId::to_string).collect();
+        let mut scopes = self.scopes.write().await;
+        scopes.retain(|scope, _| {
+            scope == GLOBAL_CONTEXT_NAME || active.contains(scope.split(':').next().unwrap_or(scope))
+        });
         Ok(())
-        */
-        todo!()
     }
 }
 
