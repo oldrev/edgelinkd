@@ -112,8 +112,17 @@ impl BatchNode {
         (0..count).map(|i| (msg_id.to_string(), i, count)).collect()
     }
 
-    /// Set msg.parts for each message in the batch
-    async fn send_batch(&self, messages: Vec<MsgHandle>) -> Result<Vec<MsgHandle>, EdgelinkError> {
+    /// Set msg.parts for each message in the batch.
+    ///
+    /// `clone_messages` mirrors upstream's `send_msgs(..., clone_msg)`: when a message is going to
+    /// stay in the buffer for the next sequence (count mode with `overlap`), the copy that is sent
+    /// has to be a clone, or the next batch would rewrite the `parts` of a message that was
+    /// already emitted.
+    async fn send_batch(
+        &self,
+        messages: Vec<MsgHandle>,
+        clone_messages: bool,
+    ) -> Result<Vec<MsgHandle>, EdgelinkError> {
         if messages.is_empty() {
             return Ok(vec![]);
         }
@@ -127,6 +136,9 @@ impl BatchNode {
         let mut result = Vec::new();
 
         for (i, msg_handle) in messages.into_iter().enumerate() {
+            // `deep_clone(false)` keeps `_msgid`, which is what Node-RED's `cloneMessage` does and
+            // what the sequence id is derived from.
+            let msg_handle = if clone_messages { msg_handle.deep_clone(false).await } else { msg_handle };
             let (id, index, count) = &parts_info[i];
             // Set parts property
             {
@@ -192,7 +204,9 @@ impl BatchNode {
             }
 
             drop(pending);
-            return self.send_batch(batch).await;
+            // With overlap the tail of this batch stays in the buffer for the next one, so the
+            // copies that are emitted have to be clones (upstream's is_overlap argument).
+            return self.send_batch(batch, overlap > 0).await;
         }
 
         Ok(vec![])
@@ -207,7 +221,7 @@ impl BatchNode {
         };
 
         if !pending.is_empty() {
-            match self.send_batch(pending).await {
+            match self.send_batch(pending, false).await {
                 Ok(msgs) => {
                     for msg in msgs {
                         let _ = self.fan_out_one(Envelope { port: 0, msg }, cancel.child_token()).await;
@@ -362,7 +376,8 @@ impl BatchNode {
 
             drop(pending);
             drop(pending_count);
-            return self.send_batch(all_messages).await;
+            // Upstream always clones the messages a concat emits.
+            return self.send_batch(all_messages, true).await;
         }
 
         // Check for overflow
