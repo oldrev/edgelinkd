@@ -88,8 +88,7 @@ and `inventory`, so there is no central node list — only the `mod` declaration
   so those two env vars must match how you built (`EDGELINK_BUILD_PROFILE` is `debug` by
   default, `ci` in CI). On Windows the loader copies the `.dll` to `.pyd`, so **rebuild
   before running tests** or you test the previous binary.
-- Python 3.13 with the pinned PyO3 0.20.3 needs `PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1`;
-  otherwise use Python 3.12 (what CI uses).
+- Python 3.13 works out of the box with PyO3 0.23; CI runs 3.12.
 - Windows: `patch.exe` (shipped with Git) must be on `PATH` for `build.rs`.
 - `pytest.ini` sets `asyncio_mode = strict` (every async test needs
   `@pytest.mark.asyncio`) and a 5 s per-test timeout.

@@ -2,25 +2,25 @@ use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyString, PyTuple};
 use serde_json::{Map, Value};
 
-pub fn py_object_to_json_value(obj: &PyAny) -> PyResult<Value> {
+pub fn py_object_to_json_value(obj: &Bound<'_, PyAny>) -> PyResult<Value> {
     if let Ok(list) = obj.downcast::<PyList>() {
         let mut json_list = Vec::new();
         for item in list.iter() {
-            json_list.push(py_object_to_json_value(item)?);
+            json_list.push(py_object_to_json_value(&item)?);
         }
         Ok(Value::Array(json_list))
     } else if let Ok(dict) = obj.downcast::<PyDict>() {
         let mut json_map = Map::new();
         for (key, value) in dict.iter() {
             let key = key.extract::<String>()?;
-            let value = py_object_to_json_value(value)?;
+            let value = py_object_to_json_value(&value)?;
             json_map.insert(key, value);
         }
         Ok(Value::Object(json_map))
     } else if let Ok(tuple) = obj.downcast::<PyTuple>() {
         let mut json_list = Vec::new();
         for item in tuple.iter() {
-            json_list.push(py_object_to_json_value(item)?);
+            json_list.push(py_object_to_json_value(&item)?);
         }
         Ok(Value::Array(json_list))
     } else if let Ok(boolean) = obj.downcast::<PyBool>() {
@@ -41,24 +41,24 @@ pub fn py_object_to_json_value(obj: &PyAny) -> PyResult<Value> {
 pub fn json_value_to_py_object(py: Python, value: &Value) -> PyResult<PyObject> {
     match value {
         Value::Null => Ok(py.None()),
-        Value::Bool(b) => Ok(b.into_py(py)),
+        Value::Bool(b) => Ok(b.into_pyobject(py)?.to_owned().into_any().unbind()),
         Value::Number(n) => {
             if let Some(int) = n.as_i64() {
-                Ok(int.to_object(py))
+                Ok(int.into_pyobject(py)?.into_any().unbind())
             } else if let Some(float) = n.as_f64() {
-                Ok(PyFloat::new(py, float).into())
+                Ok(PyFloat::new(py, float).into_any().unbind())
             } else {
-                Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Invalid number type"))
+                Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Invalid number type".to_string()))
             }
         }
-        Value::String(s) => Ok(PyString::new(py, s).into()),
+        Value::String(s) => Ok(PyString::new(py, s).into_any().unbind()),
         Value::Array(arr) => {
             let list = PyList::empty(py);
             for item in arr {
                 let py_item = json_value_to_py_object(py, item)?;
                 list.append(py_item)?;
             }
-            Ok(list.into())
+            Ok(list.into_any().unbind())
         }
         Value::Object(obj) => {
             let dict = PyDict::new(py);
@@ -67,7 +67,7 @@ pub fn json_value_to_py_object(py: Python, value: &Value) -> PyResult<PyObject> 
                 let py_value = json_value_to_py_object(py, value)?;
                 dict.set_item(py_key, py_value)?;
             }
-            Ok(dict.into())
+            Ok(dict.into_any().unbind())
         }
     }
 }
