@@ -5,24 +5,36 @@ use mustache::MapBuilder;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 #[cfg(test)]
 mod tests;
 
+/// One topic's pending second edge.
 #[derive(Debug)]
 struct TriggerEvent {
+    /// Registration order: events that come due together fire in this order, which is what
+    /// Node's `setTimeout` queue gives them upstream.
+    seq: u64,
+    /// When the second edge is due. `None` is upstream's `tout = 0`: the topic stays active
+    /// (and therefore blocking) without ever firing, which is how a `duration` of 0 behaves.
+    deadline: Option<tokio::time::Instant>,
+    /// The message the second edge is built from: the one that started the sequence.
+    msg: Msg,
+    /// `op2type: payl` sends the most recent message of the topic (upstream's `npay`), which
+    /// later messages refresh even while the sequence is still running.
+    payl_msg: Option<Msg>,
     cancel_token: CancellationToken,
-    _op2_payload: Option<Variant>,
 }
 
 #[derive(Debug)]
 struct TriggerMutState {
-    tasks: JoinSet<()>,
-
+    /// Repeating op1 tasks (a negative duration), which have no second edge.
+    loop_tasks: JoinSet<()>,
     events: HashMap<String, TriggerEvent>,
+    next_seq: u64,
 }
 
 #[flow_node("trigger", red_name = "trigger")]
@@ -31,13 +43,9 @@ struct TriggerNode {
     base: BaseFlowNodeState,
     config: TriggerNodeConfig,
     mut_state: Mutex<TriggerMutState>,
-}
-
-#[derive(Debug)]
-#[allow(dead_code)]
-struct TopicState {
-    timeout_handle: Option<tokio::task::JoinHandle<()>>,
-    op2_payload: Option<Variant>,
+    /// Wakes the second-edge timer when an event is registered or rescheduled.
+    timer_wakeup: mpsc::UnboundedSender<()>,
+    timer_wakeup_rx: Mutex<Option<mpsc::UnboundedReceiver<()>>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
@@ -81,7 +89,12 @@ enum PayloadType {
     PayloadOriginal,
     #[serde(rename = "val")]
     Value,
+    /// `nul`: upstream's "output nothing" type, which suppresses the edge entirely.
     #[serde(rename = "nul")]
+    NoOutput,
+    /// A literal `null` payload. This is what `val` with the value `null` becomes upstream
+    /// (`this.op1type = 'null'`, a different type from `nul`).
+    #[serde(rename = "null")]
     Null,
 }
 
@@ -224,6 +237,27 @@ where
 }
 
 impl TriggerNodeConfig {
+    /// Fold `val` into `bool`/`null`/`str` the way Node-RED does when the node is created.
+    ///
+    /// Besides picking the payload type, this is what makes a `{{...}}` value render as a
+    /// template: upstream only treats `str` values as templated.
+    fn normalize(&mut self) {
+        if self.op1_type == PayloadType::Value {
+            self.op1_type = match self.op1.as_str() {
+                "true" | "false" => PayloadType::Boolean,
+                "null" => PayloadType::Null,
+                _ => PayloadType::String,
+            };
+        }
+        if self.op2_type == PayloadType::Value {
+            self.op2_type = match self.op2.as_str() {
+                "true" | "false" => PayloadType::Boolean,
+                "null" => PayloadType::Null,
+                _ => PayloadType::String,
+            };
+        }
+    }
+
     fn get_duration_in_ms(&self) -> f64 {
         match self.units {
             TimeUnits::Milliseconds => self.duration,
@@ -286,6 +320,8 @@ impl TriggerNodeConfig {
                 }
             }
             PayloadType::Null => Some(Variant::Null),
+            // `nul` never reaches here: both call sites check for it first.
+            PayloadType::NoOutput => None,
         }
     }
 }
@@ -297,17 +333,110 @@ impl TriggerNode {
         red_config: &RedFlowNodeConfig,
         _options: Option<&config::Config>,
     ) -> crate::Result<Box<dyn FlowNodeBehavior>> {
-        let config: TriggerNodeConfig = serde_json::from_value(red_config.rest.clone())?;
+        let mut config: TriggerNodeConfig = serde_json::from_value(red_config.rest.clone())?;
+        config.normalize();
+        let (timer_wakeup, timer_wakeup_rx) = mpsc::unbounded_channel();
         let node = TriggerNode {
             base,
             config,
-            mut_state: Mutex::new(TriggerMutState { tasks: JoinSet::new(), events: HashMap::new() }),
+            mut_state: Mutex::new(TriggerMutState { loop_tasks: JoinSet::new(), events: HashMap::new(), next_seq: 1 }),
+            timer_wakeup,
+            timer_wakeup_rx: Mutex::new(Some(timer_wakeup_rx)),
         };
         Ok(Box::new(node))
     }
 
+    /// Fire every second edge that has come due, oldest event first.
+    ///
+    /// Driving all the topics from one timer is what keeps the order deterministic: upstream's
+    /// `setTimeout` callbacks fire in the order they were registered, and a task per topic
+    /// would hand that order to the tokio scheduler instead.
+    async fn fire_due_events(self: &Arc<Self>, cancel: CancellationToken) {
+        let now = tokio::time::Instant::now();
+        let due: Vec<TriggerEvent> = {
+            let mut state = self.mut_state.lock().await;
+            let mut due_topics: Vec<(u64, String)> = state
+                .events
+                .iter()
+                .filter(|(_, event)| event.deadline.is_some_and(|deadline| deadline <= now))
+                .map(|(topic, event)| (event.seq, topic.clone()))
+                .collect();
+            due_topics.sort_unstable();
+            due_topics.iter().filter_map(|(_, topic)| state.events.remove(topic)).collect()
+        };
+
+        for event in due {
+            if event.cancel_token.is_cancelled() {
+                continue;
+            }
+            self.send_second_edge(event, cancel.clone()).await;
+        }
+    }
+
+    /// Build and emit the second edge that upstream's timeout callback sends.
+    async fn send_second_edge(self: &Arc<Self>, event: TriggerEvent, cancel: CancellationToken) {
+        if self.config.op2_type == PayloadType::NoOutput {
+            return;
+        }
+
+        // With two outputs configured upstream sends `[null, msg]`, i.e. port 1.
+        let output_port = if self.config.outputs > 1 { 1 } else { 0 };
+
+        // `payl` sends the remembered message for the topic verbatim, properties included.
+        if self.config.op2_type == PayloadType::PayloadOriginal {
+            let msg = event.payl_msg.unwrap_or(event.msg);
+            let _ = self.fan_out_one(Envelope { port: output_port, msg: MsgHandle::new(msg) }, cancel).await;
+            return;
+        }
+
+        let original_payload = event.msg.get("payload").cloned();
+        let op2_payload = if self.config.op2_type == PayloadType::String && self.config.op2.contains("{{") {
+            match render_mustache_template(&self.config.op2, &event.msg) {
+                Ok(rendered) => Some(Variant::String(rendered)),
+                Err(_) => Some(Variant::String(self.config.op2.clone())),
+            }
+        } else {
+            self.config.get_payload_value(self.config.op2_type, &self.config.op2, original_payload.as_ref())
+        };
+
+        if let Some(payload) = op2_payload {
+            let mut msg_data = event.msg.as_variant_object().clone();
+            msg_data.insert("payload".to_string(), payload);
+            let timer_msg = MsgHandle::with_properties(msg_data);
+            let _ = self.fan_out_one(Envelope { port: output_port, msg: timer_msg }, cancel).await;
+        }
+    }
+
+    /// The single timer that drives every pending second edge.
+    async fn timer_loop(self: Arc<Self>, mut wakeup: Option<mpsc::UnboundedReceiver<()>>, cancel: CancellationToken) {
+        loop {
+            let next_deadline = {
+                let state = self.mut_state.lock().await;
+                state.events.values().filter_map(|event| event.deadline).min()
+            };
+
+            tokio::select! {
+                _ = cancel.cancelled() => break,
+                _ = async {
+                    match next_deadline {
+                        Some(deadline) => tokio::time::sleep_until(deadline).await,
+                        None => std::future::pending::<()>().await,
+                    }
+                } => {}
+                _ = async {
+                    match wakeup.as_mut() {
+                        Some(rx) => { let _ = rx.recv().await; }
+                        None => std::future::pending::<()>().await,
+                    }
+                } => {}
+            }
+
+            self.fire_due_events(cancel.clone()).await;
+        }
+    }
+
     async fn handle_message(self: Arc<Self>, msg: MsgHandle, cancel: CancellationToken) -> crate::Result<()> {
-        let (topic, original_payload, is_reset, delay_override) = {
+        let (topic, is_reset, delay_override) = {
             let msg_guard = msg.read().await;
             // Node-RED JS: topic = RED.util.getMessageProperty(msg, node.topic) || "_none"
             let topic = if self.config.by_topic == ByTopic::Topic {
@@ -319,8 +448,6 @@ impl TriggerNode {
             } else {
                 "_none".to_string()
             };
-            let original_payload = msg_guard.get("payload").cloned();
-
             let is_reset = msg_guard.contains("reset")
                 || (!self.config.reset.is_empty() && {
                     if let Some(payload) = msg_guard.get("payload") {
@@ -343,7 +470,7 @@ impl TriggerNode {
             } else {
                 None
             };
-            (topic, original_payload, is_reset, delay_override)
+            (topic, is_reset, delay_override)
         };
 
         let mut mut_state = self.mut_state.lock().await;
@@ -355,15 +482,28 @@ impl TriggerNode {
             return Ok(());
         }
 
+        // `op2type: payl` remembers the most recent message of the topic, and a message that
+        // is blocked still refreshes it - upstream does this before the blocking check.
+        if self.config.op2_type == PayloadType::PayloadOriginal {
+            let snapshot = msg.read().await.clone();
+            if let Some(event) = mut_state.events.get_mut(&topic) {
+                event.payl_msg = Some(snapshot);
+            }
+        }
+
         let should_block = mut_state.events.contains_key(&topic) && !self.config.extend;
         if should_block {
             return Ok(());
         }
 
+        // Re-triggering an active sequence restarts its timer but does not repeat the first
+        // edge: upstream only sends op1 when the topic had no timer running.
+        let mut is_extend = false;
         if self.config.extend
             && let Some(event) = mut_state.events.remove(&topic)
         {
             event.cancel_token.cancel();
+            is_extend = true;
         }
 
         let mut loop_mode = false;
@@ -377,85 +517,45 @@ impl TriggerNode {
             duration_ms = -duration_ms;
         }
 
-        if duration_ms > 0.0 && !loop_mode {
-            let node = Arc::clone(&self);
-            let cancel_clone = cancel.clone();
-            let op2_type = self.config.op2_type;
-            let op2_value = self.config.op2.clone();
-            let op2_payload_original = original_payload.clone();
-            let outputs = self.config.outputs;
-            let topic_clone = topic.clone();
-            let msg_data = {
-                let msg_guard = msg.read().await;
-                msg_guard.as_variant_object().clone()
-            };
-            let msg_for_template = {
-                let msg_guard = msg.read().await;
-                msg_guard.clone()
-            };
-            let token = CancellationToken::new();
-            let child_token = token.child_token();
-            let is_null = self.config.op2_type == PayloadType::Null;
-            let _task_handle = mut_state.tasks.spawn(async move {
-                tokio::select! {
-                    _ = tokio::time::sleep(std::time::Duration::from_millis(duration_ms as u64)) => {
-                        if !is_null {
-                            let op2_payload = if op2_type == PayloadType::String && op2_value.contains("{{") {
-                                match render_mustache_template(&op2_value, &msg_for_template) {
-                                    Ok(rendered) => Some(Variant::String(rendered)),
-                                    Err(_) => Some(Variant::String(op2_value.clone())),
-                                }
-                            } else {
-                                node.config.get_payload_value(op2_type, &op2_value, op2_payload_original.as_ref())
-                            };
-                            if let Some(payload) = op2_payload {
-                                let mut new_msg_data = msg_data.clone();
-                                new_msg_data.insert("payload".to_string(), payload);
-                                let timer_msg = MsgHandle::with_properties(new_msg_data);
-                                let output_port = if outputs > 1 { 1 } else { 0 };
-                                let _ = node.fan_out_one(Envelope { port: output_port, msg: timer_msg }, cancel_clone).await;
-                            }
-                        }
-                        let mut mut_state = node.mut_state.lock().await;
-                        mut_state.events.remove(&topic_clone);
-                    }
-                    _ = child_token.cancelled() => {
-                        // do nothing
-                    }
-                }
-            });
+        let msg_snapshot = msg.read().await.clone();
+
+        if !loop_mode {
+            // A duration of 0 keeps the topic active without ever firing the second edge,
+            // which is upstream's `tout = 0`.
+            let deadline = (duration_ms > 0.0)
+                .then(|| tokio::time::Instant::now() + std::time::Duration::from_millis(duration_ms as u64));
+            let seq = mut_state.next_seq;
+            mut_state.next_seq += 1;
             mut_state.events.insert(
                 topic.clone(),
                 TriggerEvent {
-                    cancel_token: token.clone(),
-                    _op2_payload: if self.config.op2_type == PayloadType::PayloadOriginal {
-                        original_payload.clone()
+                    seq,
+                    deadline,
+                    msg: msg_snapshot.clone(),
+                    payl_msg: if self.config.op2_type == PayloadType::PayloadOriginal {
+                        Some(msg_snapshot.clone())
                     } else {
                         None
                     },
+                    cancel_token: CancellationToken::new(),
                 },
             );
+            // Let the timer pick up the new (possibly earlier) deadline.
+            let _ = self.timer_wakeup.send(());
         }
 
-        if self.config.op1_type != PayloadType::Null {
-            let msg_for_template = {
-                let msg_guard = msg.read().await;
-                msg_guard.clone()
-            };
+        if !is_extend && self.config.op1_type != PayloadType::NoOutput {
             let op1_payload = if self.config.op1_type == PayloadType::String && self.config.op1.contains("{{") {
-                match render_mustache_template(&self.config.op1, &msg_for_template) {
+                match render_mustache_template(&self.config.op1, &msg_snapshot) {
                     Ok(rendered) => Some(Variant::String(rendered)),
                     Err(_) => Some(Variant::String(self.config.op1.clone())),
                 }
             } else {
+                let original_payload = msg_snapshot.get("payload").cloned();
                 self.config.get_payload_value(self.config.op1_type, &self.config.op1, original_payload.as_ref())
             };
             if let Some(payload) = op1_payload {
-                let new_msg_data = {
-                    let msg_guard = msg.read().await;
-                    msg_guard.as_variant_object().clone()
-                };
-                let mut new_msg_data = new_msg_data;
+                let mut new_msg_data = msg_snapshot.as_variant_object().clone();
                 new_msg_data.insert("payload".to_string(), payload);
                 let op1_msg = MsgHandle::with_properties(new_msg_data);
                 self.fan_out_one(Envelope { port: 0, msg: op1_msg }, cancel.clone()).await?;
@@ -467,20 +567,16 @@ impl TriggerNode {
             let cancel_clone = cancel.clone();
             let op1_type = self.config.op1_type;
             let op1_value = self.config.op1.clone();
-            let op1_payload_original = original_payload.clone();
-            let msg_data_loop = {
-                let msg_guard = msg.read().await;
-                msg_guard.as_variant_object().clone()
-            };
-            let msg_for_template = {
-                let msg_guard = msg.read().await;
-                msg_guard.clone()
-            };
+            let msg_data_loop = msg_snapshot.as_variant_object().clone();
+            let msg_for_template = msg_snapshot.clone();
             let topic_loop = topic.clone();
             let token = CancellationToken::new();
             let child_token = token.child_token();
-            let _task_handle = mut_state.tasks.spawn(async move {
+            let _task_handle = mut_state.loop_tasks.spawn(async move {
                 let mut interval = tokio::time::interval(std::time::Duration::from_millis(duration_ms as u64));
+                // `setInterval` waits a full period before its first repeat; tokio's first
+                // tick is immediate, and the edge has already been sent once by now.
+                interval.tick().await;
                 loop {
                     tokio::select! {
                         _ = interval.tick() => {
@@ -490,7 +586,8 @@ impl TriggerNode {
                                     Err(_) => Some(Variant::String(op1_value.clone())),
                                 }
                             } else {
-                                node.config.get_payload_value(op1_type, &op1_value, op1_payload_original.as_ref())
+                                let original_payload = msg_for_template.get("payload").cloned();
+                                node.config.get_payload_value(op1_type, &op1_value, original_payload.as_ref())
                             };
                             if let Some(payload) = op1_payload {
                                 let mut new_msg_data = msg_data_loop.clone();
@@ -501,13 +598,26 @@ impl TriggerNode {
                         }
                         _ = child_token.cancelled() => {
                             break;
+
                         }
                     }
                 }
                 let mut mut_state = node.mut_state.lock().await;
                 mut_state.events.remove(&topic_loop);
             });
-            mut_state.events.insert(topic.clone(), TriggerEvent { cancel_token: token.clone(), _op2_payload: None });
+            let seq = mut_state.next_seq;
+            mut_state.next_seq += 1;
+            mut_state.events.insert(
+                topic.clone(),
+                TriggerEvent {
+                    seq,
+                    // A loop only repeats op1, so it has no second edge to schedule.
+                    deadline: None,
+                    msg: msg_snapshot,
+                    payl_msg: None,
+                    cancel_token: token.clone(),
+                },
+            );
         }
         Ok(())
     }
@@ -519,6 +629,14 @@ impl FlowNodeBehavior for TriggerNode {
         &self.base
     }
     async fn run(self: Arc<Self>, stop_token: CancellationToken) {
+        // One timer drives every topic; see `fire_due_events` for why.
+        let wakeup_rx = self.timer_wakeup_rx.lock().await.take();
+        let timer_node = Arc::clone(&self);
+        let timer_cancel = stop_token.clone();
+        let timer_task = tokio::spawn(async move {
+            timer_node.timer_loop(wakeup_rx, timer_cancel).await;
+        });
+
         while !stop_token.is_cancelled() {
             let cancel = stop_token.clone();
             let this = Arc::clone(&self);
@@ -527,10 +645,14 @@ impl FlowNodeBehavior for TriggerNode {
             })
             .await;
         }
+
+        timer_task.abort();
         // Clear all timers
         let mut mut_state = self.mut_state.lock().await;
-        mut_state.tasks.abort_all();
-        mut_state.events.clear();
+        mut_state.loop_tasks.abort_all();
+        for (_, event) in mut_state.events.drain() {
+            event.cancel_token.cancel();
+        }
     }
 }
 

@@ -125,7 +125,7 @@ impl YamlNode {
     async fn convert_object_to_yaml(&self, value: &Variant) -> crate::Result<Variant> {
         let yaml_value = variant_to_yaml_value(value);
         match yaml::to_string(&yaml_value) {
-            Ok(yaml_string) => Ok(Variant::String(yaml_string)),
+            Ok(yaml_string) => Ok(Variant::String(indent_mapping_sequences(&yaml_string))),
             Err(e) => Err(crate::EdgelinkError::InvalidOperation(format!("YAML stringify error: {e}")).into()),
         }
     }
@@ -254,6 +254,148 @@ impl FlowNodeBehavior for YamlNode {
             let node = self.clone();
 
             with_uow(node.as_ref(), stop_token.clone(), |node, msg| async move { node.process_yaml(msg).await }).await;
+        }
+    }
+}
+
+/// Indent the block sequences that are the value of a mapping key, the way js-yaml does.
+///
+/// Node-RED dumps with js-yaml, which writes
+///
+/// ```text
+/// employees:
+///   - firstName: John
+///     lastName: Smith
+/// ```
+///
+/// libyaml - and therefore `serde_yaml_ng` - writes the same document with the sequence at
+/// the parent key's own indent. Both parse identically, but the dumped string is part of the
+/// node's observable output, so the layout has to match.
+#[cfg(feature = "nodes_yaml")]
+fn indent_mapping_sequences(yaml_text: &str) -> String {
+    let lines: Vec<&str> = yaml_text.trim_end_matches('\n').split('\n').collect();
+    let mut blocks: Vec<(usize, usize)> = Vec::new();
+    collect_mapping_sequence_blocks(&lines, 0, lines.len(), &mut blocks);
+
+    let mut out = String::with_capacity(yaml_text.len());
+    for (index, line) in lines.iter().enumerate() {
+        if line.trim().is_empty() {
+            out.push('\n');
+            continue;
+        }
+        // A line inside a nested sequence sits inside every enclosing block.
+        let extra_indent = 2 * blocks.iter().filter(|(start, end)| *start <= index && index < *end).count();
+        for _ in 0..extra_indent {
+            out.push(' ');
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
+}
+
+/// Find every sequence that is the value of a mapping key, recursively.
+#[cfg(feature = "nodes_yaml")]
+fn collect_mapping_sequence_blocks(lines: &[&str], from: usize, to: usize, blocks: &mut Vec<(usize, usize)>) {
+    let mut index = from;
+    while index < to {
+        if is_sequence_item(lines[index]) && sequence_is_mapping_value(lines, from, index) {
+            let end = sequence_block_end(lines, index, to);
+            blocks.push((index, end));
+            // Nested sequences need their own extra indent.
+            collect_mapping_sequence_blocks(lines, index, end, blocks);
+            index = end;
+        } else {
+            index += 1;
+        }
+    }
+}
+
+#[cfg(feature = "nodes_yaml")]
+fn is_sequence_item(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    trimmed == "-" || trimmed.starts_with("- ")
+}
+
+#[cfg(feature = "nodes_yaml")]
+fn leading_spaces(line: &str) -> usize {
+    line.len() - line.trim_start().len()
+}
+
+/// The end of the block a sequence item at `start` introduces: its own nested content plus
+/// every sibling item at the same indent.
+#[cfg(feature = "nodes_yaml")]
+fn sequence_block_end(lines: &[&str], start: usize, to: usize) -> usize {
+    let indent = leading_spaces(lines[start]);
+    let mut end = start + 1;
+    while end < to {
+        let line = lines[end];
+        if line.trim().is_empty() {
+            end += 1;
+            continue;
+        }
+        let line_indent = leading_spaces(line);
+        if line_indent > indent || (line_indent == indent && is_sequence_item(line)) {
+            end += 1;
+            continue;
+        }
+        break;
+    }
+    end
+}
+
+/// Whether the sequence item at `index` is the value of a mapping key rather than an item of
+/// an already-visited sequence or a document root sequence.
+#[cfg(feature = "nodes_yaml")]
+fn sequence_is_mapping_value(lines: &[&str], from: usize, index: usize) -> bool {
+    let indent = leading_spaces(lines[index]);
+    let mut cursor = index;
+    while cursor > from {
+        cursor -= 1;
+        let line = lines[cursor];
+        if line.trim().is_empty() {
+            continue;
+        }
+        let line_indent = leading_spaces(line);
+        if line_indent > indent {
+            continue;
+        }
+        if line_indent == indent {
+            // A previous item at the same indent means this one continues that sequence.
+            return !is_sequence_item(line) && line.trim_end().ends_with(':');
+        }
+        return line.trim_end().ends_with(':');
+    }
+    false
+}
+
+#[cfg(all(test, feature = "nodes_yaml"))]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// The expected strings are js-yaml's output for the same documents (generated with the
+    /// pinned Node-RED checkout's js-yaml), which is what the node's specs assert.
+    #[test]
+    fn dump_matches_js_yaml_indentation() {
+        let cases = [
+            (
+                json!({"employees": [{"firstName": "John", "lastName": "Smith"}]}),
+                "employees:\n  - firstName: John\n    lastName: Smith\n",
+            ),
+            (json!([1, 2, 3]), "- 1\n- 2\n- 3\n"),
+            (json!({"a": [{"b": [1, 2]}]}), "a:\n  - b:\n      - 1\n      - 2\n"),
+            (json!({"a": {"b": [1, 2]}}), "a:\n  b:\n    - 1\n    - 2\n"),
+            (json!({"a": 1, "b": [{"c": 2}, {"c": 3}]}), "a: 1\nb:\n  - c: 2\n  - c: 3\n"),
+            (json!([[1, 2], [3]]), "- - 1\n  - 2\n- - 3\n"),
+            (json!({"a": "x", "b": {"c": {"d": [1]}}}), "a: x\nb:\n  c:\n    d:\n      - 1\n"),
+            (json!({"a": []}), "a: []\n"),
+        ];
+
+        for (doc, expected) in cases {
+            let value: Variant = doc.clone().into();
+            let dumped = yaml::to_string(&variant_to_yaml_value(&value)).unwrap();
+            assert_eq!(indent_mapping_sequences(&dumped), expected, "for {doc}");
         }
     }
 }

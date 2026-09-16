@@ -411,7 +411,23 @@ impl Engine {
     pub async fn run_window_with_inject(
         &self,
         window: std::time::Duration,
-        mut msgs_to_inject: Vec<(ElementId, Msg)>,
+        msgs_to_inject: Vec<(ElementId, Msg)>,
+    ) -> crate::Result<Vec<(Msg, f64)>> {
+        let scheduled = msgs_to_inject.into_iter().map(|(id, msg)| (id, msg, 0.0)).collect();
+        self.run_window_with_schedule(window, scheduled).await
+    }
+
+    /// Like [`Self::run_window_with_inject`], but every message carries the delay (in
+    /// milliseconds, relative to the start of the run) after which it is injected.
+    ///
+    /// Node-RED's drop-rate specs feed the node a *stream* rather than a burst - their helper
+    /// spaces the injections out with `setTimeout` - and a burst cannot exercise a rate limit
+    /// that drops what arrives too soon. A delay of zero injects immediately.
+    #[cfg(any(test, feature = "pymod"))]
+    pub async fn run_window_with_schedule(
+        &self,
+        window: std::time::Duration,
+        mut msgs_to_inject: Vec<(ElementId, Msg, f64)>,
     ) -> crate::Result<Vec<(Msg, f64)>> {
         self.start().await?;
 
@@ -422,8 +438,22 @@ impl Engine {
         }
 
         let cancel = CancellationToken::new();
-        for msg in msgs_to_inject.drain(..) {
-            self.inject_msg(&msg.0, MsgHandle::new(msg.1), cancel.clone()).await?;
+        let mut deferred = Vec::new();
+        for (node_id, msg, delay_ms) in msgs_to_inject.drain(..) {
+            if delay_ms <= 0.0 {
+                self.inject_msg(&node_id, MsgHandle::new(msg), cancel.clone()).await?;
+                continue;
+            }
+            let engine = self.clone();
+            let inject_cancel = cancel.clone();
+            deferred.push(tokio::spawn(async move {
+                tokio::select! {
+                    _ = inject_cancel.cancelled() => {}
+                    _ = tokio::time::sleep(std::time::Duration::from_secs_f64(delay_ms / 1000.0)) => {
+                        let _ = engine.inject_msg(&node_id, MsgHandle::new(msg), inject_cancel).await;
+                    }
+                }
+            }));
         }
 
         // Node-RED's sampling helper starts its clock when the first message is received
@@ -466,6 +496,12 @@ impl Engine {
         }
 
         self.stop().await?;
+
+        // Any injection still waiting for its slot belongs to a run that is over.
+        for task in deferred {
+            task.abort();
+        }
+
         Ok(received)
     }
 

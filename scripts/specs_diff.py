@@ -32,9 +32,11 @@ def load_json(json_path):
 
 def extract_it_strings_js(red_dir, file_path) -> list[str]:
     specs = []
-    # Use delete=False to avoid permission issues on Windows
+    # Use delete=False to avoid permission issues on Windows, and close the handle before the
+    # subprocess runs: Windows will not let mocha open a file this process still holds.
     with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.json') as report_file:
         report_file_path = report_file.name
+        report_file.close()
 
     original_cwd = os.getcwd()
     os.chdir(red_dir)
@@ -64,9 +66,11 @@ def extract_it_strings_js(red_dir, file_path) -> list[str]:
 
 def extract_it_strings_py(file_path) -> list[str]:
     specs = []
-    # Use delete=False to avoid permission issues on Windows
+    # Use delete=False to avoid permission issues on Windows, and close the handle before pytest
+    # runs: Windows will not let it open a file this process still holds.
     with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.json') as report_file:
         report_file_path = report_file.name
+        report_file.close()
 
     output_capture = io.StringIO()
     with contextlib.redirect_stdout(output_capture), contextlib.redirect_stderr(output_capture):

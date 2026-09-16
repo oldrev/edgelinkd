@@ -1,5 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use serde::{Deserialize, Deserializer};
@@ -47,8 +48,11 @@ where
 struct DelayNode {
     base: BaseFlowNodeState,
     config: DelayNodeConfig,
-    // For delay modes: track timers
-    delay_timers: Mutex<Vec<tokio::task::JoinHandle<()>>>,
+    // For delay/delayv/random modes: the messages currently waiting for their own timer.
+    // Node-RED gives every message its own `setTimeout`, so a slow message never holds back
+    // the ones behind it, and `flush`/`reset` can reach the timers that are still pending.
+    pending_delays: Mutex<Vec<PendingDelay>>,
+    next_delay_id: AtomicU64,
     // For rate limiting: use simplified approach
     last_sent: Mutex<Option<std::time::Instant>>,
     // For queue/timed modes: track message queues by topic
@@ -68,6 +72,18 @@ struct DelayNode {
 struct MsgInfo {
     msg: MsgHandle,
     envelope: Envelope,
+}
+
+/// One message waiting for its own delay timer.
+///
+/// `interrupt` is cancelled when the pending message is dropped (`reset`) or when `flush`
+/// takes the message over and sends it right away, which is how the sleeping task is
+/// stopped without a `setTimeout` handle to clear.
+#[derive(Debug)]
+struct PendingDelay {
+    id: u64,
+    msg: MsgHandle,
+    interrupt: CancellationToken,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
@@ -274,7 +290,8 @@ impl DelayNode {
         let node = DelayNode {
             base,
             config: config.clone(),
-            delay_timers: Mutex::new(Vec::new()),
+            pending_delays: Mutex::new(Vec::new()),
+            next_delay_id: AtomicU64::new(1),
             last_sent: Mutex::new(None),
             topic_queues: Mutex::new(HashMap::new()),
             queue_timer: Mutex::new(None),
@@ -287,341 +304,305 @@ impl DelayNode {
         Ok(Box::new(node))
     }
 
-    async fn handle_delay_mode(&self, msg: MsgHandle, cancel: CancellationToken) -> crate::Result<()> {
-        let (is_reset, is_flush, flush_count, msg_timeout) = {
-            let msg_guard = msg.read().await;
-            let is_reset = msg_guard.contains("reset");
-            let is_flush = msg_guard.contains("flush");
-            let flush_count = if is_flush {
-                msg_guard.get("flush").and_then(|v| v.as_number()).map(|n| n.as_u64().unwrap_or(0) as usize)
-            } else {
-                None
-            };
-            let timeout = if self.config.allow_rate {
-                msg_guard.get("timeout").and_then(|v| v.as_number()).map(|n| n.as_f64().unwrap_or(self.config.timeout))
-            } else {
-                None
-            };
-            (is_reset, is_flush, flush_count, timeout)
+    /// Read the control flags Node-RED looks at on every message.
+    ///
+    /// `is_data` mirrors upstream's `Object.keys(cloneMessage(msg) - flush).length > 1`: a
+    /// message that carries nothing but `flush` is a control message, not payload. Node-RED
+    /// always has `_msgid` on the message, so "payload or anything else besides `flush`" is
+    /// the equivalent test here.
+    async fn control_flags(msg: &MsgHandle) -> (bool, bool, Option<usize>, bool) {
+        let msg_guard = msg.read().await;
+        let obj = msg_guard.as_variant_object();
+        let is_reset = obj.contains_key("reset");
+        let is_flush = obj.contains_key("flush");
+        let flush_count = if is_flush {
+            obj.get("flush").and_then(|v| v.as_number()).map(|n| n.as_u64().unwrap_or(0) as usize)
+        } else {
+            None
         };
+        let is_data = obj.keys().any(|k| k.as_str() != "flush");
+        (is_reset, is_flush, flush_count, is_data)
+    }
+
+    /// Hand a message to its own delay timer, exactly like upstream's `ourTimeout`.
+    ///
+    /// The unit of work returns immediately, so the message loop keeps consuming while the
+    /// message is still waiting; that is what lets `flush`/`reset` reach it.
+    async fn schedule_delayed(self: &Arc<Self>, msg: MsgHandle, delay: Duration, cancel: CancellationToken) {
+        let id = self.next_delay_id.fetch_add(1, Ordering::Relaxed);
+        let interrupt = cancel.child_token();
+        {
+            let mut pending = self.pending_delays.lock().await;
+            pending.push(PendingDelay { id, msg: msg.clone(), interrupt: interrupt.clone() });
+        }
+
+        let this = Arc::clone(self);
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = interrupt.cancelled() => return,
+                _ = tokio::time::sleep(delay) => {}
+            }
+            // Whoever removes the entry from the pending list owns the message: a concurrent
+            // `flush` may have taken it over while this task was sleeping.
+            if this.take_pending_delay(id).await {
+                let _ = this.fan_out_one(Envelope { port: 0, msg }, interrupt).await;
+            }
+        });
+    }
+
+    /// Claim a pending message for this task; false when somebody else already took it.
+    async fn take_pending_delay(&self, id: u64) -> bool {
+        let mut pending = self.pending_delays.lock().await;
+        match pending.iter().position(|entry| entry.id == id) {
+            Some(pos) => {
+                pending.remove(pos);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// `reset`: drop every pending delay without sending anything.
+    async fn clear_pending_delays(&self) {
+        let entries: Vec<PendingDelay> = {
+            let mut pending = self.pending_delays.lock().await;
+            pending.drain(..).collect()
+        };
+        for entry in entries {
+            entry.interrupt.cancel();
+        }
+    }
+
+    /// `flush`: send up to `count` (all of them when `None`) pending messages right now.
+    async fn flush_pending_delays(
+        self: &Arc<Self>,
+        count: Option<usize>,
+        cancel: CancellationToken,
+    ) -> crate::Result<()> {
+        let entries: Vec<PendingDelay> = {
+            let mut pending = self.pending_delays.lock().await;
+            let n = count.unwrap_or(pending.len()).min(pending.len());
+            pending.drain(..n).collect()
+        };
+        for entry in entries {
+            // Stop the sleeping task first: this function owns the message now.
+            entry.interrupt.cancel();
+            self.fan_out_one(Envelope { port: 0, msg: entry.msg }, cancel.clone()).await?;
+        }
+        Ok(())
+    }
+
+    /// Apply the `flush`/`reset` control messages the delay-like modes share.
+    async fn handle_delay_controls(
+        self: &Arc<Self>,
+        is_reset: bool,
+        is_flush: bool,
+        flush_count: Option<usize>,
+        cancel: CancellationToken,
+    ) -> crate::Result<()> {
+        if is_reset {
+            // Upstream checks `reset` before `flush` in the delay-like modes.
+            self.clear_pending_delays().await;
+        } else if is_flush {
+            self.flush_pending_delays(flush_count, cancel).await?;
+        }
+        Ok(())
+    }
+
+    async fn handle_delay_mode(self: &Arc<Self>, msg: MsgHandle, cancel: CancellationToken) -> crate::Result<()> {
+        let (is_reset, is_flush, flush_count, is_data) = Self::control_flags(&msg).await;
 
         // Handle dynamic timeout change
-        if let Some(new_timeout) = msg_timeout {
-            self.update_timeout(new_timeout).await;
-        }
-
-        // Handle reset command - clear all pending timers
-        if is_reset {
-            let mut timers = self.delay_timers.lock().await;
-            for timer in timers.drain(..) {
-                timer.abort();
-            }
-            // Reset timeout to config default
-            self.update_timeout(self.config.timeout).await;
-            return Ok(());
-        }
-
-        // Handle flush command - trigger pending timers immediately
-        if is_flush {
-            let mut timers = self.delay_timers.lock().await;
-            let mut count = flush_count.unwrap_or(usize::MAX);
-
-            while count > 0 && !timers.is_empty() {
-                if let Some(timer) = timers.pop() {
-                    timer.abort(); // This will cause the timer task to complete immediately
-                    count -= 1;
-                }
-            }
-            return Ok(());
-        }
-
-        // For control messages with only flush/reset, don't delay them
-        let is_control_only = {
-            let msg_guard = msg.read().await;
-            let obj = msg_guard.as_variant_object();
-            let keys: Vec<_> = obj.keys().collect();
-            keys.len() == 2 && (keys.contains(&&"flush".to_string()) || keys.contains(&&"reset".to_string()))
-        };
-
-        if is_control_only {
-            return Ok(()); // Don't forward control-only messages
-        }
-
-        // Normal delay processing - use current dynamic timeout
-        let timeout = self.get_current_timeout_duration().await;
-
-        tokio::select! {
-            _ = cancel.cancelled() => {
-                // Cancelled, don't send
-                Err(crate::EdgelinkError::TaskCancelled.into())
-            }
-            _ = tokio::time::sleep(timeout) => {
-                // Send the message after delay
-                self.fan_out_one(Envelope { port: 0, msg }, cancel).await
+        if self.config.allow_rate {
+            let msg_timeout = msg
+                .read()
+                .await
+                .get("timeout")
+                .and_then(|v| v.as_number())
+                .map(|n| n.as_f64().unwrap_or(self.config.timeout));
+            if let Some(new_timeout) = msg_timeout {
+                self.update_timeout(new_timeout).await;
             }
         }
+
+        // Every message gets its own timer, so the delay does not serialize the message
+        // stream and `flush`/`reset` can still reach the timers that are pending.
+        if is_data {
+            let timeout = self.get_current_timeout_duration().await;
+            self.schedule_delayed(msg, timeout, cancel.clone()).await;
+        }
+
+        self.handle_delay_controls(is_reset, is_flush, flush_count, cancel).await
     }
 
-    async fn handle_delay_variable_mode(&self, msg: MsgHandle, cancel: CancellationToken) -> crate::Result<()> {
-        let (delay_value, is_reset, is_flush, flush_count) = {
-            let msg_guard = msg.read().await;
-            let is_reset = msg_guard.contains("reset");
-            let is_flush = msg_guard.contains("flush");
-            let flush_count = if is_flush {
-                msg_guard.get("flush").and_then(|v| v.as_number()).map(|n| n.as_u64().unwrap_or(0) as usize)
-            } else {
-                None
-            };
+    async fn handle_delay_variable_mode(
+        self: &Arc<Self>,
+        msg: MsgHandle,
+        cancel: CancellationToken,
+    ) -> crate::Result<()> {
+        let (is_reset, is_flush, flush_count, is_data) = Self::control_flags(&msg).await;
 
-            // Get delay from message or use default
-            let delay_val = if is_reset || is_flush {
-                0.0 // Control messages don't have delay
-            } else {
-                msg_guard
-                    .get("delay")
-                    .and_then(|v| v.as_number())
-                    .map(|n| n.as_f64().unwrap_or(self.config.timeout))
-                    .unwrap_or(self.config.timeout)
-            };
-
-            (delay_val, is_reset, is_flush, flush_count)
+        // `msg.delay` is in milliseconds (upstream passes it straight to `setTimeout`), while
+        // the configured `timeout` is in `timeoutUnits` and defaults to seconds.
+        let msg_delay = msg.read().await.get("delay").and_then(|v| v.as_number()).map(|n| n.as_f64().unwrap_or(0.0));
+        let timeout = match msg_delay {
+            // A negative delay means "send immediately", not "delay by a negative amount".
+            Some(delay) => Duration::from_millis(delay.max(0.0) as u64),
+            None => self.get_current_timeout_duration().await,
         };
 
-        // Handle reset command
-        if is_reset {
-            let mut timers = self.delay_timers.lock().await;
-            for timer in timers.drain(..) {
-                timer.abort();
-            }
-            return Ok(());
+        if is_data {
+            self.schedule_delayed(msg, timeout, cancel.clone()).await;
         }
 
-        // Handle flush command
-        if is_flush {
-            let mut timers = self.delay_timers.lock().await;
-            let mut count = flush_count.unwrap_or(usize::MAX);
-
-            while count > 0 && !timers.is_empty() {
-                if let Some(timer) = timers.pop() {
-                    timer.abort();
-                    count -= 1;
-                }
-            }
-            return Ok(());
-        }
-
-        // For control messages with only flush/reset, don't delay them
-        let is_control_only = {
-            let msg_guard = msg.read().await;
-            let obj = msg_guard.as_variant_object();
-            let keys: Vec<_> = obj.keys().collect();
-            keys.len() == 2 && (keys.contains(&&"flush".to_string()) || keys.contains(&&"reset".to_string()))
-        };
-
-        if is_control_only {
-            return Ok(());
-        }
-
-        if delay_value < 0.0 {
-            // Send immediately if delay is negative
-            return self.fan_out_one(Envelope { port: 0, msg }, cancel).await;
-        }
-
-        let timeout = Duration::from_millis((delay_value * 1000.0) as u64);
-
-        tokio::select! {
-            _ = cancel.cancelled() => {
-                Err(crate::EdgelinkError::TaskCancelled.into())
-            }
-            _ = tokio::time::sleep(timeout) => {
-                self.fan_out_one(Envelope { port: 0, msg }, cancel).await
-            }
-        }
+        self.handle_delay_controls(is_reset, is_flush, flush_count, cancel).await
     }
 
-    async fn handle_random_mode(&self, msg: MsgHandle, cancel: CancellationToken) -> crate::Result<()> {
-        let (is_reset, is_flush, flush_count) = {
-            let msg_guard = msg.read().await;
-            let is_reset = msg_guard.contains("reset");
-            let is_flush = msg_guard.contains("flush");
-            let flush_count = if is_flush {
-                msg_guard.get("flush").and_then(|v| v.as_number()).map(|n| n.as_u64().unwrap_or(0) as usize)
-            } else {
-                None
-            };
-            (is_reset, is_flush, flush_count)
-        };
+    async fn handle_random_mode(self: &Arc<Self>, msg: MsgHandle, cancel: CancellationToken) -> crate::Result<()> {
+        let (is_reset, is_flush, flush_count, is_data) = Self::control_flags(&msg).await;
 
-        // Handle reset command
-        if is_reset {
-            let mut timers = self.delay_timers.lock().await;
-            for timer in timers.drain(..) {
-                timer.abort();
-            }
-            return Ok(());
+        if is_data {
+            let timeout = self.config.random_duration();
+            self.schedule_delayed(msg, timeout, cancel.clone()).await;
         }
 
-        // Handle flush command
-        if is_flush {
-            let mut timers = self.delay_timers.lock().await;
-            let mut count = flush_count.unwrap_or(usize::MAX);
-
-            while count > 0 && !timers.is_empty() {
-                if let Some(timer) = timers.pop() {
-                    timer.abort();
-                    count -= 1;
-                }
-            }
-            return Ok(());
-        }
-
-        // For control messages with only flush/reset, don't delay them
-        let is_control_only = {
-            let msg_guard = msg.read().await;
-            let obj = msg_guard.as_variant_object();
-            let keys: Vec<_> = obj.keys().collect();
-            keys.len() == 2 && (keys.contains(&&"flush".to_string()) || keys.contains(&&"reset".to_string()))
-        };
-
-        if is_control_only {
-            return Ok(());
-        }
-
-        let timeout = self.config.random_duration();
-
-        tokio::select! {
-            _ = cancel.cancelled() => {
-                Err(crate::EdgelinkError::TaskCancelled.into())
-            }
-            _ = tokio::time::sleep(timeout) => {
-                self.fan_out_one(Envelope { port: 0, msg }, cancel).await
-            }
-        }
+        self.handle_delay_controls(is_reset, is_flush, flush_count, cancel).await
     }
 
-    async fn handle_rate_mode(self: Arc<Self>, msg: MsgHandle, cancel: CancellationToken) -> crate::Result<()> {
+    async fn handle_rate_mode(self: &Arc<Self>, msg: MsgHandle, cancel: CancellationToken) -> crate::Result<()> {
         // Check for control messages and dynamic rate changes
-        let (is_reset, is_flush, flush_count, msg_rate, _topic) = {
-            let msg_guard = msg.read().await;
-            let is_reset = msg_guard.contains("reset");
-            let is_flush = msg_guard.contains("flush");
-            let flush_count = if is_flush {
-                msg_guard.get("flush").and_then(|v| v.as_number()).map(|n| n.as_u64().unwrap_or(0) as usize)
-            } else {
-                None
-            };
-            let rate = if self.config.allow_rate {
-                msg_guard.get("rate").and_then(|v| v.as_number()).map(|n| n.as_f64().unwrap_or(self.config.rate))
-            } else {
-                None
-            };
-            let topic = msg_guard.get("topic").and_then(|v| v.as_str()).unwrap_or("_none_").to_string();
-            (is_reset, is_flush, flush_count, rate, topic)
+        let (is_reset, is_flush, flush_count, is_data) = Self::control_flags(&msg).await;
+        let msg_rate = if self.config.allow_rate {
+            msg.read().await.get("rate").and_then(|v| v.as_number()).map(|n| n.as_f64().unwrap_or(self.config.rate))
+        } else {
+            None
         };
 
-        // Handle dynamic rate change
-        if let Some(new_rate) = msg_rate {
-            let current_rate = *self.current_rate.lock().await;
-            if (new_rate - current_rate).abs() > f64::EPSILON {
-                // Rate has changed, update it and restart timer if needed
+        if self.config.drop {
+            // Drop mode: a dynamic rate simply replaces the current one, and `flush` is
+            // ignored entirely (upstream has no flush handling on this path).
+            if let Some(new_rate) = msg_rate {
                 self.update_rate(new_rate).await;
+            }
 
-                // If rate timer is running, restart it with new interval
-                let mut timer_guard = self.rate_timer.lock().await;
-                if let Some(handle) = timer_guard.take() {
-                    handle.abort();
-                    drop(timer_guard);
-                    // Timer will be restarted when needed with new rate
+            if is_data && !is_reset {
+                let mut last_sent = self.last_sent.lock().await;
+                let now = std::time::Instant::now();
+                let current_interval = self.get_current_rate_interval().await;
+
+                let can_send = if let Some(last_time) = *last_sent {
+                    now.duration_since(last_time) >= current_interval
+                } else {
+                    true // First message can always be sent
+                };
+
+                if can_send {
+                    *last_sent = Some(now);
+                    drop(last_sent);
+                    self.fan_out_one(Envelope { port: 0, msg }, cancel.clone()).await?;
+                } else if self.config.outputs >= 2 {
+                    // Send to second output (dropped messages)
+                    self.fan_out_one(Envelope { port: 1, msg }, cancel.clone()).await?;
+                }
+            }
+        } else {
+            // Queue mode. Upstream sends the very first message straight through and only
+            // then starts the interval, so the rate limit never delays the head of a burst.
+            let timer_running = self.rate_timer.lock().await.is_some();
+
+            if is_data && !is_reset {
+                if timer_running {
+                    {
+                        let mut buffer = self.rate_buffer.lock().await;
+                        if buffer.len() >= self.config.max_queue_length {
+                            // Remove oldest message if buffer is full
+                            buffer.pop_front();
+                        }
+                        buffer.push_back(MsgInfo { msg: msg.clone(), envelope: Envelope { port: 0, msg } });
+                    }
+
+                    // A rate change restarts the running interval with the new spacing but
+                    // keeps the message queued behind the ones already waiting.
+                    if let Some(new_rate) = msg_rate {
+                        let current_rate = *self.current_rate.lock().await;
+                        if (new_rate - current_rate).abs() > f64::EPSILON {
+                            self.update_rate(new_rate).await;
+                            let mut timer = self.rate_timer.lock().await;
+                            if let Some(handle) = timer.take() {
+                                handle.abort();
+                            }
+                        }
+                    }
+                    self.ensure_rate_timer_running(cancel.clone()).await?;
+                } else {
+                    if let Some(new_rate) = msg_rate {
+                        self.update_rate(new_rate).await;
+                    }
+                    self.fan_out_one(Envelope { port: 0, msg }, cancel.clone()).await?;
+                    self.ensure_rate_timer_running(cancel.clone()).await?;
+                }
+            }
+
+            // Handle flush command: send the requested number of buffered messages right away
+            // and restart the interval, as upstream's `setInterval` reset does.
+            if is_flush {
+                let (flushed, remaining) = {
+                    let mut buffer = self.rate_buffer.lock().await;
+                    let mut count = flush_count.unwrap_or(usize::MAX);
+                    let mut flushed = Vec::new();
+                    while count > 0 && !buffer.is_empty() {
+                        if let Some(msg_info) = buffer.pop_front() {
+                            flushed.push(msg_info);
+                            count -= 1;
+                        }
+                    }
+                    (flushed, buffer.len())
+                };
+
+                {
+                    let mut timer = self.rate_timer.lock().await;
+                    if let Some(handle) = timer.take() {
+                        handle.abort();
+                    }
+                }
+
+                for msg_info in flushed {
+                    if let Err(e) = self.fan_out_one(msg_info.envelope, cancel.clone()).await {
+                        log::error!("Failed to send flushed message: {e}");
+                    }
+                }
+
+                if remaining > 0 {
+                    self.ensure_rate_timer_running(cancel.clone()).await?;
                 }
             }
         }
 
-        // Handle reset command
+        // Handle reset command. Upstream runs it after the flush handling and keeps the newly
+        // started interval when the same message also carried a flush.
         if is_reset {
-            let mut last_sent = self.last_sent.lock().await;
-            *last_sent = None;
+            if !is_flush {
+                let mut last_sent = self.last_sent.lock().await;
+                *last_sent = None;
+            }
 
-            let mut buffer = self.rate_buffer.lock().await;
-            buffer.clear();
+            {
+                let mut buffer = self.rate_buffer.lock().await;
+                buffer.clear();
+            }
 
             // Stop rate timer
-            let mut timer = self.rate_timer.lock().await;
-            if let Some(handle) = timer.take() {
-                handle.abort();
+            {
+                let mut timer = self.rate_timer.lock().await;
+                if let Some(handle) = timer.take() {
+                    handle.abort();
+                }
             }
 
             // Reset rate to config default
             self.update_rate(self.config.rate).await;
-            return Ok(());
         }
-
-        // Handle flush command
-        if is_flush {
-            let mut buffer = self.rate_buffer.lock().await;
-            let mut count = flush_count.unwrap_or(usize::MAX);
-
-            while count > 0 && !buffer.is_empty() {
-                if let Some(msg_info) = buffer.pop_front() {
-                    // Send the message immediately
-                    if let Err(e) = self.fan_out_one(msg_info.envelope, cancel.clone()).await {
-                        log::error!("Failed to send flushed message: {e}");
-                    }
-                    count -= 1;
-                }
-            }
-            return Ok(());
-        }
-
-        // For control messages with only flush/reset, don't process them as data
-        let is_control_only = {
-            let msg_guard = msg.read().await;
-            let obj = msg_guard.as_variant_object();
-            let keys: Vec<_> = obj.keys().collect();
-            keys.len() == 2 && (keys.contains(&&"flush".to_string()) || keys.contains(&&"reset".to_string()))
-        };
-
-        if is_control_only {
-            return Ok(());
-        }
-
-        if self.config.drop {
-            // Drop mode: check if we can send immediately using current rate
-            let mut last_sent = self.last_sent.lock().await;
-            let now = std::time::Instant::now();
-            let current_interval = self.get_current_rate_interval().await;
-
-            let can_send = if let Some(last_time) = *last_sent {
-                now.duration_since(last_time) >= current_interval
-            } else {
-                true // First message can always be sent
-            };
-
-            if can_send {
-                *last_sent = Some(now);
-                drop(last_sent);
-                self.fan_out_one(Envelope { port: 0, msg }, cancel).await
-            } else if self.config.outputs >= 2 {
-                // Send to second output (dropped messages)
-                self.fan_out_one(Envelope { port: 1, msg }, cancel).await
-            } else {
-                // Just drop the message
-                Ok(())
-            }
-        } else {
-            // Queue mode: add to buffer and ensure timer is running
-            {
-                let mut buffer = self.rate_buffer.lock().await;
-                if buffer.len() >= self.config.max_queue_length {
-                    // Remove oldest message if buffer is full
-                    buffer.pop_front();
-                }
-                buffer.push_back(MsgInfo { msg: msg.clone(), envelope: Envelope { port: 0, msg } });
-            }
-
-            // Ensure rate timer is running
-            self.ensure_rate_timer_running(cancel).await?;
-            Ok(())
-        }
+        Ok(())
     }
 
     async fn handle_queue_and_timed_modes(
@@ -828,7 +809,7 @@ impl DelayNode {
         Ok(())
     }
 
-    async fn ensure_rate_timer_running(self: Arc<Self>, cancel: CancellationToken) -> crate::Result<()> {
+    async fn ensure_rate_timer_running(self: &Arc<Self>, cancel: CancellationToken) -> crate::Result<()> {
         let mut timer_guard = self.rate_timer.lock().await;
         if timer_guard.is_some() {
             // Timer already running
@@ -836,7 +817,7 @@ impl DelayNode {
         }
 
         let interval = self.get_current_rate_interval().await;
-        let this = Arc::clone(&self);
+        let this = Arc::clone(self);
         let cancel_token = cancel.child_token();
 
         let handle = tokio::spawn(async move {
@@ -912,9 +893,9 @@ impl FlowNodeBehavior for DelayNode {
                 let arc_self = Arc::clone(&arc_self);
                 async move {
                     match node.config.pause_type {
-                        DelayPauseType::Delay => node.handle_delay_mode(msg, cancel).await,
-                        DelayPauseType::DelayVariable => node.handle_delay_variable_mode(msg, cancel).await,
-                        DelayPauseType::Random => node.handle_random_mode(msg, cancel).await,
+                        DelayPauseType::Delay => arc_self.handle_delay_mode(msg, cancel).await,
+                        DelayPauseType::DelayVariable => arc_self.handle_delay_variable_mode(msg, cancel).await,
+                        DelayPauseType::Random => arc_self.handle_random_mode(msg, cancel).await,
                         DelayPauseType::Rate => arc_self.handle_rate_mode(msg, cancel).await,
                         DelayPauseType::Queue | DelayPauseType::Timed => {
                             arc_self.handle_queue_and_timed_modes(msg, cancel).await

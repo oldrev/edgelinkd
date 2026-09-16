@@ -243,11 +243,14 @@ class TestTcpRequest:
             node = {
                 "type": "tcp request", "server": "localhost", "port": str(port), "out": "sit", "splitc": "5"
             }
-            # Node-RED default queue size is 10
+            # Upstream sets `tcpMsgQueueSize = 10` (its default is 1000) and injects one message
+            # more than the queue holds: the oldest request is dropped, so the server sees ten.
             queue_size = 10
+            config = copy.deepcopy(TEST_EDGELINLKD_CONFIG)
+            config["runtime"]["flow"] = {"tcp_msg_queue_size": queue_size}
             injections = [{"payload": "x"} for _ in range(queue_size + 1)]
             expected = "ACK:" + "x" * queue_size
-            msgs = await run_single_node_with_msgs_ntimes(node, injections, 1)
+            msgs = await run_single_node_with_msgs_ntimes(node, injections, 1, "1", 3, config)
             assert msgs[0]["payload"] == expected
             server.close()
             await server.wait_closed()

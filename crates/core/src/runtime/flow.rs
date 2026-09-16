@@ -37,10 +37,20 @@ pub struct FlowSettings {
     /// applies to the nodes operating on sequences (switch, delay, split, sort, batch).
     #[serde(default)]
     pub node_message_buffer_max_length: usize,
+
+    /// How many messages the TCP nodes may queue while a connection is busy. This is Node-RED's
+    /// `tcpMsgQueueSize` settings.js property; when the queue is full the oldest message is
+    /// dropped, as upstream's `enqueue` does.
+    #[serde(default = "default_tcp_msg_queue_size")]
+    pub tcp_msg_queue_size: usize,
 }
 
 fn default_node_msg_queue_capacity() -> usize {
     16
+}
+
+fn default_tcp_msg_queue_size() -> usize {
+    1000
 }
 
 impl FlowSettings {
@@ -68,7 +78,11 @@ impl FlowSettings {
 
 impl Default for FlowSettings {
     fn default() -> Self {
-        Self { node_msg_queue_capacity: default_node_msg_queue_capacity(), node_message_buffer_max_length: 0 }
+        Self {
+            node_msg_queue_capacity: default_node_msg_queue_capacity(),
+            node_message_buffer_max_length: 0,
+            tcp_msg_queue_size: default_tcp_msg_queue_size(),
+        }
     }
 }
 

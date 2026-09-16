@@ -13,10 +13,10 @@ use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
-use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
 use crate::runtime::flow::Flow;
+use crate::runtime::model::VariantObjectMap;
 use crate::runtime::nodes::*;
 
 fn deser_bool_from_string<'de, D>(deserializer: D) -> Result<bool, D::Error>
@@ -166,18 +166,13 @@ impl Default for ExecNodeConfig {
 }
 
 #[derive(Debug)]
-struct ActiveProcess {
-    child: Child,
-    #[allow(dead_code)]
-    command: String,
-}
-
-#[derive(Debug)]
 #[flow_node("exec", red_name = "exec")]
 pub struct ExecNode {
     base: BaseFlowNodeState,
     config: ExecNodeConfig,
-    active_processes: Arc<Mutex<HashMap<u32, ActiveProcess>>>,
+    /// The running children, keyed by pid: the value is the channel a `kill` message (or the
+    /// `timer`) uses to tell the waiting task which signal stopped the process.
+    active_processes: Arc<Mutex<HashMap<u32, tokio::sync::oneshot::Sender<String>>>>,
 }
 
 impl ExecNode {
@@ -220,6 +215,27 @@ impl ExecNode {
         cmd
     }
 
+    /// Publish `rc` the way Node-RED does: the object form by default, the bare exit code
+    /// when the node was configured with `oldrc`.
+    fn rc_payload(&self, code: Option<i32>, signal: Option<&str>) -> Variant {
+        if self.config.oldrc {
+            return Variant::Number(serde_json::Number::from(code.unwrap_or(-1)));
+        }
+        let mut payload = VariantObjectMap::new();
+        payload.insert(
+            "code".to_string(),
+            match code {
+                Some(code) => Variant::Number(serde_json::Number::from(code)),
+                // Node-RED reports `null` for a process it had to kill.
+                None => Variant::Null,
+            },
+        );
+        if let Some(signal) = signal {
+            payload.insert("signal".to_string(), Variant::String(signal.to_string()));
+        }
+        Variant::Object(payload)
+    }
+
     /// Helper: clone并设置payload，发送到指定端口
     async fn send_output(
         &self,
@@ -227,12 +243,79 @@ impl ExecNode {
         msg: &MsgHandle,
         port: usize,
         payload: Variant,
+        rc: Option<Variant>,
         cancel: &CancellationToken,
     ) {
         let mut new_msg = msg.read().await.clone();
         new_msg.set("payload".to_string(), payload);
+        // Node-RED puts the return code on the stdout/stderr messages as well as on its own
+        // output, so a flow does not have to wire the third port to see how the command ended.
+        if let Some(rc) = rc {
+            new_msg.set("rc".to_string(), rc);
+        }
         let env = Envelope { port, msg: MsgHandle::new(new_msg) };
         let _ = node.fan_out_one(env, cancel.child_token()).await;
+    }
+
+    /// Register a freshly spawned child so a `kill` message can reach it.
+    async fn register_process(&self, child: &Child) -> Option<tokio::sync::oneshot::Receiver<String>> {
+        let pid = child.id()?;
+        let (kill_tx, kill_rx) = tokio::sync::oneshot::channel();
+        self.active_processes.lock().await.insert(pid, kill_tx);
+        Some(kill_rx)
+    }
+
+    async fn unregister_process(&self, pid: Option<u32>) {
+        if let Some(pid) = pid {
+            self.active_processes.lock().await.remove(&pid);
+        }
+    }
+
+    /// Wait for the child to exit, unless `kill` or the node's `timer` stops it first.
+    ///
+    /// Returns the exit code and, when this node stopped the process itself, the signal it
+    /// reported to Node-RED (`SIGTERM` for both the timer and a bare `kill` message).
+    async fn wait_for_child(
+        &self,
+        child: &mut Child,
+        kill_rx: Option<tokio::sync::oneshot::Receiver<String>>,
+        cancel: &CancellationToken,
+    ) -> crate::Result<(Option<i32>, Option<String>)> {
+        let timer = self.config.timer.filter(|timer| *timer > 0.0);
+        let timer_future = async move {
+            match timer {
+                Some(timer) => {
+                    tokio::time::sleep(Duration::from_secs_f64(timer)).await;
+                    "SIGTERM".to_string()
+                }
+                None => std::future::pending::<String>().await,
+            }
+        };
+        let kill_future = async move {
+            match kill_rx {
+                Some(kill_rx) => kill_rx.await.unwrap_or_else(|_| "SIGTERM".to_string()),
+                None => std::future::pending::<String>().await,
+            }
+        };
+
+        let (code, signal) = tokio::select! {
+            _ = cancel.cancelled() => {
+                let _ = child.kill().await;
+                return Err(crate::EdgelinkError::TaskCancelled.into());
+            }
+            status = child.wait() => (status?.code(), None),
+            signal = timer_future => {
+                let _ = child.kill().await;
+                let _ = child.wait().await;
+                (None, Some(signal))
+            }
+            signal = kill_future => {
+                let _ = child.kill().await;
+                let _ = child.wait().await;
+                (None, Some(signal))
+            }
+        };
+        Ok((code, signal))
     }
 
     /// Parse command string into parts for spawn mode
@@ -299,8 +382,19 @@ impl ExecNode {
                 command.creation_flags(0x08000000); // CREATE_NO_WINDOW
             }
         }
-        let mut child = command.spawn()?;
-        let _pid = child.id().unwrap_or(0);
+        let mut child = match command.spawn() {
+            Ok(child) => child,
+            Err(err) => {
+                // Node-RED still reports the failed spawn on the return-code output: uv's
+                // ENOENT is what `child.pid === undefined` turns into there.
+                log::error!("Failed to spawn '{program}': {err}");
+                let rc = self.rc_payload(Some(-2), None);
+                self.send_output(&node, &msg, 2, rc, None, &cancel).await;
+                return Ok(());
+            }
+        };
+        let pid = child.id();
+        let kill_rx = self.register_process(&child).await;
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
         // 直接等待输出并 fan-out
@@ -314,7 +408,9 @@ impl ExecNode {
                     if cancel_clone.is_cancelled() {
                         break;
                     }
-                    node_clone.send_output(&node_clone, &msg_clone, 0, Variant::String(line), &cancel_clone).await;
+                    node_clone
+                        .send_output(&node_clone, &msg_clone, 0, Variant::String(line), None, &cancel_clone)
+                        .await;
                 }
             }
         });
@@ -328,70 +424,20 @@ impl ExecNode {
                     if cancel_clone.is_cancelled() {
                         break;
                     }
-                    node_clone.send_output(&node_clone, &msg_clone, 1, Variant::String(line), &cancel_clone).await;
+                    node_clone
+                        .send_output(&node_clone, &msg_clone, 1, Variant::String(line), None, &cancel_clone)
+                        .await;
                 }
             }
         });
-        // 等待进程结束
-        let wait_future = child.wait();
-        let exit_status = if let Some(timer) = self.config.timer {
-            if timer > 0.0 {
-                let timeout_duration = Duration::from_secs_f64(timer);
-                match timeout(timeout_duration, wait_future).await {
-                    Ok(result) => result?,
-                    Err(_) => {
-                        let _ = child.kill().await;
-                        // 超时时发送 signal 信息到 rc 端口
-                        self.send_output(
-                            &node,
-                            &msg,
-                            2,
-                            Variant::Object({
-                                let mut m = std::collections::BTreeMap::new();
-                                m.insert("signal".to_string(), Variant::String("SIGTERM".to_string()));
-                                m
-                            }),
-                            &cancel,
-                        )
-                        .await;
-                        return Err(crate::EdgelinkError::Timeout.into());
-                    }
-                }
-            } else {
-                wait_future.await?
-            }
-        } else {
-            wait_future.await?
-        };
+        // 等待进程结束（`timer` 或者 `kill` 消息都可能提前终止它）
+        let (code, signal) = self.wait_for_child(&mut child, kill_rx, &cancel).await?;
+        self.unregister_process(pid).await;
         stdout_task.abort();
         stderr_task.abort();
         // rc 端口
-        if self.config.oldrc {
-            self.send_output(
-                &node,
-                &msg,
-                2,
-                Variant::Number(serde_json::Number::from(exit_status.code().unwrap_or(-1))),
-                &cancel,
-            )
-            .await;
-        } else {
-            self.send_output(
-                &node,
-                &msg,
-                2,
-                Variant::Object({
-                    let mut m = std::collections::BTreeMap::new();
-                    m.insert(
-                        "code".to_string(),
-                        Variant::Number(serde_json::Number::from(exit_status.code().unwrap_or(-1))),
-                    );
-                    m
-                }),
-                &cancel,
-            )
-            .await;
-        }
+        let rc = self.rc_payload(code, signal.as_deref());
+        self.send_output(&node, &msg, 2, rc, None, &cancel).await;
         Ok(())
     }
 
@@ -426,67 +472,107 @@ impl ExecNode {
             c.stderr(Stdio::piped());
             c
         };
-        let output = command.output().await?;
-        // stdout
-        if !output.stdout.is_empty() {
-            let s = String::from_utf8_lossy(&output.stdout).trim_end().to_string();
-            if !s.is_empty() {
-                self.send_output(&node, &msg, 0, Variant::String(s), &cancel).await;
+
+        let mut child = command.spawn()?;
+        let pid = child.id();
+        let kill_rx = self.register_process(&child).await;
+        // The pipes have to be drained while the child runs, otherwise a chatty command fills
+        // the pipe buffer and never exits.
+        let mut stdout_pipe = child.stdout.take();
+        let mut stderr_pipe = child.stderr.take();
+        let stdout_task = tokio::spawn(async move {
+            let mut buf = Vec::new();
+            if let Some(pipe) = stdout_pipe.as_mut() {
+                let _ = tokio::io::AsyncReadExt::read_to_end(pipe, &mut buf).await;
+            }
+            buf
+        });
+        let stderr_task = tokio::spawn(async move {
+            let mut buf = Vec::new();
+            if let Some(pipe) = stderr_pipe.as_mut() {
+                let _ = tokio::io::AsyncReadExt::read_to_end(pipe, &mut buf).await;
+            }
+            buf
+        });
+
+        let (code, signal) = self.wait_for_child(&mut child, kill_rx, &cancel).await?;
+        self.unregister_process(pid).await;
+
+        let stdout = stdout_task.await.unwrap_or_default();
+        let stderr = stderr_task.await.unwrap_or_default();
+        let rc = self.rc_payload(code, signal.as_deref());
+
+        // Node-RED always sends the stdout message in this mode - an empty payload included -
+        // and carries the return code on it.
+        let stdout_payload = Variant::String(String::from_utf8_lossy(&stdout).trim_end().to_string());
+        self.send_output(&node, &msg, 0, stdout_payload, Some(rc.clone()), &cancel).await;
+
+        if !stderr.is_empty() {
+            let stderr_payload = Variant::String(String::from_utf8_lossy(&stderr).trim_end().to_string());
+            if let Variant::String(text) = &stderr_payload
+                && !text.is_empty()
+            {
+                self.send_output(&node, &msg, 1, stderr_payload, Some(rc.clone()), &cancel).await;
             }
         }
-        // stderr
-        if !output.stderr.is_empty() {
-            let s = String::from_utf8_lossy(&output.stderr).trim_end().to_string();
-            if !s.is_empty() {
-                self.send_output(&node, &msg, 1, Variant::String(s), &cancel).await;
-            }
-        }
+
         // rc 端口
-        if self.config.oldrc {
-            self.send_output(
-                &node,
-                &msg,
-                2,
-                Variant::Number(serde_json::Number::from(output.status.code().unwrap_or(-1))),
-                &cancel,
-            )
-            .await;
-        } else {
-            self.send_output(
-                &node,
-                &msg,
-                2,
-                Variant::Object({
-                    let mut m = std::collections::BTreeMap::new();
-                    m.insert(
-                        "code".to_string(),
-                        Variant::Number(serde_json::Number::from(output.status.code().unwrap_or(-1))),
-                    );
-                    m
-                }),
-                &cancel,
-            )
-            .await;
-        }
+        self.send_output(&node, &msg, 2, rc, None, &cancel).await;
         Ok(())
     }
 
     /// Kill process by PID or kill all processes
-    async fn kill_process(&self, _kill_signal: &str, pid: Option<u32>) -> crate::Result<()> {
+    async fn kill_process(&self, kill_signal: &str, pid: Option<u32>) -> crate::Result<()> {
         let mut processes = self.active_processes.lock().await;
 
         if let Some(target_pid) = pid {
-            if let Some(mut active_process) = processes.remove(&target_pid) {
-                let _ = active_process.child.kill().await;
+            if let Some(kill_tx) = processes.remove(&target_pid) {
+                let _ = kill_tx.send(kill_signal.to_string());
+            } else {
+                log::warn!("No running process with pid {target_pid} to kill");
             }
         } else if processes.len() == 1 {
             // Kill the single process if only one is running
-            if let Some((_, mut active_process)) = processes.drain().next() {
-                let _ = active_process.child.kill().await;
+            if let Some((_, kill_tx)) = processes.drain().next() {
+                let _ = kill_tx.send(kill_signal.to_string());
             }
+        } else if processes.len() > 1 {
+            log::warn!("More than one process is running: a `kill` message without `msg.pid` is ignored");
         }
 
         Ok(())
+    }
+    /// Handle one incoming message: either stop a running process, or start a new one.
+    async fn handle_msg(self: &Arc<Self>, msg: MsgHandle, cancel: CancellationToken) -> crate::Result<()> {
+        let msg_guard = msg.read().await;
+
+        // Handle kill command
+        if let Some(kill_value) = msg_guard.get("kill") {
+            let kill_signal = match kill_value {
+                Variant::String(s) if s.to_uppercase().starts_with("SIG") => s.to_uppercase(),
+                _ => "SIGTERM".to_string(),
+            };
+
+            let pid = msg_guard.get("pid").and_then(|v| v.as_u64()).map(|n| n as u32);
+
+            drop(msg_guard);
+            return self.kill_process(&kill_signal, pid).await;
+        }
+
+        // Build command
+        let cmd = self.build_command(&msg_guard);
+        drop(msg_guard);
+
+        if cmd.trim().is_empty() {
+            return Err(crate::EdgelinkError::invalid_operation("Empty command"));
+        }
+
+        // Execute based on mode
+        if self.config.use_spawn {
+            self.execute_spawn(cmd, Arc::clone(self), msg, cancel).await
+        } else {
+            self.execute_simple(cmd, Arc::clone(self), msg, cancel).await
+        }
     }
 }
 
@@ -499,40 +585,39 @@ impl FlowNodeBehavior for ExecNode {
     async fn run(self: std::sync::Arc<Self>, stop_token: CancellationToken) {
         while !stop_token.is_cancelled() {
             let cancel = stop_token.clone();
-            let node_arc = self.clone();
-            with_uow(self.as_ref(), cancel.child_token(), |node, msg| async move {
-                let msg_guard = msg.read().await;
 
-                // Handle kill command
-                if let Some(kill_value) = msg_guard.get("kill") {
-                    let kill_signal = match kill_value {
-                        Variant::String(s) if s.to_uppercase().starts_with("SIG") => s.clone(),
-                        _ => "SIGTERM".to_string(),
-                    };
-
-                    let pid = msg_guard.get("pid").and_then(|v| v.as_u64()).map(|n| n as u32);
-
-                    drop(msg_guard);
-                    node.kill_process(&kill_signal, pid).await?;
-                    return Ok(());
+            // Every command runs in its own task, exactly like Node-RED's event-driven exec
+            // node: the message loop has to stay free, or a `kill` message would sit in the
+            // queue until the very command it is meant to stop has already finished. The
+            // unit of work is completed when the process is (`notify_uow_completed`), which
+            // is also when Node-RED raises `done`.
+            let msg = match self.recv_msg(cancel.clone()).await {
+                Ok(msg) => msg,
+                Err(ref err) => {
+                    if let Some(EdgelinkError::TaskCancelled) = err.downcast_ref::<EdgelinkError>() {
+                        return;
+                    }
+                    log::warn!("[{}:{}] {}", self.type_str(), self.name(), err);
+                    continue;
                 }
+            };
 
-                // Build command
-                let cmd = node.build_command(&msg_guard);
-                drop(msg_guard);
-
-                if cmd.trim().is_empty() {
-                    return Err(crate::EdgelinkError::invalid_operation("Empty command"));
+            let node_arc = Arc::clone(&self);
+            let task_cancel = cancel.clone();
+            tokio::spawn(async move {
+                if let Err(err) = node_arc.handle_msg(msg.clone(), task_cancel.clone()).await
+                    && let Some(flow) = node_arc.flow()
+                {
+                    let error_message = err.to_string();
+                    if let Err(e) = flow
+                        .handle_error(node_arc.as_ref(), &error_message, Some(msg.clone()), None, task_cancel.clone())
+                        .await
+                    {
+                        log::error!("Failed to handle error: {e:?}");
+                    }
                 }
-
-                // Execute based on mode
-                if node.config.use_spawn {
-                    node.execute_spawn(cmd, node_arc.clone(), msg, cancel).await
-                } else {
-                    node.execute_simple(cmd, node_arc.clone(), msg, cancel).await
-                }
-            })
-            .await;
+                node_arc.notify_uow_completed(msg, task_cancel).await;
+            });
         }
     }
 }

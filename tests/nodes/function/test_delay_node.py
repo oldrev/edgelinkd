@@ -75,7 +75,12 @@ async def _drop_rate_limit_seconds_test(limit: int, nb_unit: int, runtime_in_mil
                                         rate_value=None, send_intermediate=False):
     """
     Runs a rate limit test with drop support - only testing seconds!
-    
+
+    Mirrors Node-RED's `dropRateLimitSECONDSTest`: the messages are spread across the runtime
+    window rather than injected as one burst (a burst is dropped as a whole, so it never
+    exercises the limiter), the flow is sampled for `runtime_in_millis`, and the messages that
+    did get through are checked for the gaps the drops leave behind.
+
     :param limit: the message limit count
     :param nb_unit: the multiple of the unit, limit Messages for nb_unit Seconds
     :param runtime_in_millis: when to terminate run and count messages received  
@@ -97,65 +102,67 @@ async def _drop_rate_limit_seconds_test(limit: int, nb_unit: int, runtime_in_mil
         "randomLast": "5",
         "randomUnits": "seconds",
         "drop": True,
-        "outputs": outputs
+        "outputs": outputs,
+        "wires": [["2"], ["4"]] if send_intermediate else [["2"]],
     }
 
-    # Calculate the expected rate interval in milliseconds (with small grace)
+    # Add a small grace to the calculated delay (upstream: 1000/aLimit + 10)
     rate_interval = 1000 / limit + 10
 
     # Calculate how many messages we might theoretically receive
-    possible_max_message_count = int(limit * (runtime_in_millis / 1000) + limit)
+    possible_max_message_count = int(math.ceil(limit * (runtime_in_millis / 1000) + limit))
 
-    # Prepare messages - send first immediately, then others with small delays
+    # Prepare messages - the first one goes immediately, the rest are spread over the window
     messages = []
-    messages.append({"payload": 0})
-    if rate_value is not None:
-        messages[0]["rate"] = rate_value
-
-    # Send additional messages with small delays to test dropping behavior
+    messages.append({"payload": 0, **(({"rate": rate_value}) if rate_value is not None else {})})
     for i in range(1, possible_max_message_count + 1):
-        messages.append({"payload": i})
+        messages.append({"payload": i, "delay_ms": 2 * ((rate_interval * i) / possible_max_message_count)})
 
-    # Add a final message near the end to test it gets through
-    messages.append({"payload": possible_max_message_count + 1})
+    # Add a final message near the end so that one more gets through
+    messages.append({"payload": possible_max_message_count + 1,
+                     "delay_ms": max(runtime_in_millis - 300, 0)})
 
-    start_time = time.time()
-    timeout_seconds = (runtime_in_millis + 500) / 1000
+    flows = [
+        {"id": "0", "type": "tab"},
+        {"id": "1", "z": "0", **node},
+        {"id": "2", "z": "0", "type": "test-once"},
+    ]
+    if send_intermediate:
+        # The dropped messages leave through the second output; tag them so the assertions
+        # below can tell the two streams apart (they arrive in the same result list).
+        flows.append({"id": "4", "z": "0", "type": "change", "name": "tagDropped", "reg": False,
+                      "rules": [{"t": "set", "p": "dropped", "pt": "msg", "to": "true", "tot": "bool"}],
+                      "wires": [["3"]]})
+        flows.append({"id": "3", "z": "0", "type": "test-once"})
 
-    msgs = await run_single_node_with_msgs_ntimes(
-        node,
-        messages,
-        len(messages),  # Don't limit, let the node decide what to drop
-        timeout=timeout_seconds
-    )
-    end_time = time.time()
-    elapsed = (end_time - start_time) * 1000  # Convert to milliseconds
+    msgs = await run_flow_for_seconds_scheduled(flows, messages, runtime_in_millis / 1000.0)
+    delivered = [m for m in msgs if not m.get("dropped")]
+    dropped = [m for m in msgs if m.get("dropped")]
 
     # Assertions based on Node-RED drop tests:
     # 1. Should receive fewer messages than sent (due to dropping)
-    assert len(msgs) < possible_max_message_count + 1, f"Should receive fewer than {possible_max_message_count + 1} messages due to dropping, got {len(msgs)}"
-    
+    assert len(delivered) < possible_max_message_count + 1, f"Should receive fewer than {possible_max_message_count + 1} messages due to dropping, got {len(delivered)}"
+
     # 2. Should receive more than just first and last message
-    assert len(msgs) > 2, f"Should receive more than just first and last message, got {len(msgs)}"
-    
+    assert len(delivered) > 2, f"Should receive more than just first and last message, got {len(delivered)}"
+
     # 3. First message should be payload 0 (immediate)
-    assert msgs[0]['payload'] == 0, f"First message should have payload 0, got {msgs[0]['payload']}"
-    
+    assert delivered[0]['payload'] == 0, f"First message should have payload 0, got {delivered[0]['payload']}"
+
     # 4. Should find at least one dropped message (gap in sequence)
     found_at_least_one_drop = False
-    for i in range(1, len(msgs)):
-        if msgs[i]['payload'] - msgs[i-1]['payload'] > 1:
+    for i in range(1, len(delivered)):
+        if delivered[i]['payload'] - delivered[i-1]['payload'] > 1:
             found_at_least_one_drop = True
             break
-    
+
     assert found_at_least_one_drop, "Should find at least one dropped message (gap in payload sequence)"
-    
-    # 5. Timing should respect rate limiting (with 10% tolerance)
-    if len(msgs) >= 2:
-        min_expected_interval = rate_interval * 0.9
-        # The total time should be reasonable for the number of messages received
-        expected_min_time = (len(msgs) - 1) * min_expected_interval
-        assert elapsed >= expected_min_time * 0.7, f"Elapsed time {elapsed}ms too short for {len(msgs)} rate-limited messages"
+
+    # 5. Dropped messages only reach the second output when the node has one
+    if send_intermediate:
+        assert len(dropped) > 0, "The dropped messages should be emitted on the 2nd output"
+    else:
+        assert len(dropped) == 0, "A node with a single output must not emit the dropped messages"
 
 
 @pytest.mark.describe('delay Node')
@@ -440,26 +447,33 @@ class TestDelayNode:
         assert len(msgs) >= 1
         assert 1.0 <= elapsed <= 2.5
 
+    # These samplers observe the flow for 4-5 seconds, so they need upstream's raised
+    # `this.timeout(6000)` equivalent rather than the suite-wide 5s budget.
+    @pytest.mark.timeout(10)
     @pytest.mark.asyncio
     @pytest.mark.it('limits the message rate to 1 per second, 4 seconds, with drop')
     async def test_0013(self):
         await _drop_rate_limit_seconds_test(1, 1, 4000, None)
 
+    @pytest.mark.timeout(10)
     @pytest.mark.asyncio
     @pytest.mark.it('limits the message rate to 1 per 2 seconds, 4 seconds, with drop')
     async def test_0014(self):
         await _drop_rate_limit_seconds_test(1, 2, 4500, None)
 
+    @pytest.mark.timeout(10)
     @pytest.mark.asyncio
     @pytest.mark.it('limits the message rate to 2 per second, 5 seconds, with drop')
     async def test_0015(self):
         await _drop_rate_limit_seconds_test(2, 1, 5000, None)
 
+    @pytest.mark.timeout(10)
     @pytest.mark.asyncio
     @pytest.mark.it('limits the message rate to 2 per second, 5 seconds, with drop, 2nd output')
     async def test_0016(self):
         await _drop_rate_limit_seconds_test(2, 1, 5000, None, True)
 
+    @pytest.mark.timeout(10)
     @pytest.mark.asyncio
     @pytest.mark.it('limits the message rate with drop using msg.rate')
     async def test_0017(self):
@@ -1434,18 +1448,23 @@ class TestDelayNode:
             "drop": True
         }
 
-        messages = [
-            {"payload": 1},
-            {"payload": 2}
+        # Upstream asserts on the `done` callback here, which the complete node surfaces:
+        # with `drop` the second message never reaches an output, yet it still completes the
+        # node straight away, exactly like the first one.
+        flows = [
+            {"id": "0", "type": "tab"},
+            {"id": "1", "z": "0", "type": "delay", **node, "wires": [[]]},
+            {"id": "3", "z": "0", "type": "complete", "scope": ["1"], "uncaught": False, "wires": [["2"]]},
+            {"id": "2", "z": "0", "type": "test-once"},
         ]
 
         start_time = time.time()
-        msgs = await run_single_node_with_msgs_ntimes(node, messages, 2, timeout=1.0)
+        msgs = await run_flow_with_msgs_ntimes(flows, [{"payload": 1}, {"payload": 2}], 2, "1", timeout=1.0)
         end_time = time.time()
 
-        # Both messages should go through immediately with drop=true
-        assert len(msgs) >= 1
-        assert (end_time - start_time) <= 1.0
+        # Both messages complete immediately, even though the rate limit drops the second one
+        assert [m["payload"] for m in msgs] == [1, 2]
+        assert (end_time - start_time) <= 0.5
 
     @pytest.mark.asyncio
     @pytest.mark.it('calls done when rated message is flushed')

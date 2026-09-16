@@ -321,12 +321,27 @@ async def run_flow_for_seconds(flows_obj: list[object], msgs: list[object] | Non
     extra `_arrival_ms` field: its arrival offset relative to the first output (so the first
     one is always 0.0), which is how upstream checks the spacing between messages.
     """
+    return await run_flow_for_seconds_scheduled(flows_obj, msgs, seconds, injectee_node_id)
+
+
+async def run_flow_for_seconds_scheduled(flows_obj: list[object], msgs: list[object] | None,
+                                         seconds: float, injectee_node_id: str = '1') -> list[object]:
+    """`run_flow_for_seconds`, but each message is delivered after its own delay.
+
+    A message is `{"nid": ..., "msg": ..., "delay_ms": ...}` to target a specific node; the
+    `delay_ms` key is optional and defaults to an immediate injection. Node-RED's drop-rate
+    specs space their injections out in the same way (`setTimeout` in
+    `dropRateLimitSECONDSTest`), because a rate limit that drops what arrives too soon can
+    only be exercised by a stream, never by a burst.
+    """
     msgs_to_inject = []
     for msg in msgs:
         if 'nid' in msg and 'msg' in msg:  # We got a raw injection
-            msg_injection = (msg['nid'], msg['msg'])
+            msg_injection = (msg['nid'], msg['msg'], msg.get('delay_ms', 0.0))
         else:
-            msg_injection = (injectee_node_id, msg)
+            # `delay_ms` schedules the injection; it is not part of the message itself
+            injected = {key: value for key, value in msg.items() if key != 'delay_ms'}
+            msg_injection = (injectee_node_id, injected, msg.get('delay_ms', 0.0))
         msgs_to_inject.append(msg_injection)
     return await edgelink.run_flows_for_once(seconds, flows_obj, msgs_to_inject, TEST_EDGELINLKD_CONFIG)
 
@@ -342,3 +357,16 @@ async def run_single_node_for_seconds(node_json: object, msgs: list[object] | No
     console_node = {"id": "2", "type": "test-once", "z": "0"}
     final_flows_json = [{"id": "0", "type": "tab"}, user_node, console_node]
     return await run_flow_for_seconds(final_flows_json, msgs, seconds, injectee_node_id)
+
+
+async def run_single_node_for_seconds_scheduled(node_json: object, msgs: list[object] | None,
+                                                seconds: float, injectee_node_id: str = '1') -> list[object]:
+    """Single-node variant of `run_flow_for_seconds_scheduled`."""
+    user_node = copy.deepcopy(node_json)
+    user_node["id"] = "1"
+    user_node["z"] = "0"
+    if 'wires' not in node_json:
+        user_node["wires"] = [["2"]]
+    console_node = {"id": "2", "type": "test-once", "z": "0"}
+    final_flows_json = [{"id": "0", "type": "tab"}, user_node, console_node]
+    return await run_flow_for_seconds_scheduled(final_flows_json, msgs, seconds, injectee_node_id)

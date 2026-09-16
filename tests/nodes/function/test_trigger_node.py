@@ -323,13 +323,15 @@ class TestTriggerNode:
             "type": "trigger", "name": "triggerNode", "op2type": "nul",
             "op1": "true", "op1type": "val", "op2": "false", "duration": "100"
         }
+        # Upstream emits the messages 50ms/200ms/250ms in, so the second "pass" arrives after
+        # the 100ms window of the first one has expired and "should-block" never does.
         injections = [
             {"payload": 1, "topic": "pass"},
-            {"payload": 2, "topic": "should-block"},  # Should be blocked
-            {"payload": 3, "topic": "pass"},
-            {"payload": 2, "topic": "should-block"}   # Should be blocked
+            {"payload": 2, "topic": "should-block", "delay_ms": 50},
+            {"payload": 3, "topic": "pass", "delay_ms": 200},
+            {"payload": 2, "topic": "should-block", "delay_ms": 250},
         ]
-        msgs = await run_single_node_with_msgs_ntimes(node, injections, 2)
+        msgs = await run_single_node_for_seconds_scheduled(node, injections, 0.5)
         # Should get 2 outputs, both from "pass" topic
         assert len(msgs) == 2
         assert msgs[0]['topic'] == "pass"
@@ -344,32 +346,16 @@ class TestTriggerNode:
             "type": "trigger", "name": "triggerNode", "extend": True, "op1type": "str",
             "op1": "foo", "op2": "bar", "op2type": "str", "duration": "100"
         }
-        # Create timing test
-        import time
-        start_time = time.time()
-        
-        # Create flows for timed injection
-        user_node = {
-            "id": "1", "type": "trigger", "z": "0", "extend": True,
-            "op1": "foo", "op1type": "str", "op2": "bar", "op2type": "str", 
-            "duration": "100", "wires": [["2"]]
-        }
-        console_node = {"id": "2", "type": "test-once", "z": "0"}
-        flows = [{"id": "0", "type": "tab"}, user_node, console_node]
-        
-        # We'll simulate extending by having rapid successive messages
-        injections = [
+        # Upstream re-triggers 50ms in: the second edge then lands 100ms after that, and the
+        # first edge is not repeated.
+        msgs = await run_single_node_for_seconds_scheduled(node, [
             {"payload": "Hello"},
-            {"payload": None}  # This should extend the delay
-        ]
-        
-        msgs = await run_flow_with_msgs_ntimes(flows, injections, 2)
-        end_time = time.time()
-        
+            {"payload": None, "delay_ms": 50},
+        ], 0.5)
+
         # Should get foo then bar, and timing should be extended
-        assert msgs[0]['payload'] == "foo"
-        assert msgs[1]['payload'] == "bar"
-        assert (end_time - start_time) >= 0.1  # At least 100ms
+        assert [m['payload'] for m in msgs] == ["foo", "bar"]
+        assert msgs[1]['_arrival_ms'] >= 100
 
     @pytest.mark.asyncio
     @pytest.mark.it('should be able to extend the delay (but with no 2nd output)')
@@ -378,15 +364,16 @@ class TestTriggerNode:
             "type": "trigger", "name": "triggerNode", "extend": True, 
             "op1type": "pay", "op2type": "nul", "op1": "false", "op2": "true", "duration": "50"
         }
-        injections = [
+        # The two "Error" messages extend the window; "World" arrives well after it has
+        # expired and therefore starts a fresh sequence, which is the only way to reach the
+        # second edge (op2 is `nul`, so the extension itself emits nothing).
+        msgs = await run_single_node_for_seconds_scheduled(node, [
             {"payload": "Hello"},
-            {"payload": "Error"},   # Should be ignored/extend
-            {"payload": "Error"},   # Should be ignored/extend
-            {"payload": "World"}    # Final payload
-        ]
-        msgs = await run_single_node_with_msgs_ntimes(node, injections, 2)
-        assert msgs[0]['payload'] == "Hello"
-        assert msgs[1]['payload'] == "World"
+            {"payload": "Error", "delay_ms": 20},
+            {"payload": "Error", "delay_ms": 40},
+            {"payload": "World", "delay_ms": 200},
+        ], 0.6)
+        assert [m['payload'] for m in msgs] == ["Hello", "World"]
 
     @pytest.mark.asyncio
     @pytest.mark.it('should be able to extend the delay and output the most recent payload')
@@ -411,12 +398,14 @@ class TestTriggerNode:
             "type": "trigger", "name": "triggerNode", "extend": False,
             "op1type": "nul", "op2type": "payl", "op1": "false", "op2": "true", "duration": "50"
         }
-        injections = [
+        # Upstream emits 0ms/20ms/80ms in: the blocked "Goodbye" still becomes the remembered
+        # payload, and "World" arrives after the window closed so it opens a new one.
+        msgs = await run_single_node_for_seconds_scheduled(node, [
             {"payload": "Hello", "topic": "test1"},
-            {"payload": "Goodbye", "topic": "test2"},
-            {"payload": "World", "topic": "test3"}
-        ]
-        msgs = await run_single_node_with_msgs_ntimes(node, injections, 2)
+            {"payload": "Goodbye", "topic": "test2", "delay_ms": 20},
+            {"payload": "World", "topic": "test3", "delay_ms": 80},
+        ], 0.4)
+
         # Should get the 2nd and 3rd payloads as 2nd outputs
         assert msgs[0]['payload'] == "Goodbye"
         assert msgs[0]['topic'] == "test2"

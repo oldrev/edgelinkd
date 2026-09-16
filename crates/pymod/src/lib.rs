@@ -40,18 +40,9 @@ fn rust_sleep(py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
     })
 }
 
-/// Shared setup for the flow-running entry points: parse the arguments and build the engine.
-fn build_engine<'a>(
-    py_json: &'a Bound<'a, PyAny>,
-    msgs_json: &'a Bound<'a, PyAny>,
-    app_cfg: &'a Bound<'a, PyAny>,
-) -> PyResult<(Engine, Vec<(ElementId, Msg)>)> {
+/// Build the engine from the flows and the application config.
+fn build_engine_only<'a>(py_json: &'a Bound<'a, PyAny>, app_cfg: &'a Bound<'a, PyAny>) -> PyResult<Engine> {
     let flows_json = json::py_object_to_json_value(py_json)?;
-    let msgs_to_inject = {
-        let json_msgs = json::py_object_to_json_value(msgs_json)?;
-        Vec::<(ElementId, Msg)>::deserialize(json_msgs)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?
-    };
     let app_cfg = {
         if !app_cfg.is_none() {
             let app_cfg_json = json::py_object_to_json_value(app_cfg)?;
@@ -67,10 +58,56 @@ fn build_engine<'a>(
         .build()
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 
-    let engine = Engine::with_json(&registry, flows_json, app_cfg)
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+    Engine::with_json(&registry, flows_json, app_cfg)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
+}
 
-    Ok((engine, msgs_to_inject))
+/// Parse `[[node_id, msg], ...]` - a message injected into a node at the start of the run.
+fn parse_injections(msgs_json: &Bound<'_, PyAny>) -> PyResult<Vec<(ElementId, Msg)>> {
+    let json_msgs = json::py_object_to_json_value(msgs_json)?;
+    Vec::<(ElementId, Msg)>::deserialize(json_msgs)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
+}
+
+/// Parse `[[node_id, msg, delay_ms?], ...]` for the windowed sampler: the optional third
+/// element is how long (in milliseconds) the injection waits before it is delivered.
+fn parse_scheduled_injections(msgs_json: &Bound<'_, PyAny>) -> PyResult<Vec<(ElementId, Msg, f64)>> {
+    let json_msgs = json::py_object_to_json_value(msgs_json)?;
+    let Some(entries) = json_msgs.as_array() else {
+        return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Injection list expected"));
+    };
+
+    let mut injections = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let Some(fields) = entry.as_array() else {
+            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("[node_id, msg] expected"));
+        };
+        if fields.len() < 2 || fields.len() > 3 {
+            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("[node_id, msg, delay_ms?] expected"));
+        }
+        let node_id = serde_json::from_value::<ElementId>(fields[0].clone())
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+        let msg = serde_json::from_value::<Msg>(fields[1].clone())
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+        let delay_ms = match fields.get(2) {
+            Some(value) => value
+                .as_f64()
+                .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("delay must be a number"))?,
+            None => 0.0,
+        };
+        injections.push((node_id, msg, delay_ms));
+    }
+    Ok(injections)
+}
+
+/// Shared setup for the flow-running entry points: parse the arguments and build the engine.
+fn build_engine<'a>(
+    py_json: &'a Bound<'a, PyAny>,
+    msgs_json: &'a Bound<'a, PyAny>,
+    app_cfg: &'a Bound<'a, PyAny>,
+) -> PyResult<(Engine, Vec<(ElementId, Msg)>)> {
+    let engine = build_engine_only(py_json, app_cfg)?;
+    Ok((engine, parse_injections(msgs_json)?))
 }
 
 /// Run a flow collection until `expected_msgs` outputs have been produced, or `timeout` expires.
@@ -108,6 +145,9 @@ fn run_flows_once<'a>(
 /// sampling that Node-RED's rate-limiting specs use. Every output carries an extra
 /// `_arrival_ms` field - its arrival offset relative to the first output - so specs can
 /// check the spacing between messages.
+///
+/// An injection is either `[node_id, msg]` or `[node_id, msg, delay_ms]`; the optional delay
+/// is how the drop-rate specs feed a stream of messages instead of one burst.
 #[pyfunction]
 #[pyo3(signature = (_window_seconds, py_json, msgs_json, app_cfg))]
 fn run_flows_for_once<'a>(
@@ -117,11 +157,12 @@ fn run_flows_for_once<'a>(
     msgs_json: &'a Bound<'a, PyAny>,
     app_cfg: &'a Bound<'a, PyAny>,
 ) -> PyResult<Bound<'a, PyAny>> {
-    let (engine, msgs_to_inject) = build_engine(py_json, msgs_json, app_cfg)?;
+    let engine = build_engine_only(py_json, app_cfg)?;
+    let msgs_to_inject = parse_scheduled_injections(msgs_json)?;
 
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
         let msgs = engine
-            .run_window_with_inject(std::time::Duration::from_secs_f64(_window_seconds), msgs_to_inject)
+            .run_window_with_schedule(std::time::Duration::from_secs_f64(_window_seconds), msgs_to_inject)
             .await
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 

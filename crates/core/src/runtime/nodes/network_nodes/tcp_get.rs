@@ -2,7 +2,7 @@ use dashmap::DashMap;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::Mutex;
 use tokio::time::{Duration, timeout};
 use tokio_util::sync::CancellationToken;
 
@@ -42,13 +42,55 @@ struct PendingMsg {
     stop_token: CancellationToken,
 }
 
+/// The per-connection queue of messages waiting to be sent.
+///
+/// Node-RED's `enqueue` drops the **oldest** message once `tcpMsgQueueSize` is reached, so a
+/// busy connection loses its stale requests rather than the one that just arrived. A bounded
+/// `mpsc` cannot evict from the front, hence the explicit deque.
 #[derive(Debug, Clone)]
-struct TcpClientEntry {
-    kind: TcpClientKind,
-    sender: mpsc::Sender<PendingMsg>,
+struct MessageQueue {
+    items: Arc<Mutex<std::collections::VecDeque<PendingMsg>>>,
+    notify: Arc<tokio::sync::Notify>,
+    capacity: usize,
+}
+
+impl MessageQueue {
+    fn new(capacity: usize) -> Self {
+        Self {
+            items: Arc::new(Mutex::new(std::collections::VecDeque::new())),
+            notify: Arc::new(tokio::sync::Notify::new()),
+            capacity,
+        }
+    }
+
+    async fn push(&self, item: PendingMsg) {
+        {
+            let mut items = self.items.lock().await;
+            if items.len() >= self.capacity {
+                items.pop_front();
+            }
+            items.push_back(item);
+        }
+        self.notify.notify_one();
+    }
+
+    /// Everything that is waiting: upstream writes the whole queue as a single request.
+    async fn drain(&self) -> Vec<PendingMsg> {
+        self.items.lock().await.drain(..).collect()
+    }
+
+    async fn wait_for_item(&self) {
+        self.notify.notified().await;
+    }
 }
 
 #[derive(Debug, Clone)]
+struct TcpClientEntry {
+    kind: TcpClientKind,
+    queue: MessageQueue,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum TcpClientKind {
     Sit,
     Queue,
@@ -95,11 +137,18 @@ impl TcpGetNode {
         _options: Option<&config::Config>,
     ) -> crate::Result<Box<dyn FlowNodeBehavior>> {
         let tcp_config = TcpGetNodeConfig::deserialize(&config.rest)?;
-        // Set defaults as in Node-RED: reconnect_time=10000, socket_timeout=None, msg_queue_size=1000
+        // Node-RED unescapes the newline property when the node is created, so `"\\n"` in the
+        // flow becomes a real newline. Upstream's `String.replace` only rewrites the first
+        // occurrence of each escape.
+        let mut tcp_config = tcp_config;
+        if let Some(newline) = tcp_config.newline.as_mut() {
+            *newline = newline.replacen("\\n", "\n", 1).replacen("\\r", "\r", 1).replacen("\\t", "\t", 1);
+        }
+        // Set defaults as in Node-RED: reconnect_time=10000, socket_timeout=None
         let reconnect_time = 10000;
         let socket_timeout = None;
-        let msg_queue_size =
-            config.rest.get("msgQueueSize").and_then(|v| v.as_u64()).map(|v| v as usize).unwrap_or(1000);
+        // Node-RED caps the per-connection queues with its `tcpMsgQueueSize` setting.
+        let msg_queue_size = _flow.settings().tcp_msg_queue_size;
         let node = TcpGetNode {
             base: state,
             config: tcp_config,
@@ -435,121 +484,148 @@ impl TcpGetNode {
         split_count: u32,
         split_char: u8,
     ) -> crate::Result<()> {
-        use tokio::sync::mpsc;
-        let (tx, rx) = if let Some(entry) = self.clients.get(&connection_key) {
+        let queue = if let Some(entry) = self.clients.get(&connection_key) {
             match entry.value().kind {
-                TcpClientKind::Queue => (entry.value().sender.clone(), None),
+                TcpClientKind::Queue => entry.value().queue.clone(),
                 _ => unreachable!(),
             }
         } else {
-            let (tx, rx) = mpsc::channel(self.msg_queue_size);
+            let queue = MessageQueue::new(self.msg_queue_size);
             self.clients
-                .insert(connection_key.clone(), TcpClientEntry { kind: TcpClientKind::Queue, sender: tx.clone() });
-            (tx, Some(rx))
-        };
-        let _ = tx.try_send(PendingMsg { msg: msg.clone(), stop_token: stop_token.clone() });
-        if let Some(mut rx) = rx {
+                .insert(connection_key.clone(), TcpClientEntry { kind: TcpClientKind::Queue, queue: queue.clone() });
             let node = Arc::clone(&self);
             let key = connection_key.clone();
+            let worker_queue = queue.clone();
+            let worker_stop = stop_token.clone();
             tokio::spawn(async move {
-                while let Some(PendingMsg { msg, stop_token }) = rx.recv().await {
-                    let mut pending_msgs = vec![(msg, stop_token)];
-                    while let Ok(Some(PendingMsg { msg, stop_token })) = rx.try_recv().map(Some) {
-                        pending_msgs.push((msg, stop_token));
-                    }
-                    let mut merged_payload = Vec::new();
-                    let mut last_msg = None;
-                    for (msg, stop_token) in &pending_msgs {
-                        let msg_guard = msg.read().await;
-                        if let Some(payload) = msg_guard.get("payload") {
-                            match node.get_payload_bytes(payload).await {
-                                Ok(bytes) => merged_payload.extend(bytes),
-                                Err(e) => {
-                                    node.report_error(format!("Failed to parse payload: {e}"), stop_token.clone())
-                                        .await;
-                                }
+                TcpGetNode::queue_worker(node, key, worker_queue, worker_stop, split_count, split_char).await;
+            });
+            queue
+        };
+        queue.push(PendingMsg { msg: msg.clone(), stop_token: stop_token.clone() }).await;
+        Ok(())
+    }
+
+    async fn queue_worker(
+        self: Arc<Self>,
+        connection_key: String,
+        queue: MessageQueue,
+        stop_token: CancellationToken,
+        split_count: u32,
+        split_char: u8,
+    ) {
+        loop {
+            if stop_token.is_cancelled() {
+                break;
+            }
+            let pending_msgs: Vec<(MsgHandle, CancellationToken)> =
+                queue.drain().await.into_iter().map(|pending| (pending.msg, pending.stop_token)).collect();
+            if pending_msgs.is_empty() {
+                // This queue is only ever fed through its client entry, so once the entry is
+                // gone there is nobody left to push to it.
+                if !self.has_client_queue(&connection_key, &queue) {
+                    break;
+                }
+                tokio::select! {
+                    _ = stop_token.cancelled() => break,
+                    _ = queue.wait_for_item() => continue,
+                }
+            }
+            {
+                let mut merged_payload = Vec::new();
+                let mut last_msg = None;
+                for (msg, stop_token) in &pending_msgs {
+                    let msg_guard = msg.read().await;
+                    if let Some(payload) = msg_guard.get("payload") {
+                        match self.get_payload_bytes(payload).await {
+                            Ok(bytes) => merged_payload.extend(bytes),
+                            Err(e) => {
+                                self.report_error(format!("Failed to parse payload: {e}"), stop_token.clone()).await;
                             }
                         }
-                        last_msg = Some((msg.clone(), stop_token.clone()));
                     }
-                    match TcpStream::connect(&key).await {
-                        Ok(mut stream) => {
-                            if !merged_payload.is_empty() {
-                                if let Err(e) = stream.write_all(&merged_payload).await {
-                                    node.report_error(
-                                        format!("Failed to send data: {e}"),
+                    last_msg = Some((msg.clone(), stop_token.clone()));
+                }
+                match TcpStream::connect(&connection_key).await {
+                    Ok(mut stream) => {
+                        if !merged_payload.is_empty() {
+                            if let Err(e) = stream.write_all(&merged_payload).await {
+                                self.report_error(
+                                    format!("Failed to send data: {e}"),
+                                    last_msg.as_ref().map(|(_, t)| t.clone()).unwrap_or_default(),
+                                )
+                                .await;
+                                self.clients.remove(&connection_key);
+                                continue;
+                            }
+                            let _ = stream.flush().await;
+                        }
+                        if !matches!(self.config.mode, TcpGetMode::Immediate) {
+                            let response_data = match self.read_response(&mut stream, split_count, split_char).await {
+                                Ok(data) => data,
+                                Err(e) => {
+                                    self.report_error(
+                                        format!("Read error: {e}"),
                                         last_msg.as_ref().map(|(_, t)| t.clone()).unwrap_or_default(),
                                     )
                                     .await;
-                                    node.clients.remove(&key);
+                                    self.clients.remove(&connection_key);
                                     continue;
                                 }
-                                let _ = stream.flush().await;
-                            }
-                            if !matches!(node.config.mode, TcpGetMode::Immediate) {
-                                let response_data = match node.read_response(&mut stream, split_count, split_char).await
-                                {
-                                    Ok(data) => data,
-                                    Err(e) => {
-                                        node.report_error(
-                                            format!("Read error: {e}"),
-                                            last_msg.as_ref().map(|(_, t)| t.clone()).unwrap_or_default(),
-                                        )
-                                        .await;
-                                        node.clients.remove(&key);
-                                        continue;
+                            };
+                            // Check for newline splitting in string mode
+                            if !response_data.is_empty()
+                                && self.config.return_type == ReturnType::String
+                                && let Some(newline) = &self.config.newline
+                                && !newline.is_empty()
+                            {
+                                let result = String::from_utf8_lossy(&response_data).to_string();
+                                let parts: Vec<&str> = result.split(newline).collect();
+                                if parts.len() > 1 {
+                                    let out = parts[0].to_string();
+                                    let (msg, stop_token) = &pending_msgs[0];
+                                    let original_guard = msg.read().await;
+                                    let mut body = std::collections::BTreeMap::new();
+                                    for (key, value) in original_guard.as_variant_object().iter() {
+                                        body.insert(key.clone(), value.clone());
                                     }
-                                };
-                                if !response_data.is_empty()
-                                    && node.config.return_type == ReturnType::String
-                                    && let Some(newline) = &node.config.newline
-                                    && !newline.is_empty()
-                                {
-                                    let result = String::from_utf8_lossy(&response_data).to_string();
-                                    let parts: Vec<&str> = result.split(newline).filter(|p| !p.is_empty()).collect();
-                                    if parts.len() > 1 {
-                                        let out = parts[0].to_string();
-                                        let (msg, stop_token) = &pending_msgs[0];
-                                        let original_guard = msg.read().await;
-                                        let mut body = std::collections::BTreeMap::new();
-                                        for (key, value) in original_guard.as_variant_object().iter() {
-                                            body.insert(key.clone(), value.clone());
-                                        }
-                                        body.insert("payload".to_string(), Variant::String(out));
-                                        drop(original_guard);
-                                        let response_msg = MsgHandle::with_properties(body);
-                                        let _ = node
-                                            .fan_out_one(Envelope { port: 0, msg: response_msg }, stop_token.clone())
-                                            .await;
-                                        continue;
-                                    }
-                                }
-                                if let Some((msg, stop_token)) = pending_msgs.last() {
-                                    let response_msg = node.create_response_message(&response_data, msg).await;
-                                    let _ = node
+                                    body.insert("payload".to_string(), Variant::String(out));
+                                    drop(original_guard);
+                                    let response_msg = MsgHandle::with_properties(body);
+                                    let _ = self
                                         .fan_out_one(Envelope { port: 0, msg: response_msg }, stop_token.clone())
                                         .await;
+                                    self.clients.remove(&connection_key);
+                                    continue;
                                 }
-                            } else if let Some((msg, stop_token)) = pending_msgs.last() {
-                                let _ =
-                                    node.fan_out_one(Envelope { port: 0, msg: msg.clone() }, stop_token.clone()).await;
                             }
-                        }
-                        Err(e) => {
-                            node.report_error(
-                                format!("Failed to connect: {e}"),
-                                last_msg.as_ref().map(|(_, t)| t.clone()).unwrap_or_default(),
-                            )
-                            .await;
-                            node.clients.remove(&key);
-                            continue;
+                            if let Some((msg, stop_token)) = pending_msgs.last() {
+                                let response_msg = self.create_response_message(&response_data, msg).await;
+                                let _ =
+                                    self.fan_out_one(Envelope { port: 0, msg: response_msg }, stop_token.clone()).await;
+                            }
+                        } else if let Some((msg, stop_token)) = pending_msgs.last() {
+                            let _ = self.fan_out_one(Envelope { port: 0, msg: msg.clone() }, stop_token.clone()).await;
                         }
                     }
-                    node.clients.remove(&key);
+                    Err(e) => {
+                        self.report_error(
+                            format!("Failed to connect: {e}"),
+                            last_msg.as_ref().map(|(_, t)| t.clone()).unwrap_or_default(),
+                        )
+                        .await;
+                        self.clients.remove(&connection_key);
+                        continue;
+                    }
                 }
-            });
+                self.clients.remove(&connection_key);
+            }
         }
-        Ok(())
+    }
+
+    /// Whether `queue` is still the queue of the client entry registered for `key`.
+    fn has_client_queue(&self, key: &str, queue: &MessageQueue) -> bool {
+        self.clients.get(key).map(|entry| Arc::ptr_eq(&entry.value().queue.items, &queue.items)).unwrap_or(false)
     }
 
     async fn handle_sit_message(
@@ -560,7 +636,6 @@ impl TcpGetNode {
         split_count: u32,
         split_char: u8,
     ) -> crate::Result<()> {
-        use tokio::sync::mpsc;
         let sit_conn = if let Some(entry_ref) = self.clients.get(&connection_key) {
             let entry = entry_ref.value();
             match entry.kind {
@@ -571,18 +646,20 @@ impl TcpGetNode {
             match TcpStream::connect(&connection_key).await {
                 Ok(new_stream) => {
                     let stream_arc = Arc::new(Mutex::new(new_stream));
-                    let (tx, rx) = mpsc::channel(self.msg_queue_size);
+                    let queue = MessageQueue::new(self.msg_queue_size);
                     self.clients.insert(
                         connection_key.clone(),
-                        TcpClientEntry { kind: TcpClientKind::Sit, sender: tx.clone() },
+                        TcpClientEntry { kind: TcpClientKind::Sit, queue: queue.clone() },
                     );
                     log::info!("TCP request: Connected to {connection_key}");
                     let count = self.clients.len();
                     self.report_status("Connected".to_string(), Some(count), stop_token.clone()).await;
                     let node = Arc::clone(&self);
                     let key = connection_key.clone();
+                    let worker_stop = stop_token.clone();
                     tokio::spawn(async move {
-                        TcpGetNode::sit_worker(node, key, stream_arc, rx, split_count, split_char).await;
+                        TcpGetNode::sit_worker(node, key, stream_arc, queue, worker_stop, split_count, split_char)
+                            .await;
                     });
                     self.clients.get(&connection_key).ok_or_else(|| {
                         crate::EdgelinkError::InvalidOperation(format!(
@@ -599,15 +676,7 @@ impl TcpGetNode {
                 }
             }
         };
-        match sit_conn.sender.try_send(PendingMsg { msg: msg.clone(), stop_token: stop_token.clone() }) {
-            Ok(_) => {}
-            Err(mpsc::error::TrySendError::Full(_)) => {
-                log::warn!("TCP sit queue full for {connection_key}, dropping oldest and retrying");
-            }
-            Err(e) => {
-                log::warn!("TCP sit queue send error for {connection_key}: {e}");
-            }
-        }
+        sit_conn.queue.push(PendingMsg { msg: msg.clone(), stop_token: stop_token.clone() }).await;
         Ok(())
     }
 
@@ -615,14 +684,27 @@ impl TcpGetNode {
         self: Arc<Self>,
         connection_key: String,
         stream: Arc<Mutex<TcpStream>>,
-        mut rx: mpsc::Receiver<PendingMsg>,
+        queue: MessageQueue,
+        stop_token: CancellationToken,
         split_count: u32,
         split_char: u8,
     ) {
-        while let Some(PendingMsg { msg, stop_token }) = rx.recv().await {
-            let mut pending_msgs = vec![(msg, stop_token)];
-            while let Ok(Some(PendingMsg { msg, stop_token })) = rx.try_recv().map(Some) {
-                pending_msgs.push((msg, stop_token));
+        // The unterminated tail of the last read, kept for the next one.
+        let mut chunk = String::new();
+        loop {
+            if stop_token.is_cancelled() {
+                break;
+            }
+            let pending_msgs: Vec<(MsgHandle, CancellationToken)> =
+                queue.drain().await.into_iter().map(|pending| (pending.msg, pending.stop_token)).collect();
+            if pending_msgs.is_empty() {
+                if !self.has_client_queue(&connection_key, &queue) {
+                    break;
+                }
+                tokio::select! {
+                    _ = stop_token.cancelled() => break,
+                    _ = queue.wait_for_item() => continue,
+                }
             }
             let mut merged_payload = Vec::new();
             let mut last_msg = None;
@@ -666,33 +748,41 @@ impl TcpGetNode {
                 }
             };
             if !response_data.is_empty() {
-                // Node-RED: for string+newline, always fan out only the first part
+                // `ret: string` with a newline separator: upstream splits everything received
+                // so far, emits every complete segment and keeps the unterminated tail for the
+                // next read, so a delimiter split across packets is still honoured.
                 if self.config.return_type == ReturnType::String
                     && let Some(newline) = &self.config.newline
                     && !newline.is_empty()
                 {
-                    let result = String::from_utf8_lossy(&response_data).to_string();
-                    let parts: Vec<&str> = result.split(newline).collect();
-                    let mut part = parts[0].to_string();
-                    if self.config.trim && part.ends_with(newline) {
-                        part.truncate(part.len() - newline.len());
-                    }
-                    if let Some((msg, stop_token)) = pending_msgs.first() {
-                        let original_guard = msg.read().await;
-                        let mut body = std::collections::BTreeMap::new();
-                        for (key, value) in original_guard.as_variant_object().iter() {
-                            body.insert(key.clone(), value.clone());
+                    chunk.push_str(&String::from_utf8_lossy(&response_data));
+                    let parts: Vec<&str> = chunk.split(newline).collect();
+                    let complete_count = parts.len() - 1;
+
+                    if let Some((msg, _)) = pending_msgs.last() {
+                        for part in &parts[..complete_count] {
+                            let mut payload = (*part).to_string();
+                            if self.config.trim {
+                                payload.push_str(newline);
+                            }
+                            let original_guard = msg.read().await;
+                            let mut body = std::collections::BTreeMap::new();
+                            for (key, value) in original_guard.as_variant_object().iter() {
+                                body.insert(key.clone(), value.clone());
+                            }
+                            body.insert("payload".to_string(), Variant::String(payload));
+                            drop(original_guard);
+                            let response_msg = MsgHandle::with_properties(body);
+                            if let Err(e) =
+                                self.fan_out_one(Envelope { port: 0, msg: response_msg }, stop_token.clone()).await
+                            {
+                                log::error!("TCP request: Failed to send response message: {e}");
+                                self.report_error(format!("Send error: {e}"), stop_token.clone()).await;
+                            }
                         }
-                        body.insert("payload".to_string(), Variant::String(part));
-                        drop(original_guard);
-                        let response_msg = MsgHandle::with_properties(body);
-                        if let Err(e) =
-                            self.fan_out_one(Envelope { port: 0, msg: response_msg }, stop_token.clone()).await
-                        {
-                            log::error!("TCP request: Failed to send response message: {e}");
-                            self.report_error(format!("Send error: {e}"), stop_token.clone()).await;
-                        }
                     }
+
+                    chunk = parts[parts.len() - 1].to_string();
                     continue;
                 }
                 if let Some((msg, stop_token)) = pending_msgs.last() {

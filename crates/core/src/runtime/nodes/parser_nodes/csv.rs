@@ -194,8 +194,9 @@ impl CsvNode {
             csv_config.ret = "\r\n".to_string();
         }
 
-        // 只在build时解析模板
-        let template = CsvNode::parse_template_static(&csv_config.temp, &csv_config.sep);
+        // 只在build时解析模板。Node-RED always splits the column template on commas, whatever
+        // separator the *data* uses (`clean(node.template, ',')` upstream).
+        let template = CsvNode::parse_template_static(&csv_config.temp, ",");
 
         let node = CsvNode {
             base: base_node,
@@ -281,7 +282,7 @@ impl CsvNode {
         if (template.is_empty() || (template.len() == 1 && template[0].is_none()))
             && let Some(columns) = msg.get("columns").and_then(|v| v.as_str())
         {
-            template = CsvNode::parse_template_static(columns, &self.config.sep);
+            template = CsvNode::parse_template_static(columns, ",");
         }
 
         // Convert payload to array format
@@ -471,12 +472,15 @@ impl CsvNode {
             }
         }
 
-        // Create columns string for output
-        let columns_str = if !template.is_empty() {
-            template.iter().map(|c| c.clone().unwrap_or_default()).collect::<Vec<_>>().join(",")
-        } else {
-            String::new()
-        };
+        // Create columns string for output. Upstream drops the unnamed columns and quotes any
+        // name that carries a comma of its own.
+        let columns_str = template
+            .iter()
+            .filter_map(|c| c.as_ref())
+            .filter(|c| !c.is_empty())
+            .map(|c| if c.contains(',') { format!("\"{c}\"") } else { c.clone() })
+            .collect::<Vec<_>>()
+            .join(",");
 
         // Return result based on multi mode
         let result = match self.config.multi {
