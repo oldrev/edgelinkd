@@ -279,47 +279,15 @@ impl TcpGetNode {
     async fn create_response_message(&self, data: &[u8], original_msg: &MsgHandle) -> MsgHandle {
         match self.config.return_type {
             ReturnType::String => {
+                // `newline` is a `stay connected` property: the other modes emit the response as
+                // it arrives, without splitting or trimming it.
                 let result = String::from_utf8_lossy(data).to_string();
-                if let Some(newline) = &self.config.newline
-                    && !newline.is_empty()
-                {
-                    let parts: Vec<&str> = result.split(newline).collect();
-                    if parts.len() > 1 {
-                        // Node-RED: send each part as a separate message
-                        // (the caller must handle this fan-out)
-                        // Here, just return the first part for backward compatibility
-                        // (the actual fan-out will be handled in handle_message)
-                        let mut part = parts[0].to_string();
-                        if self.config.trim {
-                            // Only trim the trailing separator
-                            if part.ends_with(newline) {
-                                part.truncate(part.len() - newline.len());
-                            }
-                        }
-                        let original_guard = original_msg.read().await;
-                        let mut body = std::collections::BTreeMap::new();
-                        for (key, value) in original_guard.as_variant_object().iter() {
-                            body.insert(key.clone(), value.clone());
-                        }
-                        body.insert("payload".to_string(), Variant::String(part));
-                        drop(original_guard);
-                        return MsgHandle::with_properties(body);
-                    }
-                }
-                // Default: single message
-                let mut out = result;
-                if let Some(newline) = &self.config.newline
-                    && self.config.trim
-                    && out.ends_with(newline)
-                {
-                    out.truncate(out.len() - newline.len());
-                }
                 let original_guard = original_msg.read().await;
                 let mut body = std::collections::BTreeMap::new();
                 for (key, value) in original_guard.as_variant_object().iter() {
                     body.insert(key.clone(), value.clone());
                 }
-                body.insert("payload".to_string(), Variant::String(out));
+                body.insert("payload".to_string(), Variant::String(result));
                 drop(original_guard);
                 MsgHandle::with_properties(body)
             }
@@ -353,15 +321,40 @@ impl TcpGetNode {
         Ok(Vec::new())
     }
 
+    /// `out: time`: the first byte starts a `splitc`-millisecond window, and everything received
+    /// while it is open is emitted together.
+    ///
+    /// Upstream does this with `setTimeout(..., node.splitc)` started on the first byte: a response
+    /// the server writes in several packets is collected in full, rather than being truncated to
+    /// whatever the first `read()` happened to return.
     async fn read_time(&self, stream: &mut TcpStream) -> crate::Result<Vec<u8>> {
-        let mut buffer = Vec::new();
+        let window_ms = self.config.splitc.as_deref().unwrap_or("0").parse::<u64>().unwrap_or(0);
         let timeout_duration = Duration::from_millis(self.config.timeout);
+        let mut buffer = Vec::new();
         let mut temp_buf = [0u8; 4096];
-        match timeout(timeout_duration, stream.read(&mut temp_buf)).await {
-            Ok(Ok(0)) => {} // EOF
-            Ok(Ok(n)) => buffer.extend_from_slice(&temp_buf[..n]),
-            Ok(Err(e)) => return Err(crate::EdgelinkError::InvalidOperation(format!("Read error: {e}")).into()),
-            Err(_) => return Err(crate::EdgelinkError::InvalidOperation("Read timeout".to_string()).into()),
+        let mut deadline: Option<tokio::time::Instant> = None;
+
+        loop {
+            let wait = match deadline {
+                // Still waiting for the first byte: the node's own read timeout applies.
+                None => timeout_duration,
+                Some(deadline) => deadline.saturating_duration_since(tokio::time::Instant::now()),
+            };
+            if wait.is_zero() {
+                break;
+            }
+
+            match timeout(wait, stream.read(&mut temp_buf)).await {
+                Ok(Ok(0)) => break, // EOF
+                Ok(Ok(n)) => {
+                    buffer.extend_from_slice(&temp_buf[..n]);
+                    if deadline.is_none() {
+                        deadline = Some(tokio::time::Instant::now() + Duration::from_millis(window_ms));
+                    }
+                }
+                // A read error or a closed window ends the collection.
+                Ok(Err(_)) | Err(_) => break,
+            }
         }
         Ok(buffer)
     }
@@ -818,5 +811,62 @@ impl FlowNodeBehavior for TcpGetNode {
         }
 
         log::info!("TCP request: Node stopped");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::runtime::engine::build_test_engine;
+    use crate::runtime::model::{ElementId, Msg};
+    use serde::Deserialize;
+    use serde_json::json;
+
+    /// `out: time` waits `splitc` milliseconds after the first byte, so a response the server
+    /// writes in several packets is emitted whole. Reading only once would truncate it to the
+    /// first packet.
+    #[tokio::test]
+    async fn test_time_mode_collects_a_response_split_over_packets() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0u8; 64];
+            let _ = socket.read(&mut request).await;
+            // Two writes with a pause in between: two TCP packets, two `read()` results.
+            socket.write_all(b"ACK:").await.unwrap();
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            socket.write_all(b"split-response").await.unwrap();
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        });
+
+        let flows_json = json!([
+            { "id": "100", "type": "tab", "label": "Flow 1" },
+            {
+                "id": "7001",
+                "z": "100",
+                "type": "tcp request",
+                "name": "tcp request",
+                "server": "127.0.0.1",
+                "port": port.to_string(),
+                "out": "time",
+                "ret": "string",
+                // A 300ms window comfortably covers the two writes above.
+                "splitc": "300",
+                "wires": [["7002"]]
+            },
+            { "id": "7002", "z": "100", "type": "test-once" }
+        ]);
+
+        let engine = build_test_engine(flows_json).unwrap();
+        let msgs_to_inject_json = json!([["7001", {"payload": "ping"}]]);
+        let msgs_to_inject = Vec::<(ElementId, Msg)>::deserialize(msgs_to_inject_json).unwrap();
+
+        let msgs = engine.run_once_with_inject(1, Duration::from_millis(2000), msgs_to_inject).await.unwrap();
+        server.abort();
+
+        assert_eq!(msgs.len(), 1, "expected one response: {msgs:?}");
+        assert_eq!(msgs[0].as_variant_object().get("payload").unwrap().as_str().unwrap(), "ACK:split-response");
     }
 }
