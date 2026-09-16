@@ -8,6 +8,7 @@ import os
 import json
 import shutil
 import subprocess
+import sys
 import tempfile
 import pytest
 import io
@@ -25,13 +26,27 @@ TESTS_DIR = os.path.join(_SCRIPT_DIR, '..', "tests")
 JS_IT_PATTERN = re.compile(r"""^\s*it\s*\(\s*(['"].*?['"]+)\s*,\s*""")
 PY_IT_PATTERN = re.compile(r"""\@.*it\s*\(\s*(['"].*?['"]+)\s*\)\s*""")
 
+# The markers below are Unicode; a console with a legacy code page (GBK, cp1252, ...) cannot
+# encode them and would abort the run half way through. Fall back to ASCII when that happens.
+try:
+    '✓×'.encode(sys.stdout.encoding or 'utf-8')
+    CHECK, CROSS = '✓', '×'
+except (UnicodeEncodeError, LookupError):
+    CHECK, CROSS = 'ok', 'x'
+
+
 def load_json(json_path):
-    with open(json_path, 'r') as fp:
+    with open(json_path, 'r', encoding='utf-8') as fp:
         return json.load(fp)
 
 
 def extract_it_strings_js(red_dir, file_path) -> list[str]:
     specs = []
+    # `mocha` is invoked from inside the Node-RED checkout, so resolve both paths first: a
+    # relative checkout path (as documented in AGENTS.md) would otherwise be looked up relative
+    # to the checkout itself and match no test file at all.
+    red_dir = os.path.abspath(red_dir)
+    file_path = os.path.abspath(file_path)
     # Use delete=False to avoid permission issues on Windows, and close the handle before the
     # subprocess runs: Windows will not let mocha open a file this process still holds.
     with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.json') as report_file:
@@ -43,7 +58,7 @@ def extract_it_strings_js(red_dir, file_path) -> list[str]:
     try:
         result = subprocess.run([
             'mocha',
-            file_path, "--dry-run", "--reporter=json", "--exit",
+            os.path.relpath(file_path, red_dir), "--dry-run", "--reporter=json", "--exit",
             "--reporter-options", f"output={report_file_path}"
         ], shell=True)
 
@@ -161,10 +176,10 @@ if __name__ == "__main__":
             total_py_count += len(py_specs)
             if len(py_specs) >= len(js_specs):
                 print_subtitle(
-                    f'''{Fore.GREEN}* [✓]{Style.RESET_ALL} "{triple[0]}" ({len(py_specs)}/{len(js_specs)}) ''')
+                    f'''{Fore.GREEN}* [{CHECK}]{Style.RESET_ALL} "{triple[0]}" ({len(py_specs)}/{len(js_specs)}) ''')
             else:
                 print_subtitle(
-                    f'''{Fore.RED}* [×]{Style.RESET_ALL} "{triple[0]}" {Fore.RED}({len(py_specs)}/{len(js_specs)}){Style.RESET_ALL} ''')
+                    f'''{Fore.RED}* [{CROSS}]{Style.RESET_ALL} "{triple[0]}" {Fore.RED}({len(py_specs)}/{len(js_specs)}){Style.RESET_ALL} ''')
             for s in differences:
                 if s[0] == '-':
                     print(f'\t{Fore.RED}{s[0]} It: {Style.RESET_ALL}{s[2:]}')
