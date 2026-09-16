@@ -216,6 +216,26 @@ async def run_edgelink(flows_path: str, nexpected: int, timeout: float = 5) -> l
 
 """
 
+def red_id(name: str) -> str:
+    """Convert an upstream Node-RED spec node id into a hex `ElementId`.
+
+    `ElementId::from_str` is `u64::from_str_radix(_, 16)`, so the readable ids Node-RED's
+    spec files use (`n1`, `s1`, `splitNode1`) cannot go into flow JSON as-is. Convert the id
+    *and every reference to it* (`z`, `wires`, `scope`, injection targets) with this helper
+    so the correspondence with the upstream spec stays visible in the test:
+
+        flows = [
+            {"id": red_id("s1"), "type": "split", "z": red_id("tab"), "wires": [[red_id("j1")]]},
+            {"id": red_id("j1"), "type": "join", "z": red_id("tab"), "wires": [[red_id("helper")]]},
+            {"id": red_id("helper"), "type": "test-once", "z": red_id("tab")},
+        ]
+
+    The helpers that build a flow for you (`run_single_node_with_msgs_ntimes` and friends)
+    assign "1"/"2"/"3" themselves, so this is only needed for hand-written flows.
+    """
+    return name.encode().hex()
+
+
 async def run_with_single_node_ntimes(payload_type: str | None, payload, node_json: object,
                                       nexpected: int, once: bool = True, topic: str | None = None):
     inject = {

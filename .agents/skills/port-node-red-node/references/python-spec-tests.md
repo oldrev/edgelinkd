@@ -128,20 +128,17 @@ Notes:
 - **Node ids must be hex `ElementId`s → convert them, never copy them.** Upstream specs use
   readable ids (`n1`, `s1`, `splitNode1`, `helperNode1`) and `ElementId::from_str` is
   `u64::from_str_radix(_, 16)`, so a copied id makes `run_flows_once` fail with
-  "failed to parse ElementId". Convert each one — and keep the upstream name visible in the
-  test by converting at the point of use:
+  "failed to parse ElementId". Convert them with the harness helper `red_id()`
+  (`tests/__init__.py`, exported by the `from tests import *` every test file uses), which
+  keeps the upstream name readable at the point of use:
 
   ```python
-  def _nid(name: str) -> str:
-      """Upstream spec id -> hex ElementId; keeps the upstream name readable in the test."""
-      return name.encode().hex()
-
   flows = [
-      {"id": _nid("s1"), "type": "split", "z": _nid("tab"), "wires": [[_nid("j1")]]},
-      {"id": _nid("j1"), "type": "join", "z": _nid("tab"), "wires": [[_nid("helper")]]},
-      {"id": _nid("helper"), "type": "test-once", "z": _nid("tab")},
+      {"id": red_id("s1"), "type": "split", "z": red_id("tab"), "wires": [[red_id("j1")]]},
+      {"id": red_id("j1"), "type": "join", "z": red_id("tab"), "wires": [[red_id("helper")]]},
+      {"id": red_id("helper"), "type": "test-once", "z": red_id("tab")},
   ]
-  msgs = await run_flow_with_msgs_ntimes(flows, [{"nid": _nid("s1"), "msg": {...}}], 1)
+  msgs = await run_flow_with_msgs_ntimes(flows, [{"nid": red_id("s1"), "msg": {...}}], 1)
   ```
 
   An id appears in several places and **all of them must be converted together**: the node

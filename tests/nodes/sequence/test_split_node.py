@@ -268,16 +268,6 @@ class TestSplitNode:
     async def test_0022(self):
         pass
 
-def _nid(name):
-    """Convert an upstream spec node id into a hex ElementId.
-
-    `ElementId::from_str` is `u64::from_str_radix(_, 16)`, so upstream's readable ids
-    (`s1`, `j1`, `helperNode1`) cannot be used as-is in flow JSON. Converting them keeps the
-    correspondence with the upstream spec visible at the point of use.
-    """
-    return name.encode().hex()
-
-
 def _mapi_flow(node_json):
     """Build the flow the upstream mapiDone*TestHelper()s load.
 
@@ -848,17 +838,17 @@ class TestJoinNode:
         # s1.receive({payload:[[1,2,3],"a\nb\nc",[7,8,9]]});
         # Expects msg.payload == [[1,2,3],"a\nb\nc",[7,8,9]].
         # Upstream's ids are readable, but ElementId is hex, so they are converted with the
-        # _nid() helper instead of copied (declaration, z, wires and the injection target).
+        # harness' red_id() helper instead of copied (declaration, z, wires, injection target).
         flows = [
-            {"id": _nid("tab"), "type": "tab"},
-            {"id": _nid("s1"), "type": "split", "z": _nid("tab"), "wires": [[_nid("s2")]]},
-            {"id": _nid("s2"), "type": "split", "z": _nid("tab"), "wires": [[_nid("j1")]]},
-            {"id": _nid("j1"), "type": "join", "z": _nid("tab"), "mode": "auto", "wires": [[_nid("j2")]]},
-            {"id": _nid("j2"), "type": "join", "z": _nid("tab"), "mode": "auto", "wires": [[_nid("n2")]]},
-            {"id": _nid("n2"), "type": "test-once", "z": _nid("tab")},
+            {"id": red_id("tab"), "type": "tab"},
+            {"id": red_id("s1"), "type": "split", "z": red_id("tab"), "wires": [[red_id("s2")]]},
+            {"id": red_id("s2"), "type": "split", "z": red_id("tab"), "wires": [[red_id("j1")]]},
+            {"id": red_id("j1"), "type": "join", "z": red_id("tab"), "mode": "auto", "wires": [[red_id("j2")]]},
+            {"id": red_id("j2"), "type": "join", "z": red_id("tab"), "mode": "auto", "wires": [[red_id("n2")]]},
+            {"id": red_id("n2"), "type": "test-once", "z": red_id("tab")},
         ]
         msgs = await run_flow_with_msgs_ntimes(
-            flows, [{"nid": _nid("s1"), "msg": {"payload": [[1, 2, 3], "a\nb\nc", [7, 8, 9]]}}], 1
+            flows, [{"nid": red_id("s1"), "msg": {"payload": [[1, 2, 3], "a\nb\nc", [7, 8, 9]]}}], 1
         )
         # RUST-GAP: upstream expects the round-tripped payload. EdgeLinkd's split node
         # overwrites msg.parts instead of stacking the incoming parts under msg.parts.parts
