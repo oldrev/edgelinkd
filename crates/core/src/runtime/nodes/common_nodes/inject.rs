@@ -8,7 +8,6 @@ use tokio_cron_scheduler::{Job, JobScheduler};
 
 use crate::EdgelinkError;
 use crate::runtime::eval;
-use crate::runtime::model::*;
 use crate::runtime::nodes::*;
 use edgelink_macro::*;
 
@@ -93,7 +92,7 @@ impl InjectNode {
             return Err(EdgelinkError::BadFlowsJson("Cron expression is missing".to_owned()).into());
         }
 
-        log::debug!("cron_expr='{}'", &self.config.crontab);
+        log::debug!("cron_expr='{}'", self.config.crontab);
 
         let cron_job_stop_token = stop_token.clone();
         let self1 = Arc::clone(&self);

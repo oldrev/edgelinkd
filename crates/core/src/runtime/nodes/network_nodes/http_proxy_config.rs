@@ -33,7 +33,6 @@ use std::collections::HashSet;
 use serde::Deserialize;
 use url::Url;
 
-use crate::runtime::model::*;
 use crate::runtime::nodes::*;
 use edgelink_macro::*;
 

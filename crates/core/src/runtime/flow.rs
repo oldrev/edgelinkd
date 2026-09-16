@@ -887,7 +887,7 @@ impl Flow {
                 candidates.push((distance, scoped_node_behavior.clone()))
             }
         }
-        candidates.sort_by(|a, b| a.0.cmp(&b.0));
+        candidates.sort_by_key(|a| a.0);
         Ok(candidates)
     }
 }

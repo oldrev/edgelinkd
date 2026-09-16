@@ -11,7 +11,6 @@ use tokio::time::{Duration, interval};
 
 use crate::EdgelinkError;
 use crate::runtime::flow::Flow;
-use crate::runtime::model::*;
 use crate::runtime::nodes::*;
 use edgelink_macro::*;
 

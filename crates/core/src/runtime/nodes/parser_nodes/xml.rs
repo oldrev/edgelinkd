@@ -7,7 +7,6 @@ use quick_xml::{Reader, Writer};
 use serde::Deserialize;
 
 use crate::runtime::flow::Flow;
-use crate::runtime::model::*;
 use crate::runtime::nodes::*;
 use edgelink_macro::*;
 

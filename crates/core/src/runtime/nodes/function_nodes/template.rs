@@ -13,7 +13,6 @@ use tokio_util::sync::CancellationToken;
 use serde_yaml_ng;
 
 use crate::runtime::flow::Flow;
-use crate::runtime::model::*;
 use crate::runtime::nodes::*;
 
 /// Output format for the Template node

@@ -12,7 +12,6 @@ use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 use crate::runtime::flow::Flow;
-use crate::runtime::model::*;
 use crate::runtime::nodes::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

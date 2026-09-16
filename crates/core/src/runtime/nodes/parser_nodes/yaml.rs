@@ -2,7 +2,6 @@ use serde::Deserialize;
 use std::sync::Arc;
 
 use crate::runtime::flow::Flow;
-use crate::runtime::model::*;
 use crate::runtime::nodes::*;
 use edgelink_macro::*;
 

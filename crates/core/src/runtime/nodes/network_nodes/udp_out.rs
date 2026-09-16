@@ -2,7 +2,6 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use tokio::net::UdpSocket;
 
-use base64::prelude::*;
 use serde::Deserialize;
 
 use crate::runtime::flow::Flow;
@@ -127,8 +126,7 @@ impl UdpOutNode {
         let data_to_send = if self.config.base64 {
             // Decode base64 data for sending
             if let Some(payload_str) = payload.as_str() {
-                BASE64_STANDARD
-                    .decode(payload_str)
+                base64::Engine::decode(&base64::engine::general_purpose::STANDARD, payload_str)
                     .map_err(|e| crate::EdgelinkError::InvalidOperation(format!("Invalid base64 payload: {e}")))?
             } else {
                 return Err(

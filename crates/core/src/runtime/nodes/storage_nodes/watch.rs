@@ -7,7 +7,6 @@ use tokio::sync::Mutex;
 use tokio::sync::mpsc;
 
 use crate::runtime::flow::Flow;
-use crate::runtime::model::*;
 use crate::runtime::nodes::*;
 use edgelink_macro::*;
 

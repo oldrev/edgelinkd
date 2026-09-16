@@ -17,7 +17,6 @@ use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
 use crate::runtime::flow::Flow;
-use crate::runtime::model::*;
 use crate::runtime::nodes::*;
 
 fn deser_bool_from_string<'de, D>(deserializer: D) -> Result<bool, D::Error>

@@ -8,7 +8,6 @@ use tokio_util::sync::CancellationToken;
 use serde::Deserialize;
 
 use crate::runtime::flow::Flow;
-use crate::runtime::model::*;
 use crate::runtime::nodes::*;
 use edgelink_macro::*;
 

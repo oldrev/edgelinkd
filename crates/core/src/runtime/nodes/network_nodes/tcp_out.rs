@@ -5,11 +5,9 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
-use base64::prelude::*;
 use serde::Deserialize;
 
 use crate::runtime::flow::Flow;
-use crate::runtime::model::*;
 use crate::runtime::nodes::*;
 use edgelink_macro::*;
 
@@ -72,7 +70,7 @@ impl TcpOutNode {
         match payload {
             Variant::String(s) => {
                 if self.config.base64 {
-                    BASE64_STANDARD.decode(s).map_err(|e| {
+                    base64::Engine::decode(&base64::engine::general_purpose::STANDARD, s).map_err(|e| {
                         crate::EdgelinkError::InvalidOperation(format!("Invalid base64 payload: {e}")).into()
                     })
                 } else {

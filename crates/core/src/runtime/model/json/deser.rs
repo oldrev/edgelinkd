@@ -526,7 +526,7 @@ where
 
                 for hex_str in inner_seq {
                     let node_id = parse_red_id_str(&hex_str)
-                        .ok_or(EdgelinkError::BadFlowsJson(format!("Bad ID string: '{}'", &hex_str)))
+                        .ok_or(EdgelinkError::BadFlowsJson(format!("Bad ID string: '{}'", hex_str)))
                         .map_err(de::Error::custom)?;
                     node_ids.push(node_id);
                 }

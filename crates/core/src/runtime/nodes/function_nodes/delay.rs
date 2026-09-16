@@ -7,7 +7,6 @@ use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 use crate::runtime::flow::Flow;
-use crate::runtime::model::*;
 use crate::runtime::nodes::{with_uow, *};
 use edgelink_macro::*;
 
@@ -803,7 +802,7 @@ impl DelayNode {
 
                 let mut queues = this.topic_queues.lock().await;
                 let mut to_send = Vec::new();
-                for (_topic, queue) in queues.iter_mut() {
+                for queue in queues.values_mut() {
                     if let Some(msg_info) = queue.pop_front() {
                         to_send.push(msg_info);
                     }

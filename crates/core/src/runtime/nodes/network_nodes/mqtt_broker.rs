@@ -13,7 +13,6 @@
 use serde::Deserialize;
 use std::sync::Arc;
 
-use crate::runtime::model::*;
 use crate::runtime::nodes::*;
 use edgelink_macro::*;
 use rumqttc::{AsyncClient, EventLoop, LastWill, MqttOptions, QoS, Transport};
@@ -248,7 +247,7 @@ impl MqttBrokerNode {
     /// Disconnect all clients
     pub async fn disconnect(&self) -> crate::Result<()> {
         let mut clients = self.clients.lock().await;
-        for (_id, client) in clients.iter() {
+        for client in clients.values() {
             let _ = client.disconnect().await;
         }
         clients.clear();

@@ -5,11 +5,9 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
-use base64::prelude::*;
 use serde::Deserialize;
 
 use crate::runtime::flow::Flow;
-use crate::runtime::model::*;
 use crate::runtime::nodes::*;
 use edgelink_macro::*;
 
@@ -95,7 +93,9 @@ impl TcpInNode {
                     Variant::String(String::from_utf8_lossy(data).to_string())
                 }
             },
-            DataType::Base64 => Variant::String(BASE64_STANDARD.encode(data)),
+            DataType::Base64 => {
+                Variant::String(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, data))
+            }
             DataType::Buffer => {
                 // Return as array of numbers (like Node.js Buffer)
                 let bytes: Vec<Variant> = data.iter().map(|&b| Variant::Number(serde_json::Number::from(b))).collect();

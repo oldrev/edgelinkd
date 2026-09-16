@@ -1,4 +1,3 @@
-use base64::prelude::*;
 use futures_util::{SinkExt, StreamExt};
 use std::sync::Arc;
 use tokio::net::TcpStream;
@@ -9,7 +8,6 @@ use tokio_util::sync::CancellationToken;
 use serde::Deserialize;
 
 use crate::runtime::flow::Flow;
-use crate::runtime::model::*;
 use crate::runtime::nodes::*;
 use edgelink_macro::*;
 
@@ -106,7 +104,7 @@ impl WebSocketClientNode {
         if url.contains(&self.config.path) {
             url.clone()
         } else {
-            format!("{}{}", url.trim_end_matches('/'), &self.config.path)
+            format!("{}{}", url.trim_end_matches('/'), self.config.path)
         }
     }
 
@@ -219,7 +217,7 @@ impl WebSocketClientNode {
                             }
                             Some(Ok(Message::Binary(data))) => {
                                 log::debug!("WebSocket client: Received binary data: {} bytes", data.len());
-                                let data_str = base64::prelude::BASE64_STANDARD.encode(&data);
+                                let data_str = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &data);
                                 self.notify_subscribers(&data_str, "binary").await;
                             }
                             Some(Ok(Message::Close(close_frame))) => {

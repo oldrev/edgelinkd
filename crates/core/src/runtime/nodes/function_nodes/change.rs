@@ -6,7 +6,6 @@ use serde_json::Value;
 
 use crate::runtime::eval;
 use crate::runtime::flow::Flow;
-use crate::runtime::model::*;
 use crate::runtime::nodes::*;
 use edgelink_macro::*;
 
@@ -382,7 +381,7 @@ impl ChangeNode {
         match target_type {
             RedPropertyType::Msg => {
                 if let Some(to_value) = to_value {
-                    log::info!("{} = {:?}", target_prop, &to_value);
+                    log::info!("{} = {:?}", target_prop, to_value);
                     msg.set_nav_stripped(target_prop, to_value, true)?;
                 } else {
                     // Equals the `undefined` in JS

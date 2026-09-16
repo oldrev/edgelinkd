@@ -2,11 +2,9 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use tokio::net::UdpSocket;
 
-use base64::prelude::*;
 use serde::Deserialize;
 
 use crate::runtime::flow::Flow;
-use crate::runtime::model::*;
 use crate::runtime::nodes::*;
 use edgelink_macro::*;
 
@@ -113,7 +111,7 @@ impl UdpInNode {
                 }
             },
             DataType::Base64 => {
-                let encoded = BASE64_STANDARD.encode(data);
+                let encoded = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, data);
                 Variant::String(encoded)
             }
             DataType::Buffer => {
