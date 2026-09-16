@@ -113,7 +113,7 @@ tokio-tungstenite = { version = "0.26.2", features = [
     "rustls-tls-native-roots",
 ] }
 serde-xml-rs = { version = "0.8.1" }
-quick-xml = { version = "0.36", features = ["serialize"] }
+quick-xml = { version = "0.39", features = ["serialize"] }
 axum = { version = "0.8.4", default-features = false, features = [
     "http1",
     "json",
