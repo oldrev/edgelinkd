@@ -155,7 +155,7 @@ class TestSplitNode:
             assert m["payload"] == vals[i]
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason='Buffer payloads cannot cross the pytest JSON bridge yet (Variant::Bytes has no JSON representation)')
+    @pytest.mark.skip(reason='no bytes type in the pytest JSON bridge: a Python bytes payload arrives as null and a byte response comes back as a list of ints, so this spec needs an agreed bytes convention in the harness')
     @pytest.mark.it('should split a buffer into lengths')
     async def test_0012(self):
         node = {"type": "split", "splt": "2", "spltType": "len"}
@@ -170,7 +170,7 @@ class TestSplitNode:
             assert m["payload"] == vals[i]
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason='Buffer payloads cannot cross the pytest JSON bridge yet (Variant::Bytes has no JSON representation)')
+    @pytest.mark.skip(reason='no bytes type in the pytest JSON bridge: a Python bytes payload arrives as null and a byte response comes back as a list of ints, so this spec needs an agreed bytes convention in the harness')
     @pytest.mark.it('should split a buffer on another buffer (streaming)')
     async def test_0013(self):
         node = {"type": "split", "splt": b"4", "spltType": "bin", "stream": True}
@@ -222,7 +222,7 @@ class TestSplitNode:
         assert len(msgs[1]["payload"]) == 1
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason='Buffer payloads cannot cross the pytest JSON bridge yet (Variant::Bytes has no JSON representation)')
+    @pytest.mark.skip(reason='no bytes type in the pytest JSON bridge: a Python bytes payload arrives as null and a byte response comes back as a list of ints, so this spec needs an agreed bytes convention in the harness')
     @pytest.mark.it('should handle spltBufferString value of undefined')
     async def test_0018(self):
         node = {"type": "split", "splt": b"4", "spltType": "bin"}
@@ -232,7 +232,7 @@ class TestSplitNode:
         assert msgs[0]["payload"] == b"123"
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason='Buffer payloads cannot cross the pytest JSON bridge yet (Variant::Bytes has no JSON representation)')
+    @pytest.mark.skip(reason='no bytes type in the pytest JSON bridge: a Python bytes payload arrives as null and a byte response comes back as a list of ints, so this spec needs an agreed bytes convention in the harness')
     @pytest.mark.it('should ceil count value when msg.payload type is Buffer')
     async def test_0019(self):
         node = {"type": "split", "splt": "2", "spltType": "len"}
@@ -244,7 +244,7 @@ class TestSplitNode:
         assert len(msgs[1]["payload"]) == 1
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason='Buffer payloads cannot cross the pytest JSON bridge yet (Variant::Bytes has no JSON representation)')
+    @pytest.mark.skip(reason='no bytes type in the pytest JSON bridge: a Python bytes payload arrives as null and a byte response comes back as a list of ints, so this spec needs an agreed bytes convention in the harness')
     @pytest.mark.it('should set msg.parts.ch when node.spltType is str')
     async def test_0020(self):
         node = {"type": "split", "splt": "2", "spltType": "str", "stream": False}
@@ -1322,7 +1322,7 @@ class TestMessagingApi:
         # ]);
         pass
 
-    @pytest.mark.skip(reason="no nodeMessageBufferMaxLength / overflow semantics in this engine")
+    @pytest.mark.skip(reason="the join node does not implement the nodeMessageBufferMaxLength overflow semantics the setting is now available for (see the sort node)")
     @pytest.mark.asyncio
     @pytest.mark.it('should call done() regardless of buffer overflow')
     async def test_0012(self):
