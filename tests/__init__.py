@@ -306,3 +306,32 @@ async def run_single_node_with_msgs_ntimes(node_json: object, msgs: list[object]
     console_node = {"id": "2", "type": "test-once", "z": "0"}
     final_flows_json = [{"id": "0", "type": "tab"}, user_node, console_node]
     return await run_flow_with_msgs_ntimes(final_flows_json, msgs, nexpected, injectee_node_id, timeout)
+
+
+async def run_window_with_msgs_ntimes(flows_obj: list[object], msgs: list[object] | None,
+                                      window: float, injectee_node_id: str = '1') -> list[object]:
+    """Inject the messages and collect every output emitted during `window` seconds.
+
+    Mirrors Node-RED's spec helper: inject a burst, sample for `runtimeInMillis`, then count
+    whatever arrived. Unlike the `*_ntimes` harness above it never waits for a message count.
+    """
+    msgs_to_inject = []
+    for msg in msgs:
+        if 'nid' in msg and 'msg' in msg:  # We got a raw injection
+            msg_injection = (msg['nid'], msg['msg'])
+        else:
+            msg_injection = (injectee_node_id, msg)
+        msgs_to_inject.append(msg_injection)
+    return await edgelink.run_flows_once(0, window, flows_obj, msgs_to_inject, TEST_EDGELINLKD_CONFIG, True)
+
+
+async def run_single_node_window_ntimes(node_json: object, msgs: list[object] | None,
+                                        window: float, injectee_node_id: str = '1') -> list[object]:
+    user_node = copy.deepcopy(node_json)
+    user_node["id"] = "1"
+    user_node["z"] = "0"
+    if 'wires' not in node_json:
+        user_node["wires"] = [["2"]]
+    console_node = {"id": "2", "type": "test-once", "z": "0"}
+    final_flows_json = [{"id": "0", "type": "tab"}, user_node, console_node]
+    return await run_window_with_msgs_ntimes(final_flows_json, msgs, window, injectee_node_id)

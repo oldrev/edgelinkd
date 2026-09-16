@@ -12,7 +12,10 @@ from tests import *
 async def _generic_rate_limit_seconds_test(limit: int, nb_unit: int, runtime_in_millis: int, rate_value=None):
     """
     Runs a rate limit test - only testing seconds!
-    
+
+    Mirrors Node-RED's `genericRateLimitSECONDSTest`: inject a burst, sample the flow for
+    `runtime_in_millis`, then count what arrived during that window.
+
     :param limit: the message limit count
     :param nb_unit: the multiple of the unit, limit Messages for nb_unit Seconds  
     :param runtime_in_millis: when to terminate run and count messages received
@@ -39,7 +42,6 @@ async def _generic_rate_limit_seconds_test(limit: int, nb_unit: int, runtime_in_
     # Calculate how many messages we might theoretically receive
     possible_max_message_count = int(math.ceil(limit * (runtime_in_millis / 1000) + limit))
 
-
     # Prepare messages to send
     messages = []
     for i in range(possible_max_message_count + 1):
@@ -48,35 +50,25 @@ async def _generic_rate_limit_seconds_test(limit: int, nb_unit: int, runtime_in_
             msg["rate"] = rate_value
         messages.append(msg)
 
-    start_time = time.time()
-    # Use a timeout slightly longer than runtime to ensure we capture all expected messages
-    timeout_seconds = (runtime_in_millis + 800) / 1000.0
-
-    msgs = await run_single_node_with_msgs_ntimes(
-        node,
-        messages,
-        possible_max_message_count,  # Don't limit expected messages, let the node decide
-        timeout=timeout_seconds + 5
-    )
-    end_time = time.time()
-    elapsed = (end_time - start_time) * 1000  # Convert to milliseconds
+    # Sample for the requested runtime. The windowed harness anchors its clock to the first
+    # output (as Node-RED's helper does with its receive timestamp), so engine start-up cost
+    # is not charged against the observation window.
+    msgs = await run_single_node_window_ntimes(node, messages, runtime_in_millis / 1000.0)
 
     # Assertions based on Node-RED tests:
     # 1. Should receive fewer messages than sent (rate limiting effect)
     assert len(msgs) < possible_max_message_count, f"Should receive fewer than {possible_max_message_count} messages due to rate limiting, got {len(msgs)}"
-    
+
     # 2. Should receive messages in order (payload should match index)
     for j in range(len(msgs)):
         assert msgs[j]['payload'] == j, f"Received messages were not received in order. Message was {msgs[j]['payload']} on count {j}"
-    
-    # 3. Timing should be reasonable - check rate interval between messages if we have multiple
-    if len(msgs) >= 2:
-        # For rate limiting, we expect intervals between messages to be at least 90% of the calculated rate
-        min_interval = rate_interval * 0.9
-        # Note: In a real implementation, we'd track receive timestamps between messages
-        # For now, we'll just verify the total elapsed time makes sense
-        expected_min_total_time = (len(msgs) - 1) * min_interval  # -1 because first message is immediate
-        assert elapsed >= expected_min_total_time * 0.8, f"Total elapsed time {elapsed}ms too short for {len(msgs)} messages with rate {rate_interval}ms"
+
+    # 3. Each arrival should be spaced by at least 90% of the rate interval
+    min_interval = max(rate_interval, rate_value or 0.0) * 0.9
+    timestamps = [m['_arrival_ms'] for m in msgs]
+    for j in range(1, len(timestamps)):
+        interval = timestamps[j] - timestamps[j - 1]
+        assert interval >= min_interval, f"Interval {interval}ms between message {j-1} and {j} is below the rate interval {min_interval}ms"
 
 
 async def _drop_rate_limit_seconds_test(limit: int, nb_unit: int, runtime_in_millis: int,
