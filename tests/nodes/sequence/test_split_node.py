@@ -268,6 +268,16 @@ class TestSplitNode:
     async def test_0022(self):
         pass
 
+def _nid(name):
+    """Convert an upstream spec node id into a hex ElementId.
+
+    `ElementId::from_str` is `u64::from_str_radix(_, 16)`, so upstream's readable ids
+    (`s1`, `j1`, `helperNode1`) cannot be used as-is in flow JSON. Converting them keeps the
+    correspondence with the upstream spec visible at the point of use.
+    """
+    return name.encode().hex()
+
+
 def _mapi_flow(node_json):
     """Build the flow the upstream mapiDone*TestHelper()s load.
 
@@ -837,18 +847,18 @@ class TestJoinNode:
         #    {id:"n2", type:"helper"}]
         # s1.receive({payload:[[1,2,3],"a\nb\nc",[7,8,9]]});
         # Expects msg.payload == [[1,2,3],"a\nb\nc",[7,8,9]].
-        # RUST-GAP: EdgeLinkd node ids must be hex/numeric, so upstream's s1/s2/j1/j2 are
-        # spelled "1".."5" here.
+        # Upstream's ids are readable, but ElementId is hex, so they are converted with the
+        # _nid() helper instead of copied (declaration, z, wires and the injection target).
         flows = [
-            {"id": "100", "type": "tab"},
-            {"id": "1", "type": "split", "z": "100", "wires": [["2"]]},
-            {"id": "2", "type": "split", "z": "100", "wires": [["3"]]},
-            {"id": "3", "type": "join", "z": "100", "mode": "auto", "wires": [["4"]]},
-            {"id": "4", "type": "join", "z": "100", "mode": "auto", "wires": [["5"]]},
-            {"id": "5", "type": "test-once", "z": "100"},
+            {"id": _nid("tab"), "type": "tab"},
+            {"id": _nid("s1"), "type": "split", "z": _nid("tab"), "wires": [[_nid("s2")]]},
+            {"id": _nid("s2"), "type": "split", "z": _nid("tab"), "wires": [[_nid("j1")]]},
+            {"id": _nid("j1"), "type": "join", "z": _nid("tab"), "mode": "auto", "wires": [[_nid("j2")]]},
+            {"id": _nid("j2"), "type": "join", "z": _nid("tab"), "mode": "auto", "wires": [[_nid("n2")]]},
+            {"id": _nid("n2"), "type": "test-once", "z": _nid("tab")},
         ]
         msgs = await run_flow_with_msgs_ntimes(
-            flows, [{"nid": "1", "msg": {"payload": [[1, 2, 3], "a\nb\nc", [7, 8, 9]]}}], 1
+            flows, [{"nid": _nid("s1"), "msg": {"payload": [[1, 2, 3], "a\nb\nc", [7, 8, 9]]}}], 1
         )
         # RUST-GAP: upstream expects the round-tripped payload. EdgeLinkd's split node
         # overwrites msg.parts instead of stacking the incoming parts under msg.parts.parts

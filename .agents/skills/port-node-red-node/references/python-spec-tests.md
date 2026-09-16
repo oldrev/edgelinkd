@@ -125,10 +125,35 @@ Message injection forms accepted by `msgs`:
 
 Notes:
 
-- **Node ids in flow JSON must be hex-parseable.** `ElementId::from_str` is
-  `u64::from_str_radix(_, 16)`, so upstream's readable ids (`splitNode1`, `n1`, `s1`) make
-  `run_flows_once` fail with "failed to parse ElementId". Use `"1"`..`"5"` (or any hex
-  string) in the flows you build.
+- **Node ids must be hex `ElementId`s → convert them, never copy them.** Upstream specs use
+  readable ids (`n1`, `s1`, `splitNode1`, `helperNode1`) and `ElementId::from_str` is
+  `u64::from_str_radix(_, 16)`, so a copied id makes `run_flows_once` fail with
+  "failed to parse ElementId". Convert each one — and keep the upstream name visible in the
+  test by converting at the point of use:
+
+  ```python
+  def _nid(name: str) -> str:
+      """Upstream spec id -> hex ElementId; keeps the upstream name readable in the test."""
+      return name.encode().hex()
+
+  flows = [
+      {"id": _nid("s1"), "type": "split", "z": _nid("tab"), "wires": [[_nid("j1")]]},
+      {"id": _nid("j1"), "type": "join", "z": _nid("tab"), "wires": [[_nid("helper")]]},
+      {"id": _nid("helper"), "type": "test-once", "z": _nid("tab")},
+  ]
+  msgs = await run_flow_with_msgs_ntimes(flows, [{"nid": _nid("s1"), "msg": {...}}], 1)
+  ```
+
+  An id appears in several places and **all of them must be converted together**: the node
+  declaration (`id`), the flow it belongs to (`z`), every `wires` target, `complete`/`catch`
+  `scope` entries, and the injection target (`nid` in `msgs`, or `injectee_node_id`). A
+  missed reference silently creates a second, unreachable node — the test then just times
+  out. Plain numbers work as well (`"1"`, `"2"`), which is what this repository's ported
+  tests use for the flows they build by hand, but they lose the link to the upstream id.
+  Where the harness builds the flow for you (`run_single_node_with_msgs_ntimes`,
+  `run_with_single_node_ntimes`) it assigns `"1"`/`"2"`/`"3"` itself, so prefer those
+  helpers and only hand-write a flow when the spec needs extra nodes (complete, catch,
+  chained split→join).
 - **`nexpected=0` never runs the flow.** `Engine::run_once_with_inject` returns as soon as
   zero messages are expected, so a test cannot observe "the node emitted nothing" that
   way; upstream's `setTimeout(...); assert no input` idiom has no equivalent here. Port

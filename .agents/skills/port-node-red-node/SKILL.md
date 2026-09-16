@@ -166,8 +166,12 @@ tracked — refresh it deliberately only when it is part of the change you inten
   or the `fullTitle` misses the prefix and the checker reports every test of that block as
   missing. See `references/python-spec-tests.md`.
 - **The pytest bridge cannot carry Buffers.** `Variant::Bytes` has no JSON representation,
-  so binary-payload spec tests are unportable; skip them with that reason. Node ids in
-  flow JSON must also be hex-parseable, and `nexpected=0` returns without running the flow.
+  so binary-payload spec tests are unportable; skip them with that reason. `nexpected=0`
+  returns without running the flow, so "should emit nothing" cannot be observed that way.
+- **Never copy an upstream node id into flow JSON.** `ElementId` is hex, so ids like `n1` or
+  `splitNode1` must be converted (e.g. `name.encode().hex()`) *together with every reference
+  to them* — `z`, `wires`, `scope`, injection targets — or the flow silently splits into
+  disconnected nodes and the test just times out. See `references/python-spec-tests.md`.
 - **`nexpected` mismatch.** The Python helpers wait for exactly `nexpected` messages and
   then fail with a timeout; assert on fewer messages by splitting into several tests.
 - **Forgetting the `mod` declaration.** The macro self-registers, but the file still has
