@@ -50,10 +50,10 @@ async def _generic_rate_limit_seconds_test(limit: int, nb_unit: int, runtime_in_
             msg["rate"] = rate_value
         messages.append(msg)
 
-    # Sample for the requested runtime. The windowed harness anchors its clock to the first
+    # Sample for the requested runtime. The sampling harness anchors its clock to the first
     # output (as Node-RED's helper does with its receive timestamp), so engine start-up cost
     # is not charged against the observation window.
-    msgs = await run_single_node_window_ntimes(node, messages, runtime_in_millis / 1000.0)
+    msgs = await run_single_node_for_seconds(node, messages, runtime_in_millis / 1000.0)
 
     # Assertions based on Node-RED tests:
     # 1. Should receive fewer messages than sent (rate limiting effect)

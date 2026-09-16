@@ -308,12 +308,15 @@ async def run_single_node_with_msgs_ntimes(node_json: object, msgs: list[object]
     return await run_flow_with_msgs_ntimes(final_flows_json, msgs, nexpected, injectee_node_id, timeout)
 
 
-async def run_window_with_msgs_ntimes(flows_obj: list[object], msgs: list[object] | None,
-                                      window: float, injectee_node_id: str = '1') -> list[object]:
-    """Inject the messages and collect every output emitted during `window` seconds.
+async def run_flow_for_seconds(flows_obj: list[object], msgs: list[object] | None,
+                               seconds: float, injectee_node_id: str = '1') -> list[object]:
+    """Inject the messages and collect every output emitted during `seconds` seconds.
 
     Mirrors Node-RED's spec helper: inject a burst, sample for `runtimeInMillis`, then count
-    whatever arrived. Unlike the `*_ntimes` harness above it never waits for a message count.
+    whatever arrived. Unlike the `*_ntimes` harness above - which runs until a message count
+    is reached - this samples for a duration. Every returned message therefore carries an
+    extra `_arrival_ms` field: its arrival offset relative to the first output (so the first
+    one is always 0.0), which is how upstream checks the spacing between messages.
     """
     msgs_to_inject = []
     for msg in msgs:
@@ -322,11 +325,12 @@ async def run_window_with_msgs_ntimes(flows_obj: list[object], msgs: list[object
         else:
             msg_injection = (injectee_node_id, msg)
         msgs_to_inject.append(msg_injection)
-    return await edgelink.run_flows_once(0, window, flows_obj, msgs_to_inject, TEST_EDGELINLKD_CONFIG, True)
+    return await edgelink.run_flows_for_once(seconds, flows_obj, msgs_to_inject, TEST_EDGELINLKD_CONFIG)
 
 
-async def run_single_node_window_ntimes(node_json: object, msgs: list[object] | None,
-                                        window: float, injectee_node_id: str = '1') -> list[object]:
+async def run_single_node_for_seconds(node_json: object, msgs: list[object] | None,
+                                      seconds: float, injectee_node_id: str = '1') -> list[object]:
+    """Single-node variant of `run_flow_for_seconds`; see it for the `_arrival_ms` contract."""
     user_node = copy.deepcopy(node_json)
     user_node["id"] = "1"
     user_node["z"] = "0"
@@ -334,4 +338,4 @@ async def run_single_node_window_ntimes(node_json: object, msgs: list[object] | 
         user_node["wires"] = [["2"]]
     console_node = {"id": "2", "type": "test-once", "z": "0"}
     final_flows_json = [{"id": "0", "type": "tab"}, user_node, console_node]
-    return await run_window_with_msgs_ntimes(final_flows_json, msgs, window, injectee_node_id)
+    return await run_flow_for_seconds(final_flows_json, msgs, seconds, injectee_node_id)
