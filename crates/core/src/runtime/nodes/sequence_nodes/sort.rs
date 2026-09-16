@@ -62,6 +62,11 @@ impl Default for SortNodeConfig {
 #[derive(Debug, Default)]
 #[allow(dead_code)]
 struct SortNodeState {
+    // Upstream (18-sort.js) also tracks a `pending_count` here, but only to enforce the
+    // `nodeMessageBufferMaxLength` cap, which drops the oldest incomplete group when the buffer
+    // grows past it. That setting and its overflow path are not offered by this engine, so the
+    // counter would be dead state - and a counter whose increment is missing while its decrement
+    // remains is exactly what used to underflow and panic the node.
     pending: HashMap<String, PendingGroup>, // Pending groups for sequence sorting
     seq: u64,                               // Sequence counter
 }

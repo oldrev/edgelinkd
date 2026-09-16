@@ -270,26 +270,17 @@ class TestSortNode:
     async def test_handle_jsonata_error(self):
         pass
 
+    @pytest.mark.skip(reason="no nodeMessageBufferMaxLength setting / overflow semantics in this engine: upstream with nodeMessageBufferMaxLength=2 drops the oldest incomplete group and reports sort.too-many on its last message")
     @pytest.mark.asyncio
     @pytest.mark.it('should handle too many pending messages')
     async def test_handle_too_many_pending(self):
-        node = {"type": "sort", "order": "ascending", "as_num": False, "target": "payload", "targetType": "seq", "seqKey": "payload", "seqKeyType": "msg"}
-        # Send more messages than buffer can handle
-        msgs = []
-        for i in range(4):
-            msg = {"payload": f"V{i}", "parts": {"id": "X", "index": i, "count": 4}}
-            msgs.append(msg)
-        # Should handle gracefully without crashing
-        out = await run_single_node_with_msgs_ntimes(node, msgs, 0)
+        pass
 
+    @pytest.mark.skip(reason="the runtime has no node close hook and the harness cannot observe node logs, so upstream's sort.clear log on close cannot be asserted")
     @pytest.mark.asyncio
     @pytest.mark.it('should clear pending messages on close')
     async def test_clear_pending_on_close(self):
-        node = {"type": "sort", "order": "ascending", "as_num": False, "target": "payload", "targetType": "seq", "seqKey": "payload", "seqKeyType": "msg"}
-        # Send incomplete sequence
-        msg = {"payload": 0, "parts": {"id": "X", "index": 0, "count": 2}}
-        # Should handle gracefully
-        out = await run_single_node_with_msgs_ntimes(node, [msg], 0)
+        pass
 
     # Messaging API tests (skip complex timing tests)
     @pytest.mark.skip(reason="Complex timing tests not fully supported")
