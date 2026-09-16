@@ -38,6 +38,7 @@ fn rust_sleep(py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
 }
 
 #[pyfunction]
+#[pyo3(signature = (_expected_msgs, _timeout, py_json, msgs_json, app_cfg, windowed=false))]
 fn run_flows_once<'a>(
     py: Python<'a>,
     _expected_msgs: usize,
@@ -45,6 +46,7 @@ fn run_flows_once<'a>(
     py_json: &'a Bound<'a, PyAny>,
     msgs_json: &'a Bound<'a, PyAny>,
     app_cfg: &'a Bound<'a, PyAny>,
+    windowed: bool,
 ) -> PyResult<Bound<'a, PyAny>> {
     let flows_json = json::py_object_to_json_value(py_json)?;
     let msgs_to_inject = {
@@ -71,13 +73,33 @@ fn run_flows_once<'a>(
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        let msgs = engine
-            .run_once_with_inject(_expected_msgs, std::time::Duration::from_secs_f64(_timeout), msgs_to_inject)
-            .await
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+        // Windowed runs sample the flow for a fixed duration instead of waiting for a count.
+        // They also report each output's arrival offset, which the rate-limiting specs need
+        // to check the spacing between messages.
+        let result_value = if windowed {
+            let msgs = engine
+                .run_window_with_inject(std::time::Duration::from_secs_f64(_timeout), msgs_to_inject)
+                .await
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 
-        let result_value = serde_json::to_value(&msgs)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+            let mut out = Vec::with_capacity(msgs.len());
+            for (msg, arrival_ms) in msgs {
+                let mut val = serde_json::to_value(&msg)
+                    .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+                if let serde_json::Value::Object(ref mut map) = val {
+                    map.insert("_arrival_ms".to_string(), serde_json::Value::from(arrival_ms));
+                }
+                out.push(val);
+            }
+            serde_json::Value::Array(out)
+        } else {
+            let msgs = engine
+                .run_once_with_inject(_expected_msgs, std::time::Duration::from_secs_f64(_timeout), msgs_to_inject)
+                .await
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+
+            serde_json::to_value(&msgs).map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?
+        };
 
         Python::with_gil(|py| {
             let pyo = json::json_value_to_py_object(py, &result_value)?;

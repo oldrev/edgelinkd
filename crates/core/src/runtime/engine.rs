@@ -381,6 +381,83 @@ impl Engine {
         self.run_once_with_inject(expected_msgs, timeout, Vec::with_capacity(0)).await
     }
 
+    /// How long a windowed run waits for the first output before it starts sampling.
+    ///
+    /// Only the *first* output is awaited with this bound; engine start-up cost is what it
+    /// absorbs. A run that never produces anything gives up after this.
+    #[cfg(any(test, feature = "pymod"))]
+    const FIRST_MSG_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+
+    /// Inject the given messages and collect every output emitted during `window`,
+    /// paired with its arrival offset in milliseconds.
+    ///
+    /// Unlike [`Self::run_once_with_inject`], this does not wait for a message count: it
+    /// samples the flow for a fixed duration and returns whatever arrived in that window.
+    /// Node-RED's rate-limiting specs are written that way (inject a burst, sample for
+    /// `runtimeInMillis`, then count and check the spacing), which is impossible to
+    /// express with a count. Offsets are relative to the first observed output.
+    #[cfg(any(test, feature = "pymod"))]
+    pub async fn run_window_with_inject(
+        &self,
+        window: std::time::Duration,
+        mut msgs_to_inject: Vec<(ElementId, Msg)>,
+    ) -> crate::Result<Vec<(Msg, f64)>> {
+        self.start().await?;
+
+        // Clear the final_msgs channel
+        {
+            let mut rx = self.inner.final_msgs_rx.rx.lock().await;
+            while rx.try_recv().is_ok() {}
+        }
+
+        let cancel = CancellationToken::new();
+        for msg in msgs_to_inject.drain(..) {
+            self.inject_msg(&msg.0, MsgHandle::new(msg.1), cancel.clone()).await?;
+        }
+
+        // Node-RED's sampling helper starts its clock when the first message is received
+        // (it measures the gap to the *previous* message and the first one has none), so
+        // arrival offsets are reported relative to the first observed message. Anchoring to
+        // the first send also keeps them deterministic regardless of engine start-up cost.
+        //
+        // Waiting for that first message also keeps the engine's start-up cost out of the
+        // sampling window, which would otherwise eat into it.
+        let mut start: Option<std::time::Instant> = None;
+        let mut received = Vec::new();
+        let first =
+            tokio::time::timeout(Self::FIRST_MSG_GRACE, self.inner.final_msgs_rx.recv_msg(cancel.clone())).await;
+        if let Ok(Ok(msg)) = first {
+            start = Some(std::time::Instant::now());
+            received.push((msg.unwrap_async().await, 0.0));
+        }
+
+        if start.is_some() {
+            let _ = tokio::time::timeout(window, async {
+                loop {
+                    let msg = match self.inner.final_msgs_rx.recv_msg(cancel.clone()).await {
+                        Ok(msg) => msg,
+                        Err(_) => break,
+                    };
+                    let arrival_ms = start.unwrap().elapsed().as_secs_f64() * 1000.0;
+                    received.push((msg.unwrap_async().await, arrival_ms));
+                }
+            })
+            .await;
+        }
+
+        // Drain anything that landed while the window was closing
+        {
+            let mut rx = self.inner.final_msgs_rx.rx.lock().await;
+            while let Ok(msg) = rx.try_recv() {
+                let arrival_ms = start.get_or_insert_with(std::time::Instant::now).elapsed().as_secs_f64() * 1000.0;
+                received.push((msg.unwrap_async().await, arrival_ms));
+            }
+        }
+
+        self.stop().await?;
+        Ok(received)
+    }
+
     pub fn find_flow_node_by_id(&self, id: &ElementId) -> Option<Arc<dyn FlowNodeBehavior>> {
         self.inner.all_flow_nodes.get(id).map(|x| x.value().clone())
     }
