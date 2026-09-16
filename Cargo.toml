@@ -2,7 +2,7 @@
 name = "edgelink-app"
 version = "0.1.99"
 edition = "2021"
-rust-version = "1.77.2"
+rust-version = "1.88"
 readme = "README.md"
 homepage = "https://github.com/oldrev/edgelinkd"
 description = "EdgeLinkd is a Node-RED compatible run-time engine in Rust."
@@ -70,7 +70,7 @@ inventory = "0.3"
 uuid = { version = "1.0", features = ["v4", "serde"] }
 futures = "0.3"
 futures-util = "0.3"
-rquickjs = { version = "0.9", features = [
+rquickjs = { version = "0.11", features = [
     "chrono",
     "loader",
     "allocator",
@@ -83,7 +83,7 @@ rquickjs = { version = "0.9", features = [
     "parallel",
 ] }
 #llrt_modules = { git = "https://github.com/awslabs/llrt.git", default-features = false, package = "llrt_modules", features = ["buffer", "timers"]}
-rquickjs-extra = { version = "0.1", default-features = false, features = [
+rquickjs-extra = { version = "0.2", default-features = false, features = [
     "timers",
     "console",
 ] }
