@@ -174,7 +174,8 @@ class TestFunctionNode:
             {"nid": "1", "msg": {'payload': 'foo', 'topic': 'bar', '_msgid': '1234'}},
         ]
         msgs = await run_flow_with_msgs_ntimes(flows, injections, 2)
-        assert msgs[0]['_msgid'] == msgs[1]['_msgid'] == 0x1234
+        assert msgs[0]['_msgid'] == msgs[1]['_msgid']
+        assert int(msgs[0]['_msgid'], 16) == 0x1234
         assert msgs[0]['payload'] == 1
         assert msgs[1]['payload'] == 2
 

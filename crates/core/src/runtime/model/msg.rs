@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::ops::{Index, IndexMut};
+#[cfg(feature = "js")]
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -67,8 +68,13 @@ impl Msg {
     }
 
     pub fn set_id(&mut self, id: ElementId) {
-        let uid: u64 = id.into();
-        self.body.as_object_mut().unwrap().insert(wellknown::MSG_ID_PROPERTY.to_string(), Variant::from(uid));
+        // `_msgid` is a string in Node-RED (`redUtil.generateId()` and `msg._msgid` are strings),
+        // and `Msg::id()` above reads it back as one: storing a JSON number here would make every
+        // id this runtime writes unreadable to itself.
+        self.body
+            .as_object_mut()
+            .unwrap()
+            .insert(wellknown::MSG_ID_PROPERTY.to_string(), Variant::String(id.to_string()));
     }
 
     pub fn generate_id() -> ElementId {
@@ -76,8 +82,7 @@ impl Msg {
     }
 
     pub fn generate_id_variant() -> Variant {
-        let uid: u64 = Msg::generate_id().into();
-        Variant::from(uid)
+        Variant::String(Msg::generate_id().to_string())
     }
 
     pub fn as_variant(&self) -> &Variant {
@@ -291,22 +296,20 @@ impl<'js> js::FromJs<'js> for Msg {
             js::Type::Object => {
                 if let Some(jo) = jv.as_object() {
                     let mut body = BTreeMap::new();
-                    // TODO _msgid check
                     for result in jo.props::<String, js::Value>() {
                         match result {
                             Ok((ref k, v)) => match k.as_str() {
                                 wellknown::MSG_ID_PROPERTY if v.is_string() => {
-                                    // covert
+                                    // The id is re-normalised to the canonical 16-hex string form so
+                                    // that the value stays readable by `Msg::id()` after the round trip.
                                     let uid_str: String = v.get()?;
-                                    let uid: u64 =
-                                        ElementId::from_str(uid_str.as_str()).map(|x| x.into()).map_err(|e| {
-                                            js::Error::FromJs {
-                                                from: "String",
-                                                to: "ElementID",
-                                                message: Some(format!("Failed to convert msg id '{uid_str}': {e}")),
-                                            }
+                                    let element_id =
+                                        ElementId::from_str(uid_str.as_str()).map_err(|e| js::Error::FromJs {
+                                            from: "String",
+                                            to: "ElementID",
+                                            message: Some(format!("Failed to convert msg id '{uid_str}': {e}")),
                                         })?;
-                                    body.insert(k.clone(), Variant::from(uid));
+                                    body.insert(k.clone(), Variant::String(element_id.to_string()));
                                 }
                                 wellknown::LINK_SOURCE_PROPERTY => {
                                     if let Some(bytes) =

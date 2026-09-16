@@ -121,7 +121,8 @@ impl MsgReceiverHolder {
         match rx.recv().await {
             Some(msg) => Ok(msg),
             None => {
-                log::error!("Failed to receive message");
+                // Every sender is gone, e.g. the wires were dropped while the flow was shutting down.
+                log::debug!("The message channel has been closed");
                 Err(EdgelinkError::InvalidOperation("No message in the bounded channel!".to_owned()).into())
             }
         }
@@ -139,7 +140,7 @@ impl MsgReceiverHolder {
             result = async {
                 let rx = &mut self.rx.lock().await;
                 rx.recv().await.ok_or_else(|| {
-                    log::error!("Failed to receive message");
+                    log::debug!("The message channel has been closed");
                     EdgelinkError::InvalidOperation("No message in the bounded channel!".to_owned()).into()
                 })
             } => {
@@ -172,7 +173,8 @@ impl MsgUnboundedReceiverHolder {
         match rx.recv().await {
             Some(msg) => Ok(msg),
             None => {
-                log::error!("Failed to receive message");
+                // Every sender is gone, e.g. the wires were dropped while the flow was shutting down.
+                log::debug!("The message channel has been closed");
                 Err(EdgelinkError::InvalidOperation("No message in the unbounded channel!".to_owned()).into())
             }
         }

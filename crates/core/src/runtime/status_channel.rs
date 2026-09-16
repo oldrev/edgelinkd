@@ -25,14 +25,10 @@ impl StatusChannel {
 
     /// 发送 Status 消息
     pub fn send(&self, message: StatusMessage) {
-        log::debug!("Sending status message to channel: {message:?}");
-        match self.sender.send(message) {
-            Ok(subscriber_count) => {
-                log::debug!("Status message sent successfully to {subscriber_count} subscribers");
-            }
-            Err(e) => {
-                log::warn!("Failed to send status message: {e}");
-            }
+        // `broadcast::Sender::send` only fails when nobody is subscribed, which is the normal state
+        // in headless mode (or with the editor closed): that is not a failure worth a warning.
+        if self.sender.send(message).is_err() {
+            log::trace!("Dropped a status message: no subscriber is listening");
         }
     }
 

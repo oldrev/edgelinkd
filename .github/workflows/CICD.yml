@@ -70,6 +70,11 @@ jobs:
         run: cargo fmt --check
       - name: Cargo check (syntax only)
         run: cargo check --workspace
+      - name: Cargo check (minimal feature sets)
+        run: |
+          cargo check -p edgelink-core --no-default-features --features core
+          cargo check -p edgelink-core --no-default-features --features core,js
+          cargo check -p edgelink-core --no-default-features --features core,jsonata
 
   build-and-test-windows:
     name: Build and Test on Windows

@@ -24,8 +24,6 @@ use crate::runtime::nodes::*;
 use crate::runtime::red_env::*;
 use crate::runtime::registry::Registry;
 
-const NODE_MSG_CHANNEL_CAPACITY: usize = 32;
-
 pub type FlowNodeTask = tokio::task::JoinHandle<()>;
 pub type NodeCandidates = SmallVec<[(usize, Arc<dyn FlowNodeBehavior>); 8]>;
 
@@ -36,14 +34,24 @@ pub struct FlowSettings {
 
 impl FlowSettings {
     pub fn load(settings: Option<&config::Config>) -> crate::Result<Self> {
-        match settings {
+        let flow_settings = match settings {
             Some(settings) => match settings.get::<Self>("runtime.flow") {
-                Ok(res) => Ok(res),
-                Err(config::ConfigError::NotFound(_)) => Ok(Self::default()),
-                Err(e) => Err(e.into()),
+                Ok(res) => res,
+                Err(config::ConfigError::NotFound(_)) => Self::default(),
+                Err(e) => return Err(e.into()),
             },
-            _ => Ok(Self::default()),
+            _ => Self::default(),
+        };
+
+        // `mpsc::channel(0)` panics, so a zero queue capacity cannot be honoured: reject the
+        // configuration here instead of aborting a node task later.
+        if flow_settings.node_msg_queue_capacity == 0 {
+            use anyhow::Context;
+            return Err(EdgelinkError::Configuration)
+                .with_context(|| "`runtime.flow.node_msg_queue_capacity` must be greater than zero");
         }
+
+        Ok(flow_settings)
     }
 }
 
@@ -93,7 +101,7 @@ struct InnerFlow {
     parent: Option<ElementId>,
     label: String,
     disabled: bool,
-    _args: FlowSettings,
+    args: FlowSettings,
     ordering: usize,
     type_str: &'static str,
 
@@ -260,7 +268,7 @@ impl Flow {
             label: flow_config.label.clone(),
             disabled: flow_config.disabled,
             ordering: flow_config.ordering,
-            _args: args.clone(),
+            args: args.clone(),
             type_str: match flow_kind {
                 FlowKind::GlobalFlow => "flow",
                 FlowKind::Subflow => "subflow",
@@ -632,7 +640,7 @@ impl Flow {
         engine: &Engine,
     ) -> crate::Result<BaseFlowNodeState> {
         let mut ports = Vec::new();
-        let (tx_root, rx) = tokio::sync::mpsc::channel(NODE_MSG_CHANNEL_CAPACITY);
+        let (tx_root, rx) = tokio::sync::mpsc::channel(self.inner.args.node_msg_queue_capacity);
         // Convert the Node-RED wires elements to ours
         for red_port in node_config.wires.iter() {
             let mut wires = Vec::new();

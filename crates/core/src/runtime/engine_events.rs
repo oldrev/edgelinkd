@@ -67,13 +67,11 @@ impl EngineEventBus {
 
     /// Publish an event
     pub fn publish(&self, event: EngineEvent) {
-        match self.sender.send(event.clone()) {
-            Ok(subscriber_count) => {
-                log::debug!("Published engine event {event:?} to {subscriber_count} subscribers");
-            }
-            Err(e) => {
-                log::warn!("Failed to publish engine event {event:?}: {e}");
-            }
+        // No subscriber is the normal state when no UI is attached; the event is simply dropped.
+        if let Ok(subscriber_count) = self.sender.send(event) {
+            log::debug!("Published an engine event to {subscriber_count} subscribers");
+        } else {
+            log::trace!("Dropped an engine event: no subscriber is listening");
         }
     }
 

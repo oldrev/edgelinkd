@@ -65,7 +65,7 @@ impl RedEnvs {
         } else {
             // FOO${ENV_VAR}BAR
             Some(Variant::String(replace_vars(trimmed, |env_name| match self.get_raw_env(env_name) {
-                Some(v) => v.to_string().unwrap(), // FIXME
+                Some(v) => env_value_to_text(&v),
                 _ => "".to_owned(),
             })))
         }
@@ -234,12 +234,24 @@ impl RedEnvStoreBuilder {
             self.get_existed(trimmed)
         } else {
             // FOO${ENV_VAR}BAR
-            Some(Variant::String(replace_vars(trimmed, |env_name| {
-                match self.get_existed(env_name) {
-                    Some(v) => v.to_string().unwrap(), // FIXME
-                    _ => "".to_owned(),
-                }
+            Some(Variant::String(replace_vars(trimmed, |env_name| match self.get_existed(env_name) {
+                Some(v) => env_value_to_text(&v),
+                _ => "".to_owned(),
             })))
+        }
+    }
+}
+
+/// Render an environment variable value as text for `${VAR}` interpolation.
+///
+/// Only scalars have a textual form; an object, array or null is a configuration error, so it is
+/// reported instead of being turned into a plausible-looking string.
+fn env_value_to_text(value: &Variant) -> String {
+    match value.to_string() {
+        Ok(text) => text,
+        Err(e) => {
+            log::warn!("Cannot interpolate the environment variable value into a string: {value:?}: {e}");
+            String::new()
         }
     }
 }

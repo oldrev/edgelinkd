@@ -161,7 +161,9 @@ pub fn load_flows_json_value(root_jv: JsonValue) -> crate::Result<ResolvedFlows>
 }
 
 fn preprocess_subflows(jv_root: JsonValue) -> crate::Result<JsonValue> {
-    let elements = jv_root.as_array().unwrap();
+    let elements = jv_root
+        .as_array()
+        .ok_or_else(|| EdgelinkError::BadFlowsJson("Cannot convert the value into an array".to_owned()))?;
     let mut elements_to_delete = HashSet::new();
 
     #[derive(Debug)]
@@ -208,8 +210,9 @@ fn preprocess_subflows(jv_root: JsonValue) -> crate::Result<JsonValue> {
         // "subflow" element
         {
             let mut new_subflow = pack.subflow.clone();
-            new_subflow["id"] = JsonValue::String(subflow_new_id.to_string());
-            id_map.insert(pack.subflow_id.to_string(), new_subflow["id"].as_str().unwrap().to_string());
+            let new_subflow_id = subflow_new_id.to_string();
+            new_subflow["id"] = JsonValue::String(new_subflow_id.clone());
+            id_map.insert(pack.subflow_id.to_string(), new_subflow_id);
             new_elements.push(new_subflow);
         }
 
@@ -222,16 +225,22 @@ fn preprocess_subflows(jv_root: JsonValue) -> crate::Result<JsonValue> {
 
         // The children elements in the subflow
         for old_child in pack.children.iter() {
+            let old_child_id = old_child.get_str("id").ok_or_else(|| {
+                EdgelinkError::BadFlowsJson("A node inside a subflow must have a string 'id' property".to_owned())
+            })?;
+            let new_child_id = generate_new_xored_id(subflow_new_id, old_child_id)?;
             let mut new_child = (*old_child).clone();
-            new_child["id"] = generate_new_xored_id_value(subflow_new_id, old_child["id"].as_str().unwrap())?;
-            id_map.insert(old_child["id"].as_str().unwrap().to_string(), new_child["id"].as_str().unwrap().to_string());
+            new_child["id"] = JsonValue::String(new_child_id.to_string());
+            id_map.insert(old_child_id.to_string(), new_child_id.to_string());
             new_elements.push(new_child);
         }
     }
 
     // Remap all known properties of the new elements
     for node in new_elements.iter_mut() {
-        let node = node.as_object_mut().unwrap();
+        let node = node
+            .as_object_mut()
+            .ok_or_else(|| EdgelinkError::BadFlowsJson("A subflow element must be an object".to_owned()))?;
 
         if let Some(JsonValue::String(pvalue)) = node.get_mut("z")
             && let Some(new_id) = id_map.get(pvalue.as_str())
@@ -256,7 +265,9 @@ fn preprocess_subflows(jv_root: JsonValue) -> crate::Result<JsonValue> {
         // Node with `wires` property
         if let Some(wires) = node.get_mut("wires").and_then(|x| x.as_array_mut()) {
             for wire in wires {
-                let wire = wire.as_array_mut().unwrap();
+                let wire = wire.as_array_mut().ok_or_else(|| {
+                    EdgelinkError::BadFlowsJson("A 'wires' entry must be an array of node ids".to_owned())
+                })?;
                 for id in wire {
                     if let JsonValue::String(pvalue) = id
                         && let Some(new_id) = id_map.get(pvalue.as_str())
@@ -293,7 +304,10 @@ fn preprocess_subflows(jv_root: JsonValue) -> crate::Result<JsonValue> {
         // Replace the `in` property
         if let Some(JsonValue::Array(in_props)) = node.get_mut("in") {
             for in_item in in_props.iter_mut() {
-                for wires_item in in_item["wires"].as_array_mut().unwrap().iter_mut() {
+                let in_wires = in_item["wires"].as_array_mut().ok_or_else(|| {
+                    EdgelinkError::BadFlowsJson("A subflow 'in' port must have a 'wires' array".to_owned())
+                })?;
+                for wires_item in in_wires.iter_mut() {
                     if let Some(JsonValue::String(pvalue)) = wires_item.get_mut("id")
                         && let Some(new_id) = id_map.get(pvalue.as_str())
                     {
@@ -306,7 +320,10 @@ fn preprocess_subflows(jv_root: JsonValue) -> crate::Result<JsonValue> {
         // Replace the `out` property
         if let Some(JsonValue::Array(out_props)) = node.get_mut("out") {
             for out_item in out_props.iter_mut() {
-                for wires_item in out_item["wires"].as_array_mut().unwrap().iter_mut() {
+                let out_wires = out_item["wires"].as_array_mut().ok_or_else(|| {
+                    EdgelinkError::BadFlowsJson("A subflow 'out' port must have a 'wires' array".to_owned())
+                })?;
+                for wires_item in out_wires.iter_mut() {
                     if let Some(JsonValue::String(pvalue)) = wires_item.get_mut("id")
                         && let Some(new_id) = id_map.get(pvalue.as_str())
                     {
@@ -322,9 +339,9 @@ fn preprocess_subflows(jv_root: JsonValue) -> crate::Result<JsonValue> {
     Ok(JsonValue::Array(new_elements))
 }
 
-fn generate_new_xored_id_value(subflow_id: ElementId, old_id: &str) -> crate::Result<JsonValue> {
+fn generate_new_xored_id(subflow_id: ElementId, old_id: &str) -> crate::Result<ElementId> {
     let old_id = parse_red_id_str(old_id).ok_or(EdgelinkError::BadFlowsJson(format!("Cannot parse id: '{old_id}'")))?;
-    Ok(JsonValue::String((subflow_id ^ old_id).to_string()))
+    Ok(subflow_id ^ old_id)
 }
 
 pub fn parse_red_type_value(t: &str) -> RedElementTypeValue<'_> {
@@ -732,12 +749,19 @@ where
 
 fn preprocess_merge_subflow_env(flows: &mut JsonValue) -> crate::Result<()> {
     let elements = flows.as_array_mut().ok_or(EdgelinkError::BadArgument("flows"))?;
-    let subflows: HashMap<String, JsonValue> = elements
-        .iter()
-        .filter(|x| x.get_str("type").map(|y| y == "subflow").unwrap_or(false))
-        .filter(|x| x.get("env").is_some())
-        .map(|e| (e.get_str("id").unwrap().to_string(), e.get("env").cloned().unwrap()))
-        .collect();
+    let mut subflows: HashMap<String, JsonValue> = HashMap::new();
+    for element in elements.iter() {
+        if element.get_str("type") != Some("subflow") {
+            continue;
+        }
+        let Some(subflow_env) = element.get("env") else {
+            continue;
+        };
+        let subflow_id = element.get_str("id").ok_or_else(|| {
+            EdgelinkError::BadFlowsJson("The subflow element must have a string 'id' property".to_owned())
+        })?;
+        subflows.insert(subflow_id.to_string(), subflow_env.clone());
+    }
 
     for element in elements.iter_mut() {
         if let Some(("subflow", subflow_id)) = element.get_str("type").and_then(|x| x.split_once(':'))

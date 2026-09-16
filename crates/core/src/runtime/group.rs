@@ -55,7 +55,17 @@ impl FlowsElement for Group {
     }
 
     fn get_path(&self) -> String {
-        panic!("Group do not support path!")
+        // A group lives either in a flow or in another group; build the same `parent/child` path
+        // shape the flow nodes use instead of refusing to answer. A released parent (the flow or
+        // the outer group is gone) degrades to the bare id rather than panicking.
+        match self.inner.parent {
+            GroupParent::Flow(ref flow) => flow
+                .upgrade()
+                .map_or_else(|| self.inner.id.to_string(), |flow| format!("{}/{}", flow.get_path(), self.inner.id)),
+            GroupParent::Group(ref group) => group
+                .upgrade()
+                .map_or_else(|| self.inner.id.to_string(), |group| format!("{}/{}", group.get_path(), self.inner.id)),
+        }
     }
 }
 

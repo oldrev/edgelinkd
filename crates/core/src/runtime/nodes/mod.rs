@@ -31,8 +31,6 @@ mod storage_nodes;
 #[cfg(feature = "nodes_network")]
 mod network_nodes;
 
-pub const NODE_MSG_CHANNEL_CAPACITY: usize = 16;
-
 pub mod wellknown_names {
     pub const UNKNOWN_GLOBAL_NODE: &str = "unknown.global";
     pub const UNKNOWN_FLOW_NODE: &str = "unknown";
@@ -178,7 +176,13 @@ pub trait FlowNodeBehavior: Send + Sync + FlowsElement {
         if let Some(flow) = flow {
             flow.notify_node_uow_completed(&node_id, msg, cancel).await;
         } else {
-            todo!();
+            // The flow (and the engine owning it) is already released, e.g. the node was stopped by
+            // a redeploy before this unit of work finished: there is nobody left to notify.
+            log::debug!(
+                "Cannot notify the completion of the UOW: the flow of Node(id='{}', type='{}') has been released",
+                self.id(),
+                self.type_str()
+            );
         }
     }
 
@@ -243,9 +247,12 @@ pub trait FlowNodeBehavior: Send + Sync + FlowsElement {
     async fn report_status(&self, status: StatusObject, cancel: CancellationToken) {
         // Report to flow
         if let Some(flow) = self.flow() {
-            let node = self.flow().unwrap().get_node_by_id(&self.id()).unwrap();
-            if let Err(e) = flow.handle_status(node.as_ref(), &status, None, cancel.clone()).await {
-                log::warn!("Failed to handle status: {e}");
+            if let Some(node) = flow.get_node_by_id(&self.id()) {
+                if let Err(e) = flow.handle_status(node.as_ref(), &status, None, cancel.clone()).await {
+                    log::warn!("Failed to handle status: {e}");
+                }
+            } else {
+                log::debug!("Cannot report the status of Node(id='{}'): it is no longer in its flow", self.id());
             }
         }
 
@@ -258,8 +265,8 @@ pub trait FlowNodeBehavior: Send + Sync + FlowsElement {
     }
 
     async fn report_error(&self, log_message: String, msg: MsgHandle, cancel: CancellationToken) {
-        let handled = if let Some(flow) = self.flow() {
-            let node = self.flow().unwrap().get_node_by_id(&self.id()).unwrap();
+        let node = self.flow().and_then(|flow| flow.get_node_by_id(&self.id()).map(|node| (flow, node)));
+        let handled = if let Some((flow, node)) = node {
             flow.handle_error(node.as_ref(), &log_message, Some(msg), None, cancel).await.unwrap_or(false)
         } else {
             false
@@ -515,6 +522,10 @@ mod tests {
 
     use super::*;
     use crate::runtime::engine::build_test_engine;
+
+    /// Capacity of the input channels built by these tests. The runtime's node channels take their
+    /// capacity from `runtime.flow.node_msg_queue_capacity`.
+    const NODE_MSG_CHANNEL_CAPACITY: usize = 16;
 
     /// A do-nothing node; these tests only exercise the default `fan_out_*` implementations.
     struct FanOutTestNode {

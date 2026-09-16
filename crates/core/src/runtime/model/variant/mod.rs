@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use regex::Regex;
+#[cfg(feature = "js")]
 use rquickjs::function::Constructor;
 use serde::Deserialize;
 use serde::ser::{SerializeMap, SerializeSeq};
@@ -551,15 +552,9 @@ impl Variant {
         };
 
         // If create_missing is true and first_prop doesn't exist, we should create it here.
-        // TODO FIXME
-        let first_prop = match (self.get_nav_mut(first_prop_name, &[]), create_missing, segs.len()) {
-            (Some(prop), _, _) => prop,
-            (None, true, 1) => {
-                // Only one level of the property
-                self.as_object_mut().unwrap().insert(first_prop_name.to_string(), value);
-                return Ok(());
-            }
-            (None, true, _) => {
+        let first_prop = match (self.get_nav_mut(first_prop_name, &[]), create_missing) {
+            (Some(prop), _) => prop,
+            (None, true) => {
                 let next_seg = segs.get(1);
                 let var = match next_seg {
                     // the next level property is an object
@@ -570,10 +565,18 @@ impl Variant {
                             .with_context(|| format!("Not allowed to set first property: '{first_prop_name}'"));
                     }
                 };
-                self.as_object_mut().unwrap().insert(first_prop_name.to_string(), var);
-                self.get_nav_mut(first_prop_name, &[]).unwrap()
+                self.as_object_mut()
+                    .ok_or_else(|| {
+                        EdgelinkError::InvalidOperation(format!(
+                            "Cannot create the property '{first_prop_name}' beneath a non-object value"
+                        ))
+                    })?
+                    .insert(first_prop_name.to_string(), var);
+                self.get_nav_mut(first_prop_name, &[]).ok_or_else(|| {
+                    EdgelinkError::InvalidOperation(format!("Failed to create the property '{first_prop_name}'"))
+                })?
             }
-            (None, _, _) => {
+            (None, _) => {
                 return Err(crate::EdgelinkError::BadArgument("segs"))
                     .with_context(|| format!("Failed to set first property: '{first_prop_name}'"));
             }
