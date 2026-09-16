@@ -156,7 +156,7 @@ jobs:
 
   build-and-test-linux:
     name: Build and Test on Linux (x86-64)
-    needs: fmt-and-check
+    needs: [fmt-and-check, clippy]
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -340,7 +340,6 @@ jobs:
     name: Clippy
     needs: fmt-and-check
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/master' || github.base_ref == 'master'
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4

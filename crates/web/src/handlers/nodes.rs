@@ -44,7 +44,7 @@ pub async fn get_nodes(
             // Use actual node registry
             let mut grouped_nodes: GroupedNodes = GroupedNodes::new();
 
-            for (_, meta_node) in registry.all().iter() {
+            for meta_node in registry.all().values() {
                 let entry = grouped_nodes.entry(meta_node.red_id.to_string()).or_insert_with(|| NodeInfo {
                     name: meta_node.red_name.to_string(),
                     module: meta_node.module.to_string(),
@@ -260,7 +260,7 @@ pub async fn get_node_module(
     let registry_guard = state.registry.read().await;
     if let Some(registry) = registry_guard.as_ref() {
         // Lookup module info from registry
-        for (_, meta_node) in registry.all().iter() {
+        for meta_node in registry.all().values() {
             if meta_node.module == module_name {
                 let module_info = serde_json::json!({
                     "name": meta_node.module,
@@ -344,7 +344,7 @@ pub async fn get_node_set(
     let registry_guard = state.registry.read().await;
     if let Some(registry) = registry_guard.as_ref() {
         // Lookup node set info from registry
-        for (_, meta_node) in registry.all().iter() {
+        for meta_node in registry.all().values() {
             if meta_node.module == module_name {
                 let node_set = serde_json::json!({
                     "id": format!("{}/{}", module_name, set_name),
