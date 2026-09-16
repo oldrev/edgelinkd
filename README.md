@@ -193,9 +193,9 @@ The heavy check mark ( :heavy_check_mark: ) below indicates that this feature ha
 - [x] :heavy_check_mark: Sub-flow
 - [x] Group
 - [x] :heavy_check_mark: Environment Variables
-- [ ] Context
+- [x] Context
     - [x] Memory storage
-    - [ ] Local file-system storage
+    - [x] Local file-system storage
 - [ ] RED.util (WIP)
     - [x] `RED.util.cloneMessage()`
     - [x] `RED.util.generateId()`

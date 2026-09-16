@@ -8,3 +8,6 @@ __pycache__
 /static
 /flows.json
 /build-out
+
+# Scratch directory the context-storage specs create and remove
+/tests/resources/context

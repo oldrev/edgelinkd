@@ -6,6 +6,7 @@ use pyo3::{prelude::*, wrap_pyfunction};
 use serde::Deserialize;
 
 use edgelink_core::runtime::engine::Engine;
+mod context;
 mod json;
 
 #[pymodule]
@@ -13,6 +14,7 @@ fn edgelink_pymod(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(rust_sleep, m)?)?;
     m.add_function(wrap_pyfunction!(run_flows_once, m)?)?;
     m.add_function(wrap_pyfunction!(run_flows_for_once, m)?)?;
+    m.add_class::<context::PyContextStore>()?;
 
     let stderr = log4rs::append::console::ConsoleAppender::builder()
         .target(log4rs::append::console::Target::Stderr)

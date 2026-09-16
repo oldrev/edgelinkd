@@ -299,6 +299,9 @@ impl Engine {
         // 发布启动开始事件
         self.publish_event(EngineEvent::EngineStarted);
 
+        // Load whatever the persistent context stores hold, before any flow can read it.
+        self.inner.context_manager.open_all().await?;
+
         for f in self.inner.flows.iter() {
             f.value().start().await?;
         }
@@ -321,6 +324,9 @@ impl Engine {
         for i in self.inner.flows.iter() {
             i.value().stop().await?;
         }
+
+        // Give the persistent context stores the chance to flush their pending writes.
+        self.inner.context_manager.close_all().await?;
 
         *shutdown_lock = true;
 
@@ -626,6 +632,15 @@ impl Engine {
 
         self.load_global_nodes(json_values.global_nodes, reg.clone(), elcfg)?;
         self.load_flows(json_values.flows, reg, elcfg)?;
+
+        // Node-RED drops the context of everything the new configuration no longer holds, now
+        // that the replacement nodes are known. Only a redeploy does this: building an engine
+        // (see `with_json`) never cleans, so a runtime started on a partial flow file cannot
+        // delete context belonging to the flows it did not load.
+        let mut active_nodes: Vec<ElementId> = self.inner.flows.iter().map(|f| *f.key()).collect();
+        active_nodes.extend(self.inner.all_flow_nodes.iter().map(|n| *n.key()));
+        active_nodes.extend(self.inner.global_nodes.iter().map(|n| *n.key()));
+        self.inner.context_manager.clean_all(&active_nodes).await?;
 
         // 启动 Engine
         self.start().await?;

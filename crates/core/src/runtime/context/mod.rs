@@ -37,10 +37,65 @@ pub struct ContextStorageSettings {
 
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct ContextStoreOptions {
+    /// The registered `ProviderMetadata::type_` of the store to construct.
     pub provider: String,
 
+    /// Every other key of the store's configuration table, handed to the provider's factory.
+    ///
+    /// [`ContextManagerBuilder::with_config`] adds a `settings` entry holding the runtime's
+    /// top-level settings (`{"userDir": <home dir>}`), which is what Node-RED copies into every
+    /// store's config before constructing it.
     #[serde(flatten, default)]
     pub options: HashMap<String, config::Value>,
+}
+
+impl ContextStoreOptions {
+    /// Name the provider and its options directly, as the Python bridge and the tests do,
+    /// instead of reading them out of the configuration files.
+    ///
+    /// `options` is a plain JSON object; `null` means "no options at all".
+    pub fn from_json_options(provider: &str, options: serde_json::Value) -> crate::Result<Self> {
+        let options = match options {
+            serde_json::Value::Null => config::Map::default(),
+            serde_json::Value::Object(object) => object
+                .into_iter()
+                .map(|(key, value)| {
+                    let value = serde::Deserialize::deserialize(value)
+                        .map_err(|e| anyhow::anyhow!("Invalid option '{key}': {e}"))?;
+                    Ok((key, value))
+                })
+                .collect::<crate::Result<config::Map<String, config::Value>>>()?,
+            other => {
+                return Err(EdgelinkError::BadArgument("options"))
+                    .with_context(|| format!("The store options must be an object, but got: {other}"));
+            }
+        };
+        Ok(Self { provider: provider.to_owned(), options: options.into_iter().collect() })
+    }
+
+    /// Deserialise the provider-specific options that follow `provider` into a typed struct.
+    ///
+    /// The options arrive as one `config::Value` per key because they come from a flat TOML
+    /// table, so they are re-assembled into a table first to let the provider's own `serde`
+    /// type pick out the keys it knows.
+    pub fn deserialize_options<T: serde::de::DeserializeOwned>(&self) -> crate::Result<T> {
+        let table: config::Map<String, config::Value> = self.options.clone().into_iter().collect();
+        let value = config::Value::new(None, config::ValueKind::Table(table));
+        value.try_deserialize::<T>().map_err(|e| anyhow::anyhow!("{e}"))
+    }
+}
+
+/// Build one context store from a provider name and its options.
+///
+/// This is the entry point the compiler's `inventory` registry is resolved through, exposed so
+/// that the Python bridge can construct a store without a whole engine around it.
+pub fn create_context_store(name: &str, options: &ContextStoreOptions) -> crate::Result<Box<dyn ContextStore>> {
+    let metadata = inventory::iter::<ProviderMetadata>
+        .into_iter()
+        .find(|x| x.type_ == options.provider)
+        .ok_or(EdgelinkError::Configuration)
+        .with_context(|| format!("Unknown context store provider: '{}'", options.provider))?;
+    (metadata.factory)(name.to_owned(), Some(options))
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -195,22 +250,7 @@ impl ContextManagerBuilder {
     }
 
     pub fn with_config(&mut self, config: &config::Config) -> crate::Result<&mut Self> {
-        let settings: ContextStorageSettings = config.get("runtime.context")?;
-        self.stores.clear();
-        for (store_name, store_options) in settings.stores.iter() {
-            log::debug!(
-                "[CONTEXT_MANAGER_BUILDER] Initializing context store: name='{}', provider='{}' ...",
-                store_name,
-                store_options.provider
-            );
-            let meta = inventory::iter::<ProviderMetadata>
-                .into_iter()
-                .find(|x| x.type_ == store_options.provider)
-                .ok_or(EdgelinkError::Configuration)?;
-            let store = (meta.factory)(store_name.into(), Some(store_options))?;
-            self.stores.insert(store_name.clone(), Arc::from(store));
-        }
-
+        let mut settings: ContextStorageSettings = config.get("runtime.context")?;
         if !settings.stores.contains_key(&settings.default) {
             use anyhow::Context;
             return Err(EdgelinkError::Configuration).with_context(|| {
@@ -220,6 +260,40 @@ impl ContextManagerBuilder {
                 )
             });
         }
+
+        // Node-RED's context loader copies the top-level `userDir` setting into every store's
+        // config before constructing it; a store that has no directory of its own (`localfilesystem`
+        // without `dir`) resolves its storage under it.
+        match config.get_string("home_dir") {
+            Ok(home_dir) => {
+                let user_dir = config::Value::new(None, config::ValueKind::String(home_dir));
+                for store_options in settings.stores.values_mut() {
+                    store_options.options.entry("settings".to_owned()).or_insert_with(|| {
+                        config::Value::new(
+                            None,
+                            config::ValueKind::Table(config::Map::from([("userDir".to_owned(), user_dir.clone())])),
+                        )
+                    });
+                }
+            }
+            Err(config::ConfigError::NotFound(_)) => {}
+            Err(e) => return Err(e.into()),
+        }
+
+        self.stores.clear();
+        for (store_name, store_options) in settings.stores.iter() {
+            log::debug!(
+                "[CONTEXT_MANAGER_BUILDER] Initializing context store: name='{}', provider='{}' ...",
+                store_name,
+                store_options.provider
+            );
+            let store = create_context_store(store_name, store_options).with_context(|| {
+                format!("Cannot initialize the context store '{store_name}' of {}", store_options.provider)
+            })?;
+            self.stores.insert(store_name.clone(), Arc::from(store));
+        }
+
+        self.default_store.clone_from(&settings.default);
         self.settings = Some(settings);
         Ok(self)
     }
@@ -230,11 +304,13 @@ impl ContextManagerBuilder {
     }
 
     pub fn build(&self) -> crate::Result<Arc<ContextManager>> {
-        let cm = ContextManager {
-            default_store: self.stores[&self.default_store].clone(),
-            stores: self.stores.clone(),
-            contexts: DashMap::new(),
-        };
+        let default_store = self
+            .stores
+            .get(&self.default_store)
+            .ok_or(EdgelinkError::Configuration)
+            .with_context(|| format!("Cannot found the default context store '{}'", self.default_store))?
+            .clone();
+        let cm = ContextManager { default_store, stores: self.stores.clone(), contexts: DashMap::new() };
         Ok(Arc::new(cm))
     }
 }
@@ -265,6 +341,33 @@ impl ContextManager {
             DEFAULT_STORE_NAME | DEFAULT_STORE_NAME_ALIAS | "" => Some(&self.default_store),
             _ => self.stores.get(store_name),
         }
+    }
+
+    /// Open every configured store, the way Node-RED's context loader does on startup.
+    ///
+    /// A store that persists its scopes (`localfilesystem`) loads them here, so this has to
+    /// happen before any flow runs and after the configured stores are known.
+    pub async fn open_all(&self) -> crate::Result<()> {
+        for (name, store) in self.stores.iter() {
+            store.open().await.with_context(|| format!("Cannot open the context store '{name}'"))?;
+        }
+        Ok(())
+    }
+
+    /// Close every configured store, flushing whatever the persistent ones still hold.
+    pub async fn close_all(&self) -> crate::Result<()> {
+        for (name, store) in self.stores.iter() {
+            store.close().await.with_context(|| format!("Cannot close the context store '{name}'"))?;
+        }
+        Ok(())
+    }
+
+    /// Drop the scopes that no longer belong to a deployed node or flow.
+    pub async fn clean_all(&self, active_nodes: &[ElementId]) -> crate::Result<()> {
+        for (name, store) in self.stores.iter() {
+            store.clean(active_nodes).await.with_context(|| format!("Cannot clean the context store '{name}'"))?;
+        }
+        Ok(())
     }
 }
 
