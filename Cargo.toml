@@ -124,6 +124,9 @@ axum = { version = "0.8.4", default-features = false, features = [
     "query",
 ] }
 rumqttc = { version = "0.24" }
+# JSONata expression evaluation. `default-features = false` drops the `simd` feature: we
+# convert through serde_json, so simd-json would only add weight to the binary.
+jsonata-core = { version = "2.2", default-features = false }
 
 [dependencies]
 clap.workspace = true
@@ -160,9 +163,10 @@ identifier = "com.github.oldrev.edgelink"
 
 [features]
 full = ["default", "rqjs_bindgen"]
-default = ["core", "js", "nodes_network", "nodes_storage"]
+default = ["core", "js", "jsonata", "nodes_network", "nodes_storage"]
 core = ["edgelink-core/core"]
 js = ["edgelink-core/js"]
+jsonata = ["edgelink-core/jsonata"]
 nodes_network = ["edgelink-core/nodes_network"]
 nodes_storage = ["edgelink-core/nodes_storage"]
 rqjs_bindgen = ["js", "edgelink-core/rqjs_bindgen"]

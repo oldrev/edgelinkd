@@ -579,11 +579,102 @@ class TestChangeNode:
             assert msgs[0]["lookup_b"] == "newValue"
 
 
-# 23 changes the value using jsonata
-# 24 reports invalid jsonata expression
-# 25 changes the value using flow context with jsonata
-# 26 changes the value using persistable flow context with jsonata
-# 27 changes the value using persistable global context with jsonata
+        @pytest.mark.asyncio
+        @pytest.mark.it('changes the value using jsonata')
+        async def test_it_changes_the_value_using_jsonata(self):
+            flows = [
+                {"id": "100", "type": "tab"},  # flow 1
+                {"id": "1", "type": "change", "z": "100", "name": "changeNode", "rules": [
+                    {"t": "set", "p": "payload", "to": "$length(payload)", "tot": "jsonata"}
+                ], "wires": [["2"]]},
+                {"id": "2", "z": "100", "type": "test-once"}
+            ]
+            injections = [{"nid": "1", "msg": {"payload": "Hello World!"}}]
+            msgs = await run_flow_with_msgs_ntimes(flows, injections, 1)
+            assert msgs[0]["payload"] == 12
+
+        @pytest.mark.skip(reason="the change node reports rule failures as a log warning instead of a node error")
+        @pytest.mark.asyncio
+        @pytest.mark.it('reports invalid jsonata expression')
+        async def test_it_reports_invalid_jsonata_expression(self):
+            flows = [
+                {"id": "100", "type": "tab"},  # flow 1
+                {"id": "1", "type": "change", "z": "100", "name": "changeNode", "rules": [
+                    {"t": "set", "p": "payload", "to": "$invalid(payload)", "tot": "jsonata"}
+                ], "wires": [["2"]]},
+                {"id": "2", "z": "100", "type": "test-once"}
+            ]
+            injections = [{"nid": "1", "msg": {"payload": "Hello World!"}}]
+            msgs = await run_flow_with_msgs_ntimes(flows, injections, 0)
+            assert len(msgs) == 0
+
+        @pytest.mark.asyncio
+        @pytest.mark.it('changes the value using flow context with jsonata')
+        async def test_it_changes_the_value_using_flow_context_with_jsonata(self):
+            flows = [
+                {"id": "100", "type": "tab"},  # flow 1
+                {"id": "1", "type": "change", "z": "100", "name": "changeNode", "rules": [
+                    {"t": "set", "p": "foo", "pt": "flow", "to": "bar", "tot": "str"}
+                ], "wires": [["2"]]},
+                {"id": "2", "type": "change", "z": "100", "name": "changeNode2", "rules": [
+                    {"t": "set", "p": "payload", "to": "$flowContext(\"foo\")", "tot": "jsonata"}
+                ], "wires": [["3"]]},
+                {"id": "3", "z": "100", "type": "test-once"}
+            ]
+            injections = [{"nid": "1", "msg": {"payload": "Hello World!"}}]
+            msgs = await run_flow_with_msgs_ntimes(flows, injections, 1)
+            assert msgs[0]["payload"] == "bar"
+
+        @pytest.mark.asyncio
+        @pytest.mark.it('changes the value using global context with jsonata')
+        async def test_it_changes_the_value_using_global_context_with_jsonata(self):
+            flows = [
+                {"id": "100", "type": "tab"},  # flow 1
+                {"id": "1", "type": "change", "z": "100", "name": "changeNode", "rules": [
+                    {"t": "set", "p": "foo", "pt": "global", "to": "bar", "tot": "str"}
+                ], "wires": [["2"]]},
+                {"id": "2", "type": "change", "z": "100", "name": "changeNode2", "rules": [
+                    {"t": "set", "p": "payload", "to": "$globalContext(\"foo\")", "tot": "jsonata"}
+                ], "wires": [["3"]]},
+                {"id": "3", "z": "100", "type": "test-once"}
+            ]
+            injections = [{"nid": "1", "msg": {"payload": "Hello World!"}}]
+            msgs = await run_flow_with_msgs_ntimes(flows, injections, 1)
+            assert msgs[0]["payload"] == "bar"
+
+        @pytest.mark.asyncio
+        @pytest.mark.it('changes the value using persistable flow context with jsonata')
+        async def test_it_changes_the_value_using_persistable_flow_context_with_jsonata(self):
+            flows = [
+                {"id": "100", "type": "tab"},  # flow 1
+                {"id": "1", "type": "change", "z": "100", "name": "changeNode", "rules": [
+                    {"t": "set", "p": "#:(memory1)::foo", "pt": "flow", "to": "bar", "tot": "str"}
+                ], "wires": [["2"]]},
+                {"id": "2", "type": "change", "z": "100", "name": "changeNode2", "rules": [
+                    {"t": "set", "p": "payload", "to": "$flowContext(\"foo\",\"memory1\")", "tot": "jsonata"}
+                ], "wires": [["3"]]},
+                {"id": "3", "z": "100", "type": "test-once"}
+            ]
+            injections = [{"nid": "1", "msg": {"payload": "Hello World!"}}]
+            msgs = await run_flow_with_msgs_ntimes(flows, injections, 1)
+            assert msgs[0]["payload"] == "bar"
+
+        @pytest.mark.asyncio
+        @pytest.mark.it('changes the value using persistable global context with jsonata')
+        async def test_it_changes_the_value_using_persistable_global_context_with_jsonata(self):
+            flows = [
+                {"id": "100", "type": "tab"},  # flow 1
+                {"id": "1", "type": "change", "z": "100", "name": "changeNode", "rules": [
+                    {"t": "set", "p": "#:(memory1)::foo", "pt": "global", "to": "bar", "tot": "str"}
+                ], "wires": [["2"]]},
+                {"id": "2", "type": "change", "z": "100", "name": "changeNode2", "rules": [
+                    {"t": "set", "p": "payload", "to": "$globalContext(\"foo\",\"memory1\")", "tot": "jsonata"}
+                ], "wires": [["3"]]},
+                {"id": "3", "z": "100", "type": "test-once"}
+            ]
+            injections = [{"nid": "1", "msg": {"payload": "Hello World!"}}]
+            msgs = await run_flow_with_msgs_ntimes(flows, injections, 1)
+            assert msgs[0]["payload"] == "bar"
 
 # 28 sets the value of a message property using a nested property
 # 0037 sets the value of a nested message property using a message property

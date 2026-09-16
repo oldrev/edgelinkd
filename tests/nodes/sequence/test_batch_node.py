@@ -508,16 +508,7 @@ class TestBatchNode:
             ]
             await run_single_node_with_msgs_ntimes(node, inputs1, 4)
 
-    @pytest.mark.describe('messaging API')
-    class TestMessagingApi:
-        @pytest.mark.skip(reason='JSONata not supported')
-        @pytest.mark.asyncio
-        @pytest.mark.it('should support JSONata in property')
-        async def test_jsonata_property(self):
-            pass
+    # The `messaging API` describe has no JSONata tests upstream. The placeholders that used to
+    # live here were removed: the audit compares titles against the Node-RED spec, so a test
+    # with no upstream counterpart only adds noise.
 
-        @pytest.mark.skip(reason='JSONata not supported')
-        @pytest.mark.asyncio
-        @pytest.mark.it('should support JSONata in join')
-        async def test_jsonata_join(self):
-            pass

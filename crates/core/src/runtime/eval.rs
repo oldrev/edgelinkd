@@ -119,7 +119,13 @@ pub async fn evaluate_raw_node_property(
 
         RedPropertyType::Bool => Ok(Variant::Bool(value.trim_ascii().parse::<bool>()?)),
 
-        RedPropertyType::Jsonata => todo!(),
+        #[cfg(feature = "jsonata")]
+        RedPropertyType::Jsonata => evaluate_jsonata(value, node, flow, msg),
+
+        #[cfg(not(feature = "jsonata"))]
+        RedPropertyType::Jsonata => {
+            Err(EdgelinkError::NotSupported("JSONata support is not compiled in".to_owned()).into())
+        }
 
         RedPropertyType::Env => match evaluate_env_property(value, node, flow) {
             Some(ev) => Ok(ev),
@@ -203,7 +209,22 @@ pub async fn evaluate_node_property_value(
             }
         }
 
-        (RedPropertyType::Jsonata, _) => todo!(),
+        (RedPropertyType::Jsonata, ref value) => {
+            #[cfg(feature = "jsonata")]
+            {
+                let source = match value {
+                    RedPropertyValue::Runtime(source) => source.as_str(),
+                    RedPropertyValue::Constant(source) => source.as_str().unwrap_or_default(),
+                };
+                evaluate_jsonata(source, node, flow, msg)?
+            }
+
+            #[cfg(not(feature = "jsonata"))]
+            {
+                let _ = value;
+                return Err(EdgelinkError::NotSupported("JSONata support is not compiled in".to_owned()).into());
+            }
+        }
 
         (RedPropertyType::Env, RedPropertyValue::Runtime(ref s)) => match evaluate_env_property(s.as_str(), node, flow)
         {
@@ -220,6 +241,24 @@ pub async fn evaluate_node_property_value(
     };
 
     Ok(res)
+}
+
+/// Evaluate a JSONata expression the way Node-RED's `evaluateJSONataExpression` does.
+///
+/// JSONata `undefined` (an unmatched path, a context variable that does not exist) has no
+/// `Variant` counterpart, so — following the JS bridge — it becomes `Variant::Null`.
+#[cfg(feature = "jsonata")]
+fn evaluate_jsonata(
+    source: &str,
+    node: Option<&dyn FlowNodeBehavior>,
+    flow: Option<&Flow>,
+    msg: Option<&Msg>,
+) -> crate::Result<Variant> {
+    use crate::runtime::jsonata::{JsonataExpression, JsonataHost};
+
+    let expr = JsonataExpression::compile(source)?;
+    let host = JsonataHost::new(flow, node);
+    Ok(expr.evaluate(msg, &host)?.unwrap_or(Variant::Null))
 }
 
 #[cfg(test)]

@@ -192,7 +192,17 @@ impl RedEnvStoreBuilder {
                 Ok(Variant::Bytes(bytes))
             }
 
-            RedPropertyType::Jsonata => todo!(),
+            #[cfg(feature = "jsonata")]
+            RedPropertyType::Jsonata => {
+                let expression = crate::runtime::jsonata::JsonataExpression::compile(value)?;
+                let host = crate::runtime::jsonata::JsonataHost::default();
+                Ok(expression.evaluate(None, &host)?.unwrap_or(Variant::Null))
+            }
+
+            #[cfg(not(feature = "jsonata"))]
+            RedPropertyType::Jsonata => {
+                Err(EdgelinkError::NotSupported("JSONata support is not compiled in".to_owned()).into())
+            }
 
             RedPropertyType::Env => match self.normalized_and_get_existed(value) {
                 Some(ev) => Ok(ev),
@@ -348,5 +358,25 @@ mod tests {
         assert_eq!(node.evalute_env("PARENT_BAR").unwrap().as_str().unwrap(), "barbar");
         assert_eq!(node.evalute_env("AGE").unwrap().as_str().unwrap(), "100");
         assert_eq!(node.evalute_env("FILE_SIZE").unwrap().as_i64().unwrap(), 123);
+    }
+
+    #[cfg(feature = "jsonata")]
+    #[test]
+    fn test_env_store_jsonata_value() {
+        let json = json!([
+            {
+                "name": "NOW",
+                "value": "$millis()",
+                "type": "jsonata"
+            },
+            {
+                "name": "PLAIN",
+                "value": "1 + 1",
+                "type": "jsonata"
+            }
+        ]);
+        let envs = RedEnvStoreBuilder::default().load_json(&json).build();
+        assert!(envs.evalute_env("NOW").unwrap().is_number());
+        assert_eq!(envs.evalute_env("PLAIN").unwrap().as_i64(), Some(2));
     }
 }

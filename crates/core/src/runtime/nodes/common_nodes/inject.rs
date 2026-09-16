@@ -146,11 +146,17 @@ impl InjectNode {
     }
 
     async fn inject_msg(&self, stop_token: CancellationToken) -> crate::Result<()> {
-        // TODO msg.field1 references msg.field2
         let mut msg_body: BTreeMap<String, Variant> = BTreeMap::new();
         for prop in self.config.props.iter() {
             let k = prop.p.to_string();
-            let v = eval::evaluate_raw_node_property(&prop.v, prop.vt, Some(self), self.flow().as_ref(), None).await?;
+            // Node-RED evaluates every property against the message being built, so a JSONata
+            // property can read one that was injected before it (`x+2` sees `x`).
+            let partial = MsgHandle::with_properties(msg_body.clone());
+            let v = {
+                let partial_msg = partial.read().await;
+                eval::evaluate_raw_node_property(&prop.v, prop.vt, Some(self), self.flow().as_ref(), Some(&partial_msg))
+                    .await?
+            };
             msg_body.insert(k, v);
         }
         msg_body.insert(wellknown::MSG_ID_PROPERTY.to_string(), Variant::String(Msg::generate_id().to_string()));

@@ -200,7 +200,10 @@ The heavy check mark ( :heavy_check_mark: ) below indicates that this feature ha
     - [x] `RED.util.cloneMessage()`
     - [x] `RED.util.generateId()`
 - [x] Plug-in subsystem[^1]
-- [ ] JSONata
+- [x] JSONata (via the pure-Rust `jsonata-core` engine)
+    - [x] `$flowContext()`, `$globalContext()`, `$env()`, `$clone()`, `$I`/`$N` bindings
+    - [x] `change` / `switch` / `inject` properties, and environment variables
+    - [ ] `$moment()` — an expression calling it fails with an error instead of a value
 
 [^1]: Rust's Tokio async functions cannot call into dynamic libraries, so currently, we can only use statically linked plugins. I will evaluate the possibility of adding plugins based on WebAssembly (WASM) or JavaScript (JS) in the future.
 

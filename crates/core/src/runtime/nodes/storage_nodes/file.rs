@@ -178,6 +178,12 @@ impl FileNode {
                 // Get filename from environment variable
                 if !filename.is_empty() { std::env::var(filename).ok() } else { None }
             }
+            "jsonata" => {
+                // Out of scope: the file nodes do not evaluate their filename with JSONata, and
+                // falling through to the static branch would use the expression as a literal path.
+                log::error!("[file:{}] filenameType 'jsonata' is not supported", self.name());
+                None
+            }
             _ => {
                 // Static filename
                 if !filename.is_empty() { Some(filename.to_string()) } else { None }

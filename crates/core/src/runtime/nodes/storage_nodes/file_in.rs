@@ -107,6 +107,12 @@ impl FileInNode {
                     None
                 }
             }
+            "jsonata" => {
+                // Out of scope: the file nodes do not evaluate their filename with JSONata, and
+                // falling through to the static branch would use the expression as a literal path.
+                log::error!("[file in:{}] filenameType 'jsonata' is not supported", self.name());
+                None
+            }
             _ => {
                 if !self.config.filename.is_empty() {
                     Some(self.config.filename.clone())

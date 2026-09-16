@@ -208,63 +208,63 @@ class TestSortNode:
             assert msg["parts"]["index"] == i
 
     # JSONata expression tests (skip because not supported)
-    @pytest.mark.skip(reason="JSONata not supported yet")
+    @pytest.mark.skip(reason="Rust gap: the sort node does not evaluate its key as JSONata")
     @pytest.mark.asyncio
     @pytest.mark.it('should sort payload (exp, not number, ascending)')
     async def test_sort_payload_exp_not_number_ascending(self):
         pass
 
-    @pytest.mark.skip(reason="JSONata not supported yet")
+    @pytest.mark.skip(reason="Rust gap: the sort node does not evaluate its key as JSONata")
     @pytest.mark.asyncio
     @pytest.mark.it('should sort message group (exp, not number, ascending)')
     async def test_sort_group_exp_not_number_ascending(self):
         pass
 
-    @pytest.mark.skip(reason="JSONata not supported yet")
+    @pytest.mark.skip(reason="Rust gap: the sort node does not evaluate its key as JSONata")
     @pytest.mark.asyncio
     @pytest.mark.it('should sort message group (exp, not number, descending)')
     async def test_sort_group_exp_not_number_descending(self):
         pass
 
-    @pytest.mark.skip(reason="JSONata not supported yet")
+    @pytest.mark.skip(reason="Rust gap: the sort node does not evaluate its key as JSONata")
     @pytest.mark.asyncio
     @pytest.mark.it('should sort payload (exp, not number, descending)')
     async def test_sort_payload_exp_not_number_descending(self):
         pass
 
-    @pytest.mark.skip(reason="JSONata not supported yet")
+    @pytest.mark.skip(reason="Rust gap: the sort node does not evaluate its key as JSONata")
     @pytest.mark.asyncio
     @pytest.mark.it('should sort payload of objects')
     async def test_sort_payload_objects(self):
         pass
 
     # Context tests (skip because not fully supported)
-    @pytest.mark.skip(reason="Context not supported yet")
+    @pytest.mark.skip(reason="Rust gap: the sort node does not evaluate its key as JSONata (a $flowContext/$globalContext key)")
     @pytest.mark.asyncio
     @pytest.mark.it('should sort payload by context (exp, not number, ascending)')
     async def test_sort_payload_by_context(self):
         pass
 
-    @pytest.mark.skip(reason="Context not supported yet")
+    @pytest.mark.skip(reason="Rust gap: the sort node does not evaluate its key as JSONata (a $flowContext/$globalContext key)")
     @pytest.mark.asyncio
     @pytest.mark.it('should sort message group by context (exp, not number, ascending)')
     async def test_sort_group_by_context(self):
         pass
 
-    @pytest.mark.skip(reason="Context not supported yet")
+    @pytest.mark.skip(reason="Rust gap: the sort node does not evaluate its key as JSONata (a $flowContext/$globalContext key)")
     @pytest.mark.asyncio
     @pytest.mark.it('should sort payload by persistable context (exp, not number, descending)')
     async def test_sort_payload_by_persistable_context(self):
         pass
 
-    @pytest.mark.skip(reason="Context not supported yet")
+    @pytest.mark.skip(reason="Rust gap: the sort node does not evaluate its key as JSONata (a $flowContext/$globalContext key)")
     @pytest.mark.asyncio
     @pytest.mark.it('should sort message group by persistable context (exp, not number, descending)')
     async def test_sort_group_by_persistable_context(self):
         pass
 
     # Error handling tests
-    @pytest.mark.skip(reason="JSONata not supported yet")
+    @pytest.mark.skip(reason="Rust gap: the sort node does not evaluate its key as JSONata")
     @pytest.mark.asyncio
     @pytest.mark.it('should handle JSONata script error')
     async def test_handle_jsonata_error(self):
