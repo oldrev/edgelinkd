@@ -712,6 +712,8 @@ class TestExecNode:
         @pytest.mark.it('should preserve existing properties on msg object for a failing command')
         async def test_should_preserve_properties_failing_command_spawn(self):
             if platform.system() == "Windows":
+                # Upstream notes that Windows' `mkdir` creates missing parent directories itself,
+                # so the failing command has to be something else there.
                 node = {
                     "type": "exec",
                     "command": "ping /foo/bar/doo/dah",
@@ -729,10 +731,26 @@ class TestExecNode:
                     "useSpawn": "true",
                     "oldrc": "false"
                 }
-            
-            msgs = await run_single_node_with_msgs_ntimes(node, [{"payload": None, "foo": "baz"}], 1, timeout=2)
-            
-            # Should preserve the foo property even on failure
-            for msg in msgs:
-                if 'foo' in msg:
-                    assert msg['foo'] == "baz"
+
+            # Spawn mode forwards the command's output on stdout *or* stderr depending on the
+            # command (`ping` reports on stdout, `mkdir` on stderr) and then sends the return code
+            # on its own output, so all three outputs are wired and both messages are checked.
+            # Upstream additionally asserts a fragment of the command's message; that text is
+            # localized, so only the shape and the preserved properties are asserted here.
+            node["wires"] = [["2"], ["3"], ["4"]]
+            msgs = await run_flow_for_seconds_scheduled([
+                {"id": "0", "type": "tab"},
+                {"id": "1", "z": "0", **node},
+                {"id": "2", "z": "0", "type": "test-once"},
+                {"id": "3", "z": "0", "type": "test-once"},
+                {"id": "4", "z": "0", "type": "test-once"},
+            ], [{"nid": "1", "msg": {"payload": None, "foo": "baz"}}], 1.0)
+
+            output_msg = next((m for m in msgs if isinstance(m.get('payload'), str)), None)
+            assert output_msg is not None, f"Expected the failing command's output, got {msgs}"
+            assert output_msg['foo'] == "baz"
+
+            rc_msg = next((m for m in msgs if isinstance(m.get('payload'), dict)), None)
+            assert rc_msg is not None, f"Expected a return code message, got {msgs}"
+            assert rc_msg['payload']['code'] == 1
+            assert rc_msg['foo'] == "baz"

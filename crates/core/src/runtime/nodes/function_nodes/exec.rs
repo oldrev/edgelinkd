@@ -471,8 +471,16 @@ impl ExecNode {
         // 等待进程结束（`timer` 或者 `kill` 消息都可能提前终止它）
         let (code, signal) = self.wait_for_child(&mut child, kill_rx, &cancel).await?;
         self.unregister_process(pid).await;
-        stdout_task.abort();
-        stderr_task.abort();
+        // Node-RED emits the return code from the child's `close` event, which fires only once both
+        // stdio streams have ended, so the command's output always precedes it. The readers are
+        // therefore awaited rather than aborted: aborting here can drop a fast command's chunk
+        // before it was ever polled. The cap only keeps a grandchild that inherited the pipes from
+        // stalling the node forever.
+        let _ = tokio::time::timeout(Duration::from_millis(500), async {
+            let _ = stdout_task.await;
+            let _ = stderr_task.await;
+        })
+        .await;
         // rc 端口
         let rc = self.rc_payload(code, signal.as_deref());
         self.send_output(&node, &msg, 2, rc, None, &cancel).await;
