@@ -470,4 +470,35 @@ mod tests {
             )
         );
     }
+
+    /// The sandbox global `env.get(name)` is Node-RED's `RED.util.getSetting(node, name)` carried
+    /// down to `Flow#getSetting` / `process.env[name]`: a *literal* name lookup. `${}` interpolation
+    /// belongs to `evaluateNodeProperty(value, "env")` and must not leak into it, or a flow that
+    /// asks for a variable literally named `${FOO}` silently gets a different one.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn test_sandbox_env_get_is_a_literal_lookup() {
+        const FUNC: &str = r#"
+            msg.plain = String(env.get('EL_TEST_ENV'));
+            msg.braced = String(env.get('${EL_TEST_ENV}'));
+            msg.evaluated = String(RED.util.evaluateNodeProperty('${EL_TEST_ENV}', 'env'));
+            return msg;
+        "#;
+
+        let flows_json = json!([
+            {"id": "100", "type": "tab", "env": [{"name": "EL_TEST_ENV", "value": "foo", "type": "str"}]},
+            {"id": "1", "type": "function", "z": "100", "func": FUNC, "wires": [["2"]]},
+            {"id": "2", "z": "100", "type": "test-once"},
+        ]);
+        let msgs_to_inject_json = json!([["1", {"payload": "foo"}]]);
+
+        let engine = crate::runtime::engine::build_test_engine(flows_json).unwrap();
+        let msgs_to_inject = Vec::<(ElementId, Msg)>::deserialize(msgs_to_inject_json).unwrap();
+        let msgs =
+            engine.run_once_with_inject(1, std::time::Duration::from_secs_f64(1.0), msgs_to_inject).await.unwrap();
+
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0]["plain"], "foo".into());
+        assert_eq!(msgs[0]["braced"], "undefined".into());
+        assert_eq!(msgs[0]["evaluated"], "foo".into());
+    }
 }

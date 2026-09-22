@@ -737,7 +737,8 @@ const RED = (function () {
      *
      * Node-RED's sandbox rebinds this so that the `node` argument is the function node itself and
      * the flow cannot be overridden; the group/flow/engine lookups all live behind the sandbox
-     * `env` object, so only the node-specific names are handled here.
+     * `env` object, which - like Node-RED's `Flow#getSetting` - looks the name up verbatim.
+     * `${}` interpolation is `evaluateEnvProperty`'s job, not this function's.
      */
     function getSetting(node, name) {
         if (node) {
@@ -750,12 +751,6 @@ const RED = (function () {
             if (name === "NR_NODE_PATH") {
                 return node._path;
             }
-        }
-        // Node-RED's `Flow#getSetting` looks the name up verbatim - `${...}` interpolation is
-        // `evaluateEnvProperty`'s job (it only ever passes plain names here), so a name that still
-        // contains `${` can only be a miss.
-        if (typeof name === 'string' && name.indexOf('${') !== -1) {
-            return undefined;
         }
         return env.get(name);
     }
@@ -1029,17 +1024,20 @@ const RED = (function () {
                                     data: value.toString()
                                 };
                             } else if (isBytes(value)) {
-                                // Node encodes a Buffer here; the sandbox's bytes are a Uint8Array,
-                                // which is written in the same wire format (`type: "Buffer"`).
+                                // Node reaches this shape through `Buffer#toJSON()`, which emits
+                                // `type`/`data` and leaves the replacer to add `__enc__`/`length`;
+                                // the sandbox's bytes are a Uint8Array with no `toJSON`, so build
+                                // the same object - in the same key order, so that the encoded
+                                // string is byte-identical to Node-RED's.
                                 var encodedBytes = Array.from(toU8(value));
                                 var byteLength = encodedBytes.length;
                                 if (byteLength > debuglength) {
                                     encodedBytes = encodedBytes.slice(0, debuglength);
                                 }
                                 value = {
-                                    __enc__: true,
                                     type: "Buffer",
                                     data: encodedBytes,
+                                    __enc__: true,
                                     length: byteLength
                                 };
                             } else if (value && value.constructor) {

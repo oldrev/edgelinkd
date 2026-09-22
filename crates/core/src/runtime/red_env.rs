@@ -44,7 +44,13 @@ impl RedEnvs {
         self.get_normalized(env_expr)
     }
 
-    fn get_raw_env(&self, key: &str) -> Option<Variant> {
+    /// Look an environment variable up by its literal name, without `${}` interpolation.
+    ///
+    /// This is the lookup the function node sandbox performs for `env.get(name)`: Node-RED binds
+    /// that global to `RED.util.getSetting(node, name)`, which reaches `Flow#getSetting` and
+    /// `process.env[name]` and never interpolates. `${}` handling belongs to
+    /// [`RedEnvs::evalute_env`] (`evaluateNodeProperty(value, "env")`), not to a name lookup.
+    pub fn get_raw_env(&self, key: &str) -> Option<Variant> {
         if let Some(value) = self.inner.envs.get(key) {
             Some(value.clone())
         } else {
@@ -370,6 +376,11 @@ mod tests {
         assert_eq!(node.evalute_env("PARENT_BAR").unwrap().as_str().unwrap(), "barbar");
         assert_eq!(node.evalute_env("AGE").unwrap().as_str().unwrap(), "100");
         assert_eq!(node.evalute_env("FILE_SIZE").unwrap().as_i64().unwrap(), 123);
+
+        // `env.get(name)` in the function node sandbox is a literal lookup (`Flow#getSetting` never
+        // interpolates), so a `${}`-wrapped name is a miss even when the plain name resolves.
+        assert_eq!(node.get_raw_env("MY_FOO").unwrap().as_str().unwrap(), "aaa");
+        assert!(node.get_raw_env("${MY_FOO}").is_none());
     }
 
     #[cfg(feature = "jsonata")]

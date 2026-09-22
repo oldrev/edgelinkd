@@ -24,7 +24,9 @@ impl<'js> EnvClass {
     #[qjs()]
     fn get(&self, key: Value<'js>, ctx: Ctx<'js>) -> Result<Value<'js>> {
         let key: String = key.get()?;
-        let res: Value<'js> = match self.envs.evalute_env(key.as_ref()) {
+        // `env.get(name)` is Node-RED's `RED.util.getSetting(node, name)`: a literal lookup that
+        // never interpolates `${}` (see `RedEnvs::get_raw_env`).
+        let res: Value<'js> = match self.envs.get_raw_env(key.as_ref()) {
             Some(var) => var.into_js(&ctx)?,
             _ => Value::new_undefined(ctx),
         };

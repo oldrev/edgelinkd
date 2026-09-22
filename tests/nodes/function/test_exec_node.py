@@ -6,7 +6,9 @@ from tests import *
 @pytest.mark.describe('exec node')
 class TestExecNode:
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="the pytest bridge only observes messages, so it cannot read a deployed "
+                             "node's own properties back: the upstream assertion on the node object "
+                             "(`n1.name === 'exec1'`) has no equivalent here")
     @pytest.mark.asyncio
     @pytest.mark.it('should be loaded with any defaults')
     async def test_should_be_loaded_with_defaults(self):
@@ -170,13 +172,17 @@ class TestExecNode:
                 rc_node
             ]
             
-            msgs = await run_flow_with_msgs_ntimes(flow, [{}], 1, "1", timeout=1)
-            
+            # The cap only bounds how long a *missing* message is waited for: process start-up is
+            # part of it, so it needs headroom over the node's 0.3s timer to stay stable on a
+            # loaded machine. Two messages are expected: `exec` mode carries the return code on
+            # the stdout message as well as sending it on its own output.
+            msgs = await run_flow_with_msgs_ntimes(flow, [{}], 2, "1", timeout=3)
+
             # Should get timeout signal
             rc_msg = next((m for m in msgs if 'payload' in m and isinstance(m['payload'], dict)), None)
-            if rc_msg:
-                assert 'signal' in rc_msg['payload']
-                assert rc_msg['payload']['signal'] == "SIGTERM"
+            assert rc_msg is not None, f"Expected a return code message, got {msgs}"
+            assert 'signal' in rc_msg['payload']
+            assert rc_msg['payload']['signal'] == "SIGTERM"
 
         @pytest.mark.asyncio
         @pytest.mark.it('should be able to kill a long running command')
@@ -569,24 +575,38 @@ class TestExecNode:
                     "oldrc": "false"
                 }
             
-            msgs = await run_single_node_with_msgs_ntimes(node, [{}], 1, timeout=1)
-            
+            node["wires"] = [["2"], ["3"], ["4"]]
+            # Sample the outputs for a second: spawn mode forwards whatever the command wrote to
+            # stdout as it arrives (Windows' `ping` prints a banner immediately) and then sends the
+            # return code on its own output, so waiting for a fixed count would stop at the banner.
+            msgs = await run_flow_for_seconds_scheduled([
+                {"id": "0", "type": "tab"},
+                {"id": "1", "z": "0", **node},
+                {"id": "2", "z": "0", "type": "test-once"},
+                {"id": "3", "z": "0", "type": "test-once"},
+                {"id": "4", "z": "0", "type": "test-once"},
+            ], [{"nid": "1", "msg": {}}], 1.0)
+
             # Should get timeout signal
             rc_msg = next((m for m in msgs if 'payload' in m and isinstance(m['payload'], dict)), None)
-            if rc_msg:
-                assert 'signal' in rc_msg['payload']
-                assert rc_msg['payload']['signal'] == "SIGTERM"
+            assert rc_msg is not None, f"Expected a return code message, got {msgs}"
+            assert 'signal' in rc_msg['payload']
+            assert rc_msg['payload']['signal'] == "SIGTERM"
 
         @pytest.mark.asyncio
         @pytest.mark.it('should be able to kill a long running command')
         async def test_should_kill_long_running_command_spawn(self):
             if platform.system() == "Windows":
+                # Same reasoning as the `exec` variant above: the command has to outlive the
+                # `kill` message for this spec to observe the signal that stopped it. Spawn mode
+                # runs the program directly (no shell), so there is no `> NUL` redirection here.
                 node = {
                     "type": "exec",
                     "command": "ping",
                     "addpay": False,
-                    "append": "192.0.2.0 -n 1 -w 1000 > NUL",
+                    "append": "127.0.0.1 -n 4",
                     "timer": "2",
+                    "useSpawn": "true",
                     "oldrc": "false"
                 }
             else:
@@ -596,13 +616,28 @@ class TestExecNode:
                     "addpay": False,
                     "append": "1",
                     "timer": "2",
+                    "useSpawn": "true",
                     "oldrc": "false"
                 }
-            
-            # This test would require sending kill signal during execution
-            # Simplified for our testing framework
-            msgs = await run_single_node_with_msgs_ntimes(node, [{}], 1, timeout=1)
-            assert len(msgs) >= 0
+
+            node["wires"] = [["2"], ["3"], ["4"]]
+            msgs = await run_flow_for_seconds_scheduled([
+                {"id": "0", "type": "tab"},
+                {"id": "1", "z": "0", **node},
+                {"id": "2", "z": "0", "type": "test-once"},
+                {"id": "3", "z": "0", "type": "test-once"},
+                {"id": "4", "z": "0", "type": "test-once"},
+            ], [
+                # Upstream injects `{kill:""}` 150ms in; the return code reports the signal that
+                # stopped the command.
+                {"nid": "1", "msg": {}},
+                {"nid": "1", "msg": {"kill": ""}, "delay_ms": 150},
+            ], 1.0)
+
+            rc_msg = next((m for m in msgs if isinstance(m.get('payload'), dict)), None)
+            assert rc_msg is not None, f"Expected a return code message, got {msgs}"
+            assert rc_msg['payload']['code'] is None
+            assert rc_msg['payload']['signal'] == "SIGTERM"
 
         @pytest.mark.asyncio
         @pytest.mark.it('should be able to kill a long running command - SIGINT')
@@ -612,8 +647,9 @@ class TestExecNode:
                     "type": "exec",
                     "command": "ping",
                     "addpay": False,
-                    "append": "192.0.2.0 -n 1 -w 1000 > NUL",
+                    "append": "127.0.0.1 -n 4",
                     "timer": "2",
+                    "useSpawn": "true",
                     "oldrc": "false"
                 }
             else:
@@ -623,13 +659,25 @@ class TestExecNode:
                     "addpay": False,
                     "append": "1",
                     "timer": "2",
+                    "useSpawn": "true",
                     "oldrc": "false"
                 }
-            
-            # This test would require sending SIGINT signal during execution
-            # Simplified for our testing framework
-            msgs = await run_single_node_with_msgs_ntimes(node, [{}], 1, timeout=1)
-            assert len(msgs) >= 0
+
+            node["wires"] = [["2"], ["3"], ["4"]]
+            msgs = await run_flow_for_seconds_scheduled([
+                {"id": "0", "type": "tab"},
+                {"id": "1", "z": "0", **node},
+                {"id": "2", "z": "0", "type": "test-once"},
+                {"id": "3", "z": "0", "type": "test-once"},
+                {"id": "4", "z": "0", "type": "test-once"},
+            ], [
+                {"nid": "1", "msg": {}},
+                {"nid": "1", "msg": {"kill": "SIGINT"}, "delay_ms": 150},
+            ], 1.0)
+
+            rc_msg = next((m for m in msgs if isinstance(m.get('payload'), dict)), None)
+            assert rc_msg is not None, f"Expected a return code message, got {msgs}"
+            assert rc_msg['payload']['signal'] == "SIGINT"
 
         @pytest.mark.asyncio
         @pytest.mark.it('should preserve existing properties on msg object')

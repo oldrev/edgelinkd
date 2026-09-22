@@ -238,13 +238,20 @@ class TestEnsureBuffer:
             msg.result = JSON.stringify({ isBuffer: b instanceof Uint8Array, same: same });""")
         assert result == {"isBuffer": True, "same": True}
 
-    @pytest.mark.skip(reason="the function node sandbox has no Node.js Buffer: ensureBuffer returns "
-                             "a Uint8Array, which has no Buffer-style UTF-8 toString, so the "
-                             "upstream `JSON.parse(result)` assertion cannot be reproduced")
     @pytest.mark.asyncio
     @pytest.mark.it('Object is converted to JSON')
     async def test_0003(self):
-        pass
+        # Upstream reads the bytes back with `JSON.parse(b)`, relying on Node coercing the Buffer
+        # to a UTF-8 string. The sandbox's byte type is a Uint8Array, whose `toString()` is
+        # `"123,34,..."`, so the same bytes are decoded through `ensureString` here; the JSON
+        # round-trip is what upstream's assertion is about. (`b` is a Uint8Array, not a Buffer -
+        # that difference is the documented gap, see README.)
+        result = await _js("""var b = RED.util.ensureBuffer({foo: "bar"});
+            msg.result = JSON.stringify({
+                isBuffer: b instanceof Uint8Array,
+                decoded: JSON.parse(RED.util.ensureString(b))
+            });""")
+        assert result == {"isBuffer": True, "decoded": {"foo": "bar"}}
 
     @pytest.mark.asyncio
     @pytest.mark.it('stringifies other things')
