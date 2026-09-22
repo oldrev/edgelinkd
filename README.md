@@ -196,9 +196,17 @@ The heavy check mark ( :heavy_check_mark: ) below indicates that this feature ha
 - [x] Context
     - [x] Memory storage
     - [x] Local file-system storage
-- [ ] RED.util (WIP)
-    - [x] `RED.util.cloneMessage()`
-    - [x] `RED.util.generateId()`
+- [x] :heavy_check_mark: RED.util
+    - [x] The whole `@node-red/util` surface on the function node sandbox object
+      (`getMessageProperty`/`setMessageProperty`, `evaluateNodeProperty`,
+      `normalisePropertyExpression`, `normaliseNodeTypeName`, `compareObjects`,
+      `ensureString`/`ensureBuffer`, `parseContextStore`, `getSetting`, `encodeObject`, ...),
+      covered by the ported upstream spec in `tests/util/test_util.py`
+    - [ ] `ensureBuffer()` returns a `Uint8Array`: the sandbox has no Node.js `Buffer`
+    - [ ] `prepareJSONataExpression()` / `evaluateJSONataExpression()` fail with `NOT_SUPPORTED`:
+      JSONata is implemented by the Rust runtime and is not exposed to JavaScript
+    - [ ] `evaluateNodeProperty(v, "date")` with a format string fails with `NOT_SUPPORTED`:
+      the sandbox has no `moment` to format with
 - [x] Plug-in subsystem[^1]
 - [x] JSONata (via the pure-Rust `jsonata-core` engine)
     - [x] `$flowContext()`, `$globalContext()`, `$env()`, `$clone()`, `$I`/`$N` bindings

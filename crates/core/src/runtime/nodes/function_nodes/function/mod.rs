@@ -420,4 +420,54 @@ mod tests {
             assert_eq!(msg["count"], "0".into());
         }
     }
+
+    /// The sandbox must expose Node-RED's whole `RED.util` module, and the two JSONata entries -
+    /// the Rust runtime owns JSONata and does not hand it to JavaScript - must fail loudly rather
+    /// than return a plausible-looking value.
+    ///
+    /// The ported spec (`tests/util/test_util.py`) covers the behaviour of every other entry; this
+    /// pins the exported surface and the deliberate gap, which upstream's spec only reaches through
+    /// the skipped JSONata cases.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn test_red_util_surface_and_unsupported_jsonata() {
+        const FUNC: &str = r#"
+            var api = ['encodeObject','ensureString','ensureBuffer','cloneMessage','compareObjects','generateId',
+                'getMessageProperty','setMessageProperty','getObjectProperty','setObjectProperty','evaluateNodeProperty',
+                'normalisePropertyExpression','normaliseNodeTypeName','prepareJSONataExpression',
+                'evaluateJSONataExpression','parseContextStore','getSetting'];
+            msg.missing = api.filter(function (name) { return typeof RED.util[name] !== 'function'; });
+            var codes = {};
+            ['prepareJSONataExpression','evaluateJSONataExpression'].forEach(function (name) {
+                try {
+                    RED.util[name]('a', {});
+                    codes[name] = 'did-not-throw';
+                } catch (err) {
+                    codes[name] = err.code;
+                }
+            });
+            msg.codes = JSON.stringify(codes);
+            return msg;
+        "#;
+
+        let flows_json = json!([
+            {"id": "100", "type": "tab"},
+            {"id": "1", "type": "function", "z": "100", "func": FUNC, "wires": [["2"]]},
+            {"id": "2", "z": "100", "type": "test-once"},
+        ]);
+        let msgs_to_inject_json = json!([["1", {"payload": "foo"}]]);
+
+        let engine = crate::runtime::engine::build_test_engine(flows_json).unwrap();
+        let msgs_to_inject = Vec::<(ElementId, Msg)>::deserialize(msgs_to_inject_json).unwrap();
+        let msgs =
+            engine.run_once_with_inject(1, std::time::Duration::from_secs_f64(1.0), msgs_to_inject).await.unwrap();
+
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0]["missing"], Variant::Array(vec![]));
+        assert_eq!(
+            msgs[0]["codes"],
+            Variant::from(
+                r#"{"prepareJSONataExpression":"NOT_SUPPORTED","evaluateJSONataExpression":"NOT_SUPPORTED"}"#
+            )
+        );
+    }
 }
