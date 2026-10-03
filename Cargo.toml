@@ -60,7 +60,7 @@ chrono = "0.4"
 regex = "1"
 thiserror = "2"
 nom = "^8.0"
-tokio-cron-scheduler = "^0.14"
+tokio-cron-scheduler = "^0.15"
 bumpalo = "3"
 dirs-next = "2"
 clap = { version = "4", features = ["derive"] }
