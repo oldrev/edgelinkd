@@ -151,6 +151,11 @@
                 "yaml node",
                 "nodes/parsers/test_yaml_node.py",
                 "test/nodes/core/parsers/70-YAML_spec.js"
+            ],
+            [
+                "html node",
+                "nodes/parsers/test_html_node.py",
+                "test/nodes/core/parsers/70-HTML_spec.js"
             ]
         ]
     },

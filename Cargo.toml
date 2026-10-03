@@ -116,6 +116,7 @@ tokio-tungstenite = { version = "0.26.2", features = [
 ] }
 serde-xml-rs = { version = "0.8.1" }
 quick-xml = { version = "0.39", features = ["serialize"] }
+scraper = "0.22"
 axum = { version = "0.8.4", default-features = false, features = [
     "http1",
     "json",

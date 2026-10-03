@@ -56,6 +56,7 @@ urlencoding = { version = "2.1", optional = true }
 url = "2.5"
 # XML parsing
 quick-xml = { workspace = true, optional = true, features = ["serialize"] }
+scraper = { workspace = true, optional = true }
 serde-xml-rs = { workspace = true, optional = true }
 # Crates in this project
 edgelink-macro = { path = "../macro" }
@@ -95,7 +96,7 @@ js = ["rquickjs", "rquickjs-extra"]
 jsonata = ["jsonata-core"]
 rqjs_bindgen = ["js", "rquickjs/bindgen"]
 nodes_network = ["nodes_mqtt", "nodes_udp", "nodes_tcp", "nodes_http", "nodes_websocket"]
-nodes_parser = ["nodes_xml", "nodes_yaml"]
+nodes_parser = ["nodes_xml", "nodes_yaml", "scraper"]
 nodes_storage = ["nodes_storage_watch"]
 nodes_mqtt = ["rumqttc"]
 nodes_http = ["tokio/net", "reqwest", "urlencoding"]

@@ -278,7 +278,7 @@ Refer [REDNODES-SPECS-DIFF.md](tests/REDNODES-SPECS-DIFF.md) to view the details
         - [x] Batch
     - Parse nodes:
         - [x] CSV
-        - [ ] HTML
+        - [x] HTML (CSS selection and `single`/`multi` output via the Rust `scraper` crate; core behavior covered by `tests/nodes/parsers/test_html_node.py`)
         - [x] :heavy_check_mark: JSON
         - [x] :heavy_check_mark: XML
         - [x] YAML
