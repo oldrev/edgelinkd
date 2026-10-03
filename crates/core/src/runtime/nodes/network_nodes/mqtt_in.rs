@@ -41,7 +41,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde::Deserialize;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, mpsc};
 use tokio::time::timeout;
 
 use crate::runtime::flow::Flow;
@@ -126,7 +126,6 @@ struct DynamicSubscription {
 #[derive(Default)]
 struct MqttConnection {
     client: Option<rumqttc::AsyncClient>,
-    event_loop: Option<Box<rumqttc::EventLoop>>,
     connected: bool,
 }
 
@@ -134,7 +133,6 @@ impl std::fmt::Debug for MqttConnection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MqttConnection")
             .field("client", &self.client.is_some())
-            .field("event_loop", &self.event_loop.is_some())
             .field("connected", &self.connected)
             .finish()
     }
@@ -147,6 +145,8 @@ struct MqttInNode {
     config: MqttInNodeConfig,
     connection: Mutex<MqttConnection>,
     dynamic_subscriptions: RwLock<HashMap<String, DynamicSubscription>>,
+    publish_tx: mpsc::UnboundedSender<rumqttc::Publish>,
+    publish_rx: Mutex<mpsc::UnboundedReceiver<rumqttc::Publish>>,
     /// Whether this node supports dynamic subscriptions
     is_dynamic: bool,
 }
@@ -160,12 +160,15 @@ impl MqttInNode {
     ) -> crate::Result<Box<dyn FlowNodeBehavior>> {
         let mqtt_config = MqttInNodeConfig::deserialize(&config.rest)?;
         let is_dynamic = mqtt_config.inputs == 1;
+        let (publish_tx, publish_rx) = mpsc::unbounded_channel();
 
         let node = MqttInNode {
             base: base_node,
             config: mqtt_config,
             connection: Mutex::new(MqttConnection::default()),
             dynamic_subscriptions: RwLock::new(HashMap::new()),
+            publish_tx,
+            publish_rx: Mutex::new(publish_rx),
             is_dynamic,
         };
 
@@ -181,10 +184,34 @@ impl MqttInNode {
 
         // Create connection options
         // TODO: In a real implementation, this would get broker config from the broker ID
-        let client_id = format!("edgelink_in_{}", &uuid::Uuid::new_v4().to_string()[..8]);
-        let mut mqttoptions = rumqttc::MqttOptions::new(client_id, "localhost", 1883);
-        mqttoptions.set_keep_alive(Duration::from_secs(60));
-        mqttoptions.set_clean_session(true);
+        let settings = self
+            .engine()
+            .and_then(|engine| self.config.broker.parse().ok().and_then(|id| engine.find_global_node_by_id(&id)))
+            .and_then(|node| node.mqtt_settings())
+            .ok_or_else(|| crate::EdgelinkError::invalid_operation("MQTT broker config not found"))?;
+        let client_id =
+            settings.client_id.unwrap_or_else(|| format!("edgelink_in_{}", &uuid::Uuid::new_v4().to_string()[..8]));
+        let mut mqttoptions = rumqttc::MqttOptions::new(client_id, settings.host, settings.port);
+        mqttoptions.set_keep_alive(Duration::from_secs(settings.keepalive as u64));
+        mqttoptions.set_clean_session(settings.clean);
+        if let Some(username) = settings.username {
+            mqttoptions.set_credentials(username, settings.password.unwrap_or_default());
+        }
+        if settings.tls {
+            mqttoptions.set_transport(rumqttc::Transport::tls_with_default_config());
+        }
+        if let Some(will_topic) = settings.will_topic {
+            mqttoptions.set_last_will(rumqttc::LastWill {
+                topic: will_topic,
+                message: settings.will_payload.unwrap_or_default().into_bytes().into(),
+                qos: match settings.will_qos {
+                    1 => rumqttc::QoS::AtLeastOnce,
+                    2 => rumqttc::QoS::ExactlyOnce,
+                    _ => rumqttc::QoS::AtMostOnce,
+                },
+                retain: settings.will_retain,
+            });
+        }
 
         let (client, mut eventloop) = rumqttc::AsyncClient::new(mqttoptions, 100);
 
@@ -227,8 +254,24 @@ impl MqttInNode {
                 }
 
                 connection.client = Some(client.clone());
-                connection.event_loop = Some(Box::new(eventloop));
                 connection.connected = true;
+                let publish_tx = self.publish_tx.clone();
+                tokio::spawn(async move {
+                    loop {
+                        match eventloop.poll().await {
+                            Ok(rumqttc::Event::Incoming(rumqttc::Packet::Publish(publish))) => {
+                                if publish_tx.send(publish).is_err() {
+                                    break;
+                                }
+                            }
+                            Ok(_) => {}
+                            Err(error) => {
+                                log::warn!("MQTT In event loop stopped: {error}");
+                                break;
+                            }
+                        }
+                    }
+                });
                 Ok(client)
             }
             Ok(Err(e)) => {
@@ -272,7 +315,7 @@ impl MqttInNode {
     }
 
     /// Convert payload based on data type setting
-    fn convert_payload(&self, payload: &[u8], datatype: &MqttDataType) -> Variant {
+    fn convert_payload(payload: &[u8], datatype: &MqttDataType) -> Variant {
         match datatype {
             MqttDataType::Buffer => Variant::Bytes(payload.to_vec()),
             MqttDataType::Base64 => {
@@ -314,6 +357,22 @@ impl MqttInNode {
                 }
             }
         }
+    }
+
+    fn topic_matches(filter: &str, topic: &str) -> bool {
+        let filter_levels: Vec<&str> = filter.split('/').collect();
+        let topic_levels: Vec<&str> = topic.split('/').collect();
+        let mut ti = 0;
+        for (index, level) in filter_levels.iter().enumerate() {
+            if *level == "#" {
+                return index + 1 == filter_levels.len();
+            }
+            if ti >= topic_levels.len() || (*level != "+" && *level != topic_levels[ti]) {
+                return false;
+            }
+            ti += 1;
+        }
+        ti == topic_levels.len()
     }
 
     /// Convert JSON value to Variant
@@ -413,7 +472,6 @@ impl MqttInNode {
                     let mut connection = self.connection.lock().await;
                     connection.connected = false;
                     connection.client = None;
-                    connection.event_loop = None;
                     drop(connection);
 
                     self.ensure_connection().await?;
@@ -426,7 +484,6 @@ impl MqttInNode {
                         log::info!("MQTT In disconnected");
                     }
                     connection.connected = false;
-                    connection.event_loop = None;
                 }
                 "subscribe" => {
                     let topics = self.extract_topics_from_message(msg)?;
@@ -581,103 +638,89 @@ impl FlowNodeBehavior for MqttInNode {
             });
         }
 
-        // Main message receiving loop
-        let mut event_loop_task: Option<tokio::task::JoinHandle<()>> = None;
-
+        // Main message receiving loop. The MQTT event loop is owned by the connection
+        // task started in `ensure_connection`; this task only forwards publish events.
         while !stop_token.is_cancelled() {
-            // Ensure we have a connection
-            if let Err(e) = self.ensure_connection().await {
+            let auto_connect = self
+                .engine()
+                .and_then(|engine| self.config.broker.parse().ok().and_then(|id| engine.find_global_node_by_id(&id)))
+                .and_then(|node| node.mqtt_settings())
+                .map(|settings| settings.auto_connect)
+                .unwrap_or(true);
+            if auto_connect && let Err(e) = self.ensure_connection().await {
                 log::error!("Failed to establish MQTT In connection: {e}");
                 tokio::time::sleep(Duration::from_secs(5)).await;
                 continue;
             }
 
-            // Start event loop task if not already running
-            if event_loop_task.is_none() {
-                let mut connection = self.connection.lock().await;
-                if let Some(mut event_loop) = connection.event_loop.take() {
-                    let node = self.clone();
-                    event_loop_task = Some(tokio::spawn(async move {
-                        loop {
-                            match event_loop.poll().await {
-                                Ok(rumqttc::Event::Incoming(rumqttc::Packet::Publish(publish))) => {
-                                    // Create message from MQTT publish
-                                    let mut mqtt_msg = Msg::default();
-                                    mqtt_msg.set("topic".to_string(), Variant::String(publish.topic.clone()));
-                                    mqtt_msg.set(
-                                        "qos".to_string(),
-                                        Variant::Number(serde_json::Number::from(
-                                            node.rumqttc_qos_to_number(publish.qos),
-                                        )),
-                                    );
-                                    mqtt_msg.set("retain".to_string(), Variant::Bool(publish.retain)); // Determine datatype for payload conversion
-                                    let datatype = if node.is_dynamic {
-                                        let subs = node.dynamic_subscriptions.read().await;
-                                        // Find matching subscription by topic pattern
-                                        let matched_datatype = subs
-                                            .values()
-                                            .find(|sub| {
-                                                // Simple topic matching - could be enhanced with proper wildcard matching
-                                                sub.topic == publish.topic
-                                                    || publish.topic.starts_with(&sub.topic.replace("#", ""))
-                                            })
-                                            .map(|sub| sub.datatype.clone())
-                                            .unwrap_or(node.config.datatype.clone());
-                                        drop(subs);
-                                        matched_datatype
-                                    } else {
-                                        node.config.datatype.clone()
-                                    }; // Convert payload
-                                    let payload = node.convert_payload(&publish.payload, &datatype);
-                                    mqtt_msg.set("payload".to_string(), payload);
+            let publish = {
+                let mut publish_rx = self.publish_rx.lock().await;
+                tokio::time::timeout(Duration::from_millis(100), publish_rx.recv()).await.ok().flatten()
+            };
+            let Some(publish) = publish else { continue };
 
-                                    // Add _topic for localhost broker (Node-RED compatibility)
-                                    mqtt_msg.set("_topic".to_string(), Variant::String(publish.topic));
-
-                                    // Send message
-                                    let msg_handle = MsgHandle::new(mqtt_msg);
-                                    if let Err(e) = node
-                                        .fan_out_one(Envelope { port: 0, msg: msg_handle }, CancellationToken::new())
-                                        .await
-                                    {
-                                        log::warn!("Failed to send MQTT message: {e}");
-                                    }
-                                }
-                                Ok(rumqttc::Event::Incoming(_)) => {
-                                    // Other packets (ConnAck, SubAck, etc.)
-                                    continue;
-                                }
-                                Ok(rumqttc::Event::Outgoing(_)) => {
-                                    // Outgoing packets
-                                    continue;
-                                }
-                                Err(e) => {
-                                    log::error!("MQTT event loop error: {e}");
-                                    break;
-                                }
-                            }
-                        }
-                    }));
-                }
+            let mut mqtt_msg = Msg::default();
+            mqtt_msg.set("topic".to_string(), Variant::String(publish.topic.clone()));
+            mqtt_msg.set(
+                "qos".to_string(),
+                Variant::Number(serde_json::Number::from(self.rumqttc_qos_to_number(publish.qos))),
+            );
+            mqtt_msg.set("retain".to_string(), Variant::Bool(publish.retain));
+            let datatype = if self.is_dynamic {
+                let subs = self.dynamic_subscriptions.read().await;
+                subs.values()
+                    .find(|sub| Self::topic_matches(&sub.topic, &publish.topic))
+                    .map(|sub| sub.datatype.clone())
+                    .unwrap_or(self.config.datatype.clone())
+            } else {
+                self.config.datatype.clone()
+            };
+            mqtt_msg.set("payload".to_string(), Self::convert_payload(&publish.payload, &datatype));
+            mqtt_msg.set("_topic".to_string(), Variant::String(publish.topic));
+            if let Err(error) =
+                self.fan_out_one(Envelope { port: 0, msg: MsgHandle::new(mqtt_msg) }, CancellationToken::new()).await
+            {
+                log::warn!("Failed to send MQTT message: {error}");
             }
-
-            // Wait a bit before checking again
-            tokio::time::sleep(Duration::from_secs(1)).await;
         }
 
         // Cleanup
-        if let Some(task) = event_loop_task {
-            task.abort();
-        }
-
         let mut connection = self.connection.lock().await;
         if let Some(client) = connection.client.take() {
             log::info!("Disconnecting MQTT In client on shutdown");
             let _ = client.disconnect().await;
         }
         connection.connected = false;
-        connection.event_loop = None;
 
         log::debug!("MqttInNode process() task has been terminated.");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MqttDataType, MqttInNode};
+    use crate::runtime::model::Variant;
+
+    #[test]
+    fn topic_matching_obeys_mqtt_wildcards() {
+        assert!(MqttInNode::topic_matches("sensors/+/temperature", "sensors/kitchen/temperature"));
+        assert!(!MqttInNode::topic_matches("sensors/+/temperature", "sensors/kitchen/humidity"));
+        assert!(MqttInNode::topic_matches("sensors/#", "sensors/kitchen/temperature"));
+        assert!(MqttInNode::topic_matches("sensors/#", "sensors"));
+        assert!(!MqttInNode::topic_matches("sensors/#/extra", "sensors/kitchen"));
+    }
+
+    #[test]
+    fn payload_conversion_matches_datatypes() {
+        assert_eq!(
+            MqttInNode::convert_payload(br#"{"value":1}"#, &MqttDataType::Auto),
+            Variant::String(r#"{"value":1}"#.into())
+        );
+        assert!(matches!(
+            MqttInNode::convert_payload(br#"{"value":1}"#, &MqttDataType::AutoDetect),
+            Variant::Object(_)
+        ));
+        assert_eq!(MqttInNode::convert_payload(b"abc", &MqttDataType::Utf8), Variant::String("abc".into()));
+        assert_eq!(MqttInNode::convert_payload(&[0xff], &MqttDataType::Utf8), Variant::Bytes(vec![0xff]));
     }
 }

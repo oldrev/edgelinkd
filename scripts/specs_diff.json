@@ -126,6 +126,11 @@
                 "udp out",
                 "nodes/network/test_udpout_node.py",
                 "test/nodes/core/network/32-udpout_spec.js"
+            ],
+            [
+                "mqtt node",
+                "nodes/network/test_mqtt_node.py",
+                "test/nodes/core/network/21-mqtt_spec.js"
             ]
         ]
     },

@@ -24,7 +24,14 @@ use tokio::sync::Mutex;
 #[allow(dead_code)]
 struct MqttBrokerConfig {
     /// Broker URL (e.g., mqtt://localhost:1883)
+    #[serde(default)]
     url: String,
+
+    /// Node-RED stores host and port separately in deployed flows.
+    #[serde(default)]
+    broker: Option<String>,
+    #[serde(default)]
+    port: Option<u16>,
 
     /// Client ID (optional, auto-generate if empty)
     #[serde(default)]
@@ -49,6 +56,12 @@ struct MqttBrokerConfig {
     /// Clean session flag
     #[serde(default = "default_clean")]
     clean: bool,
+
+    #[serde(rename = "autoConnect", default = "default_auto_connect")]
+    auto_connect: bool,
+
+    #[serde(rename = "protocolVersion", default = "default_protocol_version")]
+    protocol_version: u8,
 
     /// Reconnect period (ms)
     #[serde(default = "default_reconnect_period")]
@@ -81,6 +94,14 @@ fn default_keepalive() -> u16 {
 
 fn default_clean() -> bool {
     true
+}
+
+fn default_auto_connect() -> bool {
+    true
+}
+
+fn default_protocol_version() -> u8 {
+    4
 }
 
 fn default_reconnect_period() -> u64 {
@@ -186,6 +207,9 @@ impl MqttBrokerNode {
 
     /// Parse host from broker url
     fn parse_host(&self) -> String {
+        if let Some(host) = &self.config.broker {
+            return host.clone();
+        }
         // Example: mqtt://localhost:1883
         let url = &self.config.url;
         if let Some(stripped) = url.strip_prefix("mqtt://") {
@@ -199,6 +223,9 @@ impl MqttBrokerNode {
 
     /// Parse port from broker url
     fn parse_port(&self) -> u16 {
+        if let Some(port) = self.config.port {
+            return port;
+        }
         let url = &self.config.url;
         if let Some(idx) = url.rfind(':')
             && let Ok(port) = url[idx + 1..].parse()
@@ -292,6 +319,25 @@ impl MqttBrokerNode {
 impl GlobalNodeBehavior for MqttBrokerNode {
     fn get_base(&self) -> &BaseGlobalNodeState {
         &self.base
+    }
+
+    fn mqtt_settings(&self) -> Option<MqttBrokerSettings> {
+        Some(MqttBrokerSettings {
+            host: self.parse_host(),
+            port: self.parse_port(),
+            username: self.config.username.clone(),
+            password: self.config.password.clone(),
+            tls: self.config.tls.is_some(),
+            keepalive: self.config.keepalive,
+            clean: self.config.clean,
+            client_id: self.config.clientid.clone(),
+            auto_connect: self.config.auto_connect,
+            protocol_version: self.config.protocol_version,
+            will_topic: self.config.will_topic.clone(),
+            will_payload: self.config.will_payload.clone(),
+            will_qos: self.config.will_qos.unwrap_or(0),
+            will_retain: self.config.will_retain.unwrap_or(false),
+        })
     }
 
     // Only get_base() is required by GlobalNodeBehavior.

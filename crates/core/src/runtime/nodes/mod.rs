@@ -124,6 +124,24 @@ pub struct BaseGlobalNodeState {
     pub disabled: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct MqttBrokerSettings {
+    pub host: String,
+    pub port: u16,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub tls: bool,
+    pub keepalive: u16,
+    pub clean: bool,
+    pub client_id: Option<String>,
+    pub auto_connect: bool,
+    pub protocol_version: u8,
+    pub will_topic: Option<String>,
+    pub will_payload: Option<String>,
+    pub will_qos: u8,
+    pub will_retain: bool,
+}
+
 pub trait ScopedNodeBehavior {
     fn get_scope(&self) -> &FlowNodeScope;
 }
@@ -131,6 +149,10 @@ pub trait ScopedNodeBehavior {
 #[async_trait]
 pub trait GlobalNodeBehavior: Send + Sync + FlowsElement {
     fn get_base(&self) -> &BaseGlobalNodeState;
+
+    fn mqtt_settings(&self) -> Option<MqttBrokerSettings> {
+        None
+    }
 }
 
 #[async_trait]
