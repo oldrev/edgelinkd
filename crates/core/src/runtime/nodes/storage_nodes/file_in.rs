@@ -174,7 +174,7 @@ impl FileInNode {
             FileEncoding::Binary => String::from_utf8_lossy(data).to_string(),
             FileEncoding::Hex => hex::encode(data),
             FileEncoding::Ucs2 => {
-                let units = data.chunks_exact(2).map(|pair| u16::from_le_bytes([pair[0], pair[1]]));
+                let units = data.as_chunks::<2>().0.iter().map(|pair| u16::from_le_bytes(*pair));
                 String::from_utf16_lossy(&units.collect::<Vec<_>>())
             }
             FileEncoding::Utf16Be => encoding_rs::UTF_16BE.decode(data).0.into_owned(),
