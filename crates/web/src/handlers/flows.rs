@@ -68,9 +68,14 @@ pub async fn get_flows(Extension(state): Extension<Arc<WebState>>) -> Result<Jso
         vec![]
     };
 
+    let revision = {
+        let engine_guard = state.engine.read().await;
+        if let Some(engine) = engine_guard.as_ref() { engine.flows_rev().await } else { "1".to_string() }
+    };
+
     let response = serde_json::json!({
         "flows": flows,
-        "rev": "1"  // Simple revision for now
+        "rev": revision
     });
 
     Ok(Json(response))
@@ -156,9 +161,11 @@ pub async fn post_flows(
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
 
-    let response = serde_json::json!({
-        "rev": "1"
-    });
+    let revision = {
+        let engine_guard = state.engine.read().await;
+        if let Some(engine) = engine_guard.as_ref() { engine.flows_rev().await } else { "1".to_string() }
+    };
+    let response = serde_json::json!({ "rev": revision });
 
     Ok(Json(response))
 }
