@@ -13,6 +13,31 @@
                 "test/nodes/core/common/25-catch_spec.js"
             ],
             [
+                "debug",
+                "nodes/common/test_debug_node.py",
+                "test/nodes/core/common/21-debug_spec.js"
+            ],
+            [
+                "status",
+                "nodes/common/test_status_node.py",
+                "test/nodes/core/common/25-status_spec.js"
+            ],
+            [
+                "comment",
+                "nodes/common/test_comment_node.py",
+                "test/nodes/core/common/90-comment_spec.js"
+            ],
+            [
+                "global-config",
+                "nodes/common/test_global_config_node.py",
+                "test/nodes/core/common/91-global-config_spec.js"
+            ],
+            [
+                "unknown",
+                "nodes/common/test_unknown_node.py",
+                "test/nodes/core/common/98-unknown_spec.js"
+            ],
+            [
                 "link",
                 "nodes/common/test_link_nodes.py",
                 "test/nodes/core/common/60-link_spec.js"

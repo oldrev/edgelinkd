@@ -7,6 +7,7 @@ pub mod flow;
 pub mod group;
 pub mod http_registry;
 pub mod model;
+pub mod node_log_channel;
 pub mod nodes;
 pub mod paths;
 pub mod red_env;

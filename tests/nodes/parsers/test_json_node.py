@@ -263,3 +263,11 @@ class TestJsonNode:
         injections = [{"payload": obj, "schema": schema}]
         msgs = await run_single_node_with_msgs_ntimes(node, injections, 1)
         assert "schema" not in msgs[0]
+
+    @pytest.mark.skip(reason="the case needs a binary payload (an invalid JSON string in a Buffer) "
+                             "and asserts a captured log event: binary payloads cannot cross the "
+                             "pytest bridge, which has no log-event capture either")
+    @pytest.mark.asyncio
+    @pytest.mark.it('should log an error if asked to parse an invalid json string in a buffer')
+    async def test_invalid_json_string_in_buffer(self):
+        pass

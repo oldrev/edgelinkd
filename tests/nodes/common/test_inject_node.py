@@ -30,6 +30,44 @@ async def basic_test(type: str, val, rval=None):
         assert msgs[0]["payload"] == val
 
 
+async def _run_inject_with_context(setup_js: str, payload: str, payload_type: str, topic: str = "t1"):
+    """Fire one inject node whose value is read out of flow/global context.
+
+    Upstream seeds the context from the test itself (`n1.context().flow.set(...)`) and then fires
+    the node with `n1.receive({})`. The pytest bridge can do neither: it cannot reach a deployed
+    node's context, and EdgeLinkd's inject node has no input handler. The value is therefore seeded
+    by a function node's `initialize` (Setup) script instead, and the node fires from its own
+    `once` timer, which starts after the deploy-time scripts have run. The property evaluation
+    under test - `payloadType` `flow`/`global` with an optional `#:(store)::` prefix - is the same
+    code path either way.
+    """
+    flows = [
+        {"id": "100", "type": "tab"},
+        {"id": "3", "z": "100", "type": "function", "initialize": setup_js, "func": "return msg;", "wires": []},
+        {"id": "1", "z": "100", "type": "inject", "once": True, "onceDelay": 0.2, "repeat": "",
+            "topic": topic, "payload": payload, "payloadType": payload_type, "wires": [["2"]]},
+        {"id": "2", "z": "100", "type": "test-once"},
+    ]
+    return await run_flow_with_msgs_ntimes(flows, [], 1)
+
+
+async def _run_two_injects_with_context(setup_js: str, injects: list[tuple[str, str, str]]):
+    """Like `_run_inject_with_context`, with two inject nodes feeding one helper.
+
+    `injects` holds `(payload, payloadType, topic)` triples; the two nodes fire from the same
+    `once` timer, so the messages are compared by topic rather than by arrival order.
+    """
+    flows = [
+        {"id": "100", "type": "tab"},
+        {"id": "3", "z": "100", "type": "function", "initialize": setup_js, "func": "return msg;", "wires": []},
+    ]
+    for i, (payload, payload_type, topic) in enumerate(injects):
+        flows.append({"id": str(11 + i), "z": "100", "type": "inject", "once": True, "onceDelay": 0.2,
+            "repeat": "", "topic": topic, "payload": payload, "payloadType": payload_type, "wires": [["2"]]})
+    flows.append({"id": "2", "z": "100", "type": "test-once"})
+    return await run_flow_with_msgs_ntimes(flows, [], len(injects))
+
+
 @pytest.mark.describe('inject node')
 class TestInjectNode:
 
@@ -279,20 +317,81 @@ class TestInjectNode:
         msgs = await run_flow_with_msgs_ntimes(flows, injections, 1)
         assert msgs[0]["payload"] == "0000000000001000"
 
-    # Now there is no way to set the context in Python code yet
-    @pytest.mark.skip
     @pytest.mark.asyncio
     @pytest.mark.it('sets the value of flow context property')
     async def test_it_sets_the_value_of_flow_context_property(self):
-        flows = [
-            {"id": "100", "type": "tab"},  # flow 1
-            {"id": "n1", "type": "inject", "topic": "t1", "payload": "flowValue", "payloadType": "flow", "wires": [["2"]], "z": "100"},
-            {"id": "2", "z": "100", "type": "test-once"},
-        ]
-        injections = []
-        msgs = await run_flow_with_msgs_ntimes(flows, injections, 1)
+        msgs = await _run_inject_with_context("flow.set('flowValue','changeMe');", "flowValue", "flow")
         assert msgs[0]["topic"] == 't1'
         assert msgs[0]["payload"] == "changeMe"
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('sets the value of global context property')
+    async def test_it_sets_the_value_of_global_context_property(self):
+        msgs = await _run_inject_with_context("global.set('globalValue','changeMe');", "globalValue", "global")
+        assert msgs[0]["topic"] == 't1'
+        assert msgs[0]["payload"] == "changeMe"
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('sets the value of persistable flow context property')
+    async def test_it_sets_the_value_of_persistable_flow_context_property(self):
+        msgs = await _run_inject_with_context(
+            "flow.set('flowValue','changeMe','memory0');", "#:(memory0)::flowValue", "flow")
+        assert msgs[0]["topic"] == 't1'
+        assert msgs[0]["payload"] == "changeMe"
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('sets the value of two persistable flow context property')
+    async def test_it_sets_the_value_of_two_persistable_flow_context_property(self):
+        msgs = await _run_two_injects_with_context(
+            "flow.set('val','foo','memory0');flow.set('val','bar','memory1');",
+            [("#:(memory0)::val", "flow", "t0"), ("#:(memory1)::val", "flow", "t1")])
+        by_topic = {m["topic"]: m["payload"] for m in msgs}
+        assert by_topic == {"t0": "foo", "t1": "bar"}
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('sets the value of persistable global context property')
+    async def test_it_sets_the_value_of_persistable_global_context_property(self):
+        msgs = await _run_inject_with_context(
+            "global.set('val','foo','memory1');", "#:(memory1)::val", "global")
+        assert msgs[0]["topic"] == 't1'
+        assert msgs[0]["payload"] == "foo"
+
+    # Upstream declares this title twice (a copy/paste in 20-inject_spec.js); the audit compares
+    # title lists, so both copies are ported.
+    @pytest.mark.asyncio
+    @pytest.mark.it('sets the value of two persistable global context property')
+    async def test_it_sets_the_value_of_two_persistable_global_context_property(self):
+        msgs = await _run_two_injects_with_context(
+            "global.set('val','foo','memory0');global.set('val','bar','memory1');",
+            [("#:(memory0)::val", "global", "t0"), ("#:(memory1)::val", "global", "t1")])
+        by_topic = {m["topic"]: m["payload"] for m in msgs}
+        assert by_topic == {"t0": "foo", "t1": "bar"}
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('sets the value of two persistable global context property')
+    async def test_it_sets_the_value_of_two_persistable_global_context_property_again(self):
+        msgs = await _run_two_injects_with_context(
+            "global.set('val','foo','memory0');global.set('val','bar','memory1');",
+            [("#:(memory0)::val", "global", "t0"), ("#:(memory1)::val", "global", "t1")])
+        by_topic = {m["topic"]: m["payload"] for m in msgs}
+        assert by_topic == {"t0": "foo", "t1": "bar"}
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('sets the value of persistable flow & global context property')
+    async def test_it_sets_the_value_of_persistable_flow_and_global_context_property(self):
+        msgs = await _run_two_injects_with_context(
+            "flow.set('val','foo','memory0');global.set('val','bar','memory1');",
+            [("#:(memory0)::val", "flow", "t0"), ("#:(memory1)::val", "global", "t1")])
+        by_topic = {m["topic"]: m["payload"] for m in msgs}
+        assert by_topic == {"t0": "foo", "t1": "bar"}
+
+    @pytest.mark.skip(reason="the `__user_inject_props__` message override is not implemented: "
+                             "EdgeLinkd's inject node has no input handler, so a message can neither "
+                             "trigger it nor replace its configured properties")
+    @pytest.mark.asyncio
+    @pytest.mark.it('should inject custom properties in message')
+    async def test_it_should_inject_custom_properties_in_message(self):
+        pass
 
     @pytest.mark.asyncio
     @pytest.mark.it('should inject once with default delay property')
@@ -533,30 +632,35 @@ class TestInjectNode:
         assert "payload" not in msgs[0]
 
 
-@pytest.mark.describe('post')
-class TestInjectPost:
-    @pytest.mark.skip(reason="the inject node does not support the `__user_inject_props__` message override")
-    @pytest.mark.asyncio
-    @pytest.mark.it('should inject custom properties in posted message')
-    async def test_post_custom_properties(self):
-        flows = [
-            {"id": "100", "type": "tab"},  # flow 1
-            {
-                "id": "1",
-                "type": "inject",
-                "z": "100",
-                "once": True,
-                "props": [
-                    {"p": "payload", "v": "static", "vt": "str"},
-                    {"p": "topic", "v": "static", "vt": "str"}
-                ],
-                "wires": [["2"]],
-            },
-            {"id": "2", "z": "100", "type": "test-once"},
-        ]
-        injections = [{"nid": "1", "msg": {"__user_inject_props__": [
-            {"p": "payload", "v": '"A" & "B"', "vt": "jsonata"},
-        ]}}]
-        msgs = await run_flow_with_msgs_ntimes(flows, injections, 1)
-        assert msgs[0]["payload"] == "AB"
+    @pytest.mark.describe('post')
+    class TestInjectPost:
+        """Upstream drives these through the admin API (`helper.request().post('/inject/:id')`).
+
+        EdgeLinkd does expose that route (`inject.rs`, `POST /inject/{node_id_str}`), but the pytest
+        bridge runs the engine in-process and has no admin server, so the route cannot be reached
+        from here; a harness that starts the real binary over HTTP is the missing piece.
+        """
+
+        _NO_ADMIN_API = ("the pytest bridge runs the engine in-process and has no admin API, so "
+                         "POST /inject/:id cannot be driven")
+
+        @pytest.mark.skip(reason=_NO_ADMIN_API)
+        @pytest.mark.asyncio
+        @pytest.mark.it('should inject message')
+        async def test_post_should_inject_message(self):
+            pass
+
+        @pytest.mark.skip(reason="the admin-API `POST /inject/:id` request body is ignored: the "
+                                 "`__user_inject_props__` override is not implemented, so a posted "
+                                 "message cannot replace the node's configured properties")
+        @pytest.mark.asyncio
+        @pytest.mark.it('should inject custom properties in posted message')
+        async def test_post_custom_properties(self):
+            pass
+
+        @pytest.mark.skip(reason=_NO_ADMIN_API)
+        @pytest.mark.asyncio
+        @pytest.mark.it('should fail for invalid node')
+        async def test_post_invalid_node(self):
+            pass
 

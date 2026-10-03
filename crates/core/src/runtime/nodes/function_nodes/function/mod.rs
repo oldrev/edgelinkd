@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use rquickjs::async_with;
 use rquickjs::context::EvalOptions;
@@ -38,6 +39,36 @@ struct FunctionNodeConfig {
 
     #[serde(default, rename = "outputs")]
     output_count: usize,
+
+    /// Node-RED's per-node script execution limit, in seconds. `None` means "no limit", which is
+    /// what a flow that never set the option gets. The editor writes the value through a typed
+    /// input, so it arrives as a string (`"0.010"`) as often as a number.
+    #[serde(default, deserialize_with = "deser_optional_f64")]
+    timeout: Option<f64>,
+}
+
+/// Accept a number, a numeric string or nothing at all (`""` is "no timeout").
+fn deser_optional_f64<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum NumberOrString {
+        Number(f64),
+        String(String),
+    }
+
+    match Option::<NumberOrString>::deserialize(deserializer)? {
+        None => Ok(None),
+        Some(NumberOrString::Number(value)) => Ok(Some(value)),
+        Some(NumberOrString::String(text)) if text.trim().is_empty() => Ok(None),
+        Some(NumberOrString::String(text)) => text
+            .trim()
+            .parse::<f64>()
+            .map(Some)
+            .map_err(|_| serde::de::Error::custom(format!("invalid function timeout: '{text}'"))),
+    }
 }
 
 #[derive(Debug)]
@@ -47,9 +78,61 @@ struct FunctionNode {
 
     output_count: usize,
     user_script: Vec<u8>,
+
+    /// The configured script timeout in milliseconds, when the flow set one.
+    script_timeout_ms: Option<u64>,
+
+    /// The wall-clock deadline a running script is interrupted at, in milliseconds since the Unix
+    /// epoch; `u64::MAX` while no script is running (or when no timeout is configured). The QuickJS
+    /// interrupt handler reads it on every interpreter step, so a runaway `while(1){}` cannot take
+    /// the runtime's thread down with it.
+    script_deadline_ms: Arc<AtomicU64>,
+}
+
+/// Milliseconds since the Unix epoch, saturating at 0 for the pre-1970 clock the tests cannot hit.
+fn now_ms() -> u64 {
+    chrono::Utc::now().timestamp_millis().max(0) as u64
 }
 
 const JS_PRELUDE_SCRIPT: &str = include_str!("./function.prelude.js");
+
+impl FunctionNode {
+    /// Node-RED renders a logged or thrown value as text: a string as-is, anything else through
+    /// `JSON.stringify` (so `throw 99` logs `99` and `throw {a:1}` logs `{"a":1}`).
+    fn js_value_text<'js>(value: &js::Value<'js>, ctx: &js::Ctx<'js>) -> String {
+        if value.type_of() == js::Type::String {
+            value.get::<String>().unwrap_or_default()
+        } else {
+            ctx.json_stringify(value.clone())
+                .ok()
+                .flatten()
+                .and_then(|s| s.to_string().ok())
+                .unwrap_or_else(|| format!("{value:?}"))
+        }
+    }
+
+    /// Start the script timeout for the JS that is about to run.
+    fn arm_script_timeout(&self) {
+        let deadline = self.script_timeout_ms.map(|ms| now_ms() + ms).unwrap_or(u64::MAX);
+        self.script_deadline_ms.store(deadline, Ordering::Relaxed);
+    }
+
+    /// Stop the script timeout; leaves the interrupt handler armed but never firing.
+    fn disarm_script_timeout(&self) {
+        self.script_deadline_ms.store(u64::MAX, Ordering::Relaxed);
+    }
+
+    /// Whether the script that just ran was stopped by its own timeout.
+    fn script_timed_out(&self) -> bool {
+        let deadline = self.script_deadline_ms.load(Ordering::Relaxed);
+        deadline != u64::MAX && now_ms() >= deadline
+    }
+
+    /// The message Node-RED reports for a script that ran too long.
+    fn script_timeout_message(&self) -> String {
+        format!("Script execution timed out after {}ms", self.script_timeout_ms.unwrap_or_default())
+    }
+}
 
 #[async_trait]
 impl FlowNodeBehavior for FunctionNode {
@@ -67,6 +150,19 @@ impl FlowNodeBehavior for FunctionNode {
         let resolver = js::loader::BuiltinResolver::default();
         let loaders = (js::loader::ScriptLoader::default(), js::loader::ModuleLoader::default());
         js_rt.set_loader(resolver, loaders).await;
+
+        // The node's `timeout` option: interrupt the interpreter once the deadline passes, so a
+        // runaway script fails the message instead of hanging the node's task forever.
+        {
+            let deadline = self.script_deadline_ms.clone();
+            js_rt
+                .set_interrupt_handler(Some(Box::new(move || {
+                    let deadline = deadline.load(Ordering::Relaxed);
+                    deadline != u64::MAX && now_ms() >= deadline
+                })))
+                .await;
+        }
+
         js_rt.idle().await;
 
         let js_ctx = js::AsyncContext::full(&js_rt).await.unwrap();
@@ -144,11 +240,7 @@ impl FunctionNode {
         config: &RedFlowNodeConfig,
         _options: Option<&config::Config>,
     ) -> crate::Result<Box<dyn FlowNodeBehavior>> {
-        let mut function_config = FunctionNodeConfig::deserialize(&config.rest)?;
-        if function_config.output_count == 0 {
-            function_config.output_count = 1;
-        }
-
+        let function_config = FunctionNodeConfig::deserialize(&config.rest)?;
         let user_script = format!(
             "
             async function __el_init_func() {{ 
@@ -186,8 +278,10 @@ impl FunctionNode {
 
         let node = FunctionNode {
             base: base_node,
-            output_count: function_config.output_count,
+            output_count: function_config.output_count.max(1),
             user_script: user_script.as_bytes().to_vec(),
+            script_timeout_ms: function_config.timeout.map(|seconds| (seconds * 1000.0).round() as u64),
+            script_deadline_ms: Arc::new(AtomicU64::new(u64::MAX)),
         };
         Ok(Box::new(node))
     }
@@ -203,27 +297,38 @@ impl FunctionNode {
         let user_func: js::Function = ctx.globals().get("__el_user_func")?;
         let js_msg = msg.into_js(&ctx)?;
         let args = (js_msg,);
-        let promised = user_func.call::<_, rquickjs::Promise>(args)?;
-        let js_res_value: js::Result<js::Value> = promised.into_future().await;
-        let eval_result = match js_res_value.catch(&ctx) {
-            Ok(js_result) => self.convert_return_value(&ctx, js_result, origin_msg_id),
+        self.arm_script_timeout();
+        // `call` runs the function body up to its first `await`, so a synchronous `while(1){}` is
+        // interrupted here rather than in `into_future`.
+        let call_result = user_func.call::<_, rquickjs::Promise>(args);
+        let outcome: js::Result<js::Value> = match call_result {
+            Ok(promised) => promised.into_future().await,
+            Err(e) => Err(e),
+        };
+        let timed_out = self.script_timed_out();
+        self.disarm_script_timeout();
+        let js_result = match outcome.catch(&ctx) {
+            Ok(js_result) => js_result,
             Err(e) => {
-                if e.is_exception() {
-                    log::warn!("[function:{}] Javascript user function exception: {}", self.name(), e);
+                // Node-RED reports a script error through `node.error`: a script that ran too long
+                // gets its own message, anything else logs the thrown value (a string as-is,
+                // anything else through JSON), and the flow's `catch` node sees the failure.
+                let text = if timed_out {
+                    self.script_timeout_message()
                 } else {
-                    log::warn!("[function:{}] Javascript user function error: {}", self.name(), e);
-                }
-                Err(js::Error::Exception)
+                    match e {
+                        js::CaughtError::Value(value) => Self::js_value_text(&value, &ctx),
+                        js::CaughtError::Exception(exception) => exception.to_string(),
+                        js::CaughtError::Error(err) => err.to_string(),
+                    }
+                };
+                log::error!("[function:{}] {text}", self.name());
+                self.publish_node_log("ERROR", text.clone());
+                return Err(EdgelinkError::InvalidOperation(text).into());
             }
         };
-
-        // This is VERY IMPORTANT! Execute all spawned tasks.
-        // js_ctx.runtime().idle().await;
-
-        match eval_result {
-            Ok(msgs) => Ok(msgs),
-            Err(e) => Err(EdgelinkError::InvalidOperation(e.to_string()).into()),
-        }
+        let msgs = self.convert_return_value(&ctx, js_result, origin_msg_id)?;
+        Ok(msgs)
     }
 
     fn convert_return_value<'js>(

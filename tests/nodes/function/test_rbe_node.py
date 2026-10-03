@@ -317,3 +317,20 @@ class TestRbeNode:
         msgs = await run_single_node_with_msgs_ntimes(node, injections, 2)
         assert msgs[0]['payload'] == 55.0
         assert msgs[1]['payload'] == 205.0
+
+    @pytest.mark.skip(reason="the spec asserts on the deployed node's own properties (`name`, "
+                             "`func`, `gap`), which the pytest bridge cannot read back: it only "
+                             "observes messages")
+    @pytest.mark.asyncio
+    @pytest.mark.it('should be loaded with correct defaults')
+    async def test_should_be_loaded_with_correct_defaults(self):
+        pass
+
+    @pytest.mark.skip(reason="the spec asserts that a warning was logged (`helper.log()`); the "
+                             "pytest bridge has no log-event capture. It also expects no output for "
+                             "a non-numeric payload, which a `*_for_seconds` sampler could check, but "
+                             "that would not be the assertion the title claims")
+    @pytest.mark.asyncio
+    @pytest.mark.it('should warn if no number found in deadband mode')
+    async def test_should_warn_if_no_number_found_in_deadband_mode(self):
+        pass

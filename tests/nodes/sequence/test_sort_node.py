@@ -302,27 +302,58 @@ class TestSortNode:
     async def test_clear_pending_on_close(self):
         pass
 
-    # Messaging API tests (skip complex timing tests)
-    @pytest.mark.skip(reason="Complex timing tests not fully supported")
-    @pytest.mark.asyncio
-    @pytest.mark.it('should call done() when message is sent (payload)')
-    async def test_messaging_api_payload(self):
-        pass
+    @pytest.mark.describe('messaging API')
+    class TestMessagingApi:
+        """The `done()` contract: when a node finishes a message, its `complete`/`catch` nodes hear
+        about it. The harness times the outputs with `_since_start_ms`, which is what the upstream
+        specs assert with `Date.now()` offsets."""
 
-    @pytest.mark.skip(reason="Complex timing tests not fully supported")
-    @pytest.mark.asyncio
-    @pytest.mark.it('should call done() when message is sent (sequence)')
-    async def test_messaging_api_sequence(self):
-        pass
+        async def _run_done_contract(self, target_type, injections, seconds=0.3):
+            flows = [
+                {"id": "100", "type": "tab"},
+                {"id": "1", "z": "100", "type": "sort", "order": "ascending", "as_num": False,
+                 "target": "payload", "targetType": target_type, "seqKey": "payload", "seqKeyType": "msg",
+                 "wires": [[]]},
+                {"id": "2", "z": "100", "type": "complete", "scope": ["1"], "uncaught": False, "wires": [["4"]]},
+                {"id": "3", "z": "100", "type": "catch", "scope": ["1"], "uncaught": False, "wires": [["4"]]},
+                {"id": "4", "z": "100", "type": "test-once"},
+            ]
+            scheduled = [{"nid": "1", "msg": msg, "delay_ms": delay} for msg, delay in injections]
+            return await run_flow_for_seconds_scheduled(flows, scheduled, seconds)
 
-    @pytest.mark.skip(reason="Complex timing tests not fully supported")
-    @pytest.mark.asyncio
-    @pytest.mark.it('should call done() regardless of buffer overflow (same group)')
-    async def test_messaging_api_overflow_same_group(self):
-        pass
+        @pytest.mark.asyncio
+        @pytest.mark.it('should call done() when message is sent (payload)')
+        async def test_should_call_done_when_message_is_sent_payload(self):
+            msgs = await self._run_done_contract("msg", [({"seq": 0, "payload": [1, 3, 2]}, 0)])
+            assert len(msgs) == 1
+            # The completion carries the message as the node left it (the sorted payload); upstream
+            # only asserts that it has one.
+            assert "payload" in msgs[0]
+            # The node sends and finishes in one go, so the completion arrives at once (upstream
+            # allows 100ms).
+            assert msgs[0]["_since_start_ms"] < 100
 
-    @pytest.mark.skip(reason="Complex timing tests not fully supported")
-    @pytest.mark.asyncio
-    @pytest.mark.it('should call done() regardless of buffer overflow (different group)')
-    async def test_messaging_api_overflow_different_group(self):
-        pass
+        @pytest.mark.skip(reason="Rust gap: the sort node completes each message as soon as it is "
+                                 "handled, while Node-RED holds `done()` for the messages buffered into "
+                                 "a sequence until that sequence is complete (so upstream sees the "
+                                 "completions at the end of the sequence, not on arrival)")
+        @pytest.mark.asyncio
+        @pytest.mark.it('should call done() when message is sent (sequence)')
+        async def test_should_call_done_when_message_is_sent_sequence(self):
+            pass
+
+        @pytest.mark.skip(reason="Rust gap: the sort node completes each message as soon as it is "
+                                 "handled, so the completion timings this spec asserts while the "
+                                 "node message buffer overflows are not reproduced")
+        @pytest.mark.asyncio
+        @pytest.mark.it('should call done() regardless of buffer overflow (same group)')
+        async def test_should_call_done_regardless_of_buffer_overflow_same_group(self):
+            pass
+
+        @pytest.mark.skip(reason="Rust gap: the sort node completes each message as soon as it is "
+                                 "handled, so the completion timings this spec asserts while the "
+                                 "node message buffer overflows are not reproduced")
+        @pytest.mark.asyncio
+        @pytest.mark.it('should call done() regardless of buffer overflow (different group)')
+        async def test_should_call_done_regardless_of_buffer_overflow_different_group(self):
+            pass

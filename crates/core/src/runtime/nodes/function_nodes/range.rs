@@ -77,7 +77,7 @@ impl RangeNode {
                     .ok_or(EdgelinkError::OutOfRange)
                     .with_context(|| format!("Cannot convert the number `{num_value}` to float"))?,
                 Variant::String(s) => s.parse::<f64>()?,
-                _ => f64::NAN,
+                _ => <f64>::NAN,
             };
 
             if !n.is_nan() {

@@ -4,10 +4,13 @@ use std::sync::Arc;
 use serde::Deserialize;
 use serde_json::Number;
 use tokio::fs::File;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+use tokio::io::AsyncReadExt;
 use tokio::sync::Mutex;
 
+use crate::runtime::eval;
 use crate::runtime::flow::Flow;
+use crate::runtime::model::RedPropertyType;
+use crate::runtime::nodes::storage_nodes::file::FileNodeSettings;
 use crate::runtime::nodes::*;
 use edgelink_macro::*;
 
@@ -41,9 +44,10 @@ enum FileEncoding {
 struct FileInNodeConfig {
     #[serde(default = "default_filename")]
     filename: String,
-    #[serde(default = "default_filename_type")]
+    /// Absent in a flow that predates typed inputs, which is what the in-place upgrade keys on.
+    #[serde(default)]
     #[serde(rename = "filenameType")]
-    filename_type: String,
+    filename_type: Option<String>,
     #[serde(default)]
     format: FileFormat,
     #[serde(default)]
@@ -60,10 +64,6 @@ fn default_filename() -> String {
     "".to_string()
 }
 
-fn default_filename_type() -> String {
-    "str".to_string()
-}
-
 fn default_send_error() -> bool {
     true
 }
@@ -75,6 +75,7 @@ pub struct FileInNode {
     config: FileInNodeConfig,
     #[allow(dead_code)]
     state: Mutex<()>,
+    settings: FileNodeSettings,
 }
 
 impl FileInNode {
@@ -82,45 +83,79 @@ impl FileInNode {
         _flow: &Flow,
         base_node: BaseFlowNodeState,
         config: &RedFlowNodeConfig,
-        _options: Option<&config::Config>,
+        options: Option<&config::Config>,
     ) -> crate::Result<Box<dyn FlowNodeBehavior>> {
         let file_config = FileInNodeConfig::deserialize(&config.rest)?;
-        let node = FileInNode { base: base_node, config: file_config, state: Mutex::new(()) };
+        let node = FileInNode {
+            base: base_node,
+            config: file_config,
+            state: Mutex::new(()),
+            settings: FileNodeSettings::load(options)?,
+        };
         Ok(Box::new(node))
     }
 
-    fn get_filename(&self, msg: &Msg) -> Option<String> {
-        match self.config.filename_type.as_str() {
-            "msg" => {
-                let prop = if self.config.filename.is_empty() { "filename" } else { &self.config.filename };
-                if let Some(Variant::String(s)) = msg.get(prop)
-                    && !s.is_empty()
-                {
-                    return Some(s.clone());
-                }
-                None
-            }
-            "env" => {
-                if !self.config.filename.is_empty() {
-                    std::env::var(&self.config.filename).ok()
-                } else {
-                    None
-                }
-            }
-            "jsonata" => {
-                // Out of scope: the file nodes do not evaluate their filename with JSONata, and
-                // falling through to the static branch would use the expression as a literal path.
-                log::error!("[file in:{}] filenameType 'jsonata' is not supported", self.name());
-                None
-            }
-            _ => {
-                if !self.config.filename.is_empty() {
-                    Some(self.config.filename.clone())
-                } else {
-                    None
-                }
-            }
+    /// The filename of a message, evaluated the way `RED.util.evaluateNodeProperty` evaluates a
+    /// typed input (`str`, `msg`, `env`, `jsonata`, ...), with the in-place upgrade of a flow that
+    /// predates `filenameType`.
+    async fn evaluated_filename(&self, msg: &Msg) -> crate::Result<Option<String>> {
+        let (filename, filename_type) =
+            match (self.config.filename_type.as_deref().unwrap_or(""), self.config.filename.as_str()) {
+                ("", "") => ("filename", "msg"),
+                ("", unknown) => (unknown, "str"),
+                (kind, value) => (value, kind),
+            };
+        if filename.is_empty() && filename_type == "str" {
+            return Ok(None);
         }
+
+        let property_type = RedPropertyType::from(filename_type).unwrap_or(RedPropertyType::Str);
+        let value = if property_type == RedPropertyType::Msg {
+            // `RED.util.getMessageProperty` resolves a property that is not there to `undefined`,
+            // which the node reports as a missing filename rather than as an error.
+            msg.get_nav_stripped(filename).cloned().unwrap_or(Variant::Null)
+        } else {
+            eval::evaluate_raw_node_property(filename, property_type, Some(self), self.flow().as_ref(), Some(msg))
+                .await?
+        };
+        Ok(match value {
+            Variant::Null => None,
+            Variant::String(text) => Some(text),
+            other => Some(other.to_string().or_else(|_| serde_json::to_string(&other)).unwrap_or_default()),
+        })
+    }
+
+    /// The `file.errors.*` keys Node-RED reports, published as node log events.
+    fn warn_event(&self, key: &str) {
+        log::warn!("[file in:{}] {key}", self.name());
+        self.publish_node_log("WARN", key.to_string());
+    }
+
+    fn error_event(&self, err: &std::io::Error) {
+        // Node-RED logs the `Error` object, whose text form is `Error: <message>`.
+        let message = format!("Error: {err}");
+        log::error!("[file in:{}] {message}", self.name());
+        self.publish_node_log("ERROR", message);
+    }
+
+    /// The `error` property Node-RED puts on the message it sends when the read failed.
+    ///
+    /// Node-RED hands over the `Error` object itself; a message here carries JSON, so the fields the
+    /// specs read (`code`, `message`, `path`) are written out.
+    fn error_variant(err: &std::io::Error, path: &str) -> Variant {
+        let code = match err.kind() {
+            std::io::ErrorKind::NotFound => "ENOENT",
+            std::io::ErrorKind::PermissionDenied => "EACCES",
+            std::io::ErrorKind::AlreadyExists => "EEXIST",
+            _ => "UNKNOWN",
+        };
+        let mut error = BTreeMap::new();
+        error.insert("code".to_string(), Variant::String(code.to_string()));
+        error.insert("message".to_string(), Variant::String(err.to_string()));
+        error.insert("errno".to_string(), Variant::Number(Number::from(err.raw_os_error().unwrap_or(0))));
+        error.insert("path".to_string(), Variant::String(path.to_string()));
+        error.insert("syscall".to_string(), Variant::String("open".to_string()));
+        Variant::Object(error)
     }
 
     fn decode_data(&self, data: &[u8]) -> String {
@@ -152,50 +187,59 @@ impl FileInNode {
         }
     }
 
+    /// The message a `lines`/`stream` part is built from: the whole input message with `allProps`,
+    /// otherwise just its `topic` and `filename` (upstream `m = {topic, filename}`).
+    fn part_message(&self, msg: &Msg) -> Msg {
+        if self.config.all_props {
+            return msg.clone();
+        }
+        let mut part = Msg::default();
+        if let Some(topic) = msg.get("topic") {
+            part["topic"] = topic.clone();
+        }
+        if let Some(filename) = msg.get("filename") {
+            part["filename"] = filename.clone();
+        }
+        part
+    }
+
+    fn part_metadata(&self, index: usize, ch: &str, type_: &str, msg: &Msg, count: Option<usize>) -> Variant {
+        let msg_id = msg.get("_msgid").and_then(|value| value.as_str()).unwrap_or("").to_string();
+        let mut parts = BTreeMap::new();
+        parts.insert("index".to_string(), Variant::Number(Number::from(index as u64)));
+        parts.insert("ch".to_string(), Variant::String(ch.to_string()));
+        parts.insert("type".to_string(), Variant::String(type_.to_string()));
+        parts.insert("id".to_string(), Variant::String(msg_id));
+        if let Some(count) = count {
+            parts.insert("count".to_string(), Variant::Number(Number::from(count as u64)));
+        }
+        Variant::Object(parts)
+    }
+
+    /// `format: "lines"`: the file is split on LF and every piece but the last is sent as it is
+    /// found, the last one carrying `parts.count` (upstream's streaming loop plus its final spare).
     async fn read_file_lines(&self, filename: &str, msg: &Msg) -> crate::Result<Vec<Msg>> {
-        let file = File::open(filename).await?;
-        let reader = BufReader::new(file);
-        let mut lines = reader.lines();
+        let mut file = File::open(filename).await?;
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf).await?;
+        let content = self.decode_data(&buf);
+        let mut lines: Vec<&str> = content.split('\n').collect();
+        // `split` always yields at least one piece, and the trailing one is the spare upstream sends
+        // at `end` with the count.
+        let spare = lines.pop().unwrap_or_default();
+
         let mut messages = Vec::new();
-        let msg_id = msg.get("_msgid").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let mut index = 0;
-
-        while let Some(line_result) = lines.next_line().await? {
-            let line = line_result;
-            let mut new_msg = if self.config.all_props {
-                msg.clone()
-            } else {
-                let mut m = Msg::default();
-                if let Some(topic) = msg.get("topic") {
-                    m["topic"] = topic.clone();
-                }
-                if let Some(filename) = msg.get("filename") {
-                    m["filename"] = filename.clone();
-                }
-                m
-            };
-
-            new_msg["payload"] = Variant::String(line);
-            new_msg["parts"] = Variant::Object({
-                let mut parts = BTreeMap::new();
-                parts.insert("index".to_string(), Variant::Number(Number::from(index)));
-                parts.insert("ch".to_string(), Variant::String("\n".to_string()));
-                parts.insert("type".to_string(), Variant::String("string".to_string()));
-                parts.insert("id".to_string(), Variant::String(msg_id.clone()));
-                parts
-            });
-
-            messages.push(new_msg);
-            index += 1;
+        for (index, line) in lines.iter().enumerate() {
+            let mut part = self.part_message(msg);
+            part["payload"] = Variant::String((*line).to_string());
+            part["parts"] = self.part_metadata(index, "\n", "string", msg, None);
+            messages.push(part);
         }
 
-        // 设置最后一条消息的 count
-        let messages_len = messages.len();
-        if let Some(last_msg) = messages.last_mut()
-            && let Some(Variant::Object(parts)) = last_msg.get_mut("parts")
-        {
-            parts.insert("count".to_string(), Variant::Number(Number::from(messages_len)));
-        }
+        let mut last = self.part_message(msg);
+        last["payload"] = Variant::String(spare.to_string());
+        last["parts"] = self.part_metadata(lines.len(), "\n", "string", msg, Some(lines.len() + 1));
+        messages.push(last);
 
         Ok(messages)
     }
@@ -203,7 +247,6 @@ impl FileInNode {
     async fn read_file_stream(&self, filename: &str, msg: &Msg) -> crate::Result<Vec<Msg>> {
         let mut file = File::open(filename).await?;
         let mut messages = Vec::new();
-        let msg_id = msg.get("_msgid").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let chunk_size = 64 * 1024; // 64KB chunks
         let mut index = 0;
 
@@ -216,37 +259,13 @@ impl FileInNode {
             }
 
             buffer.truncate(bytes_read);
+            let is_last = bytes_read < chunk_size;
 
-            let mut new_msg = if self.config.all_props {
-                msg.clone()
-            } else {
-                let mut m = Msg::default();
-                if let Some(topic) = msg.get("topic") {
-                    m["topic"] = topic.clone();
-                }
-                if let Some(filename) = msg.get("filename") {
-                    m["filename"] = filename.clone();
-                }
-                m
-            };
+            let mut part = self.part_message(msg);
+            part["payload"] = Variant::Bytes(buffer);
+            part["parts"] = self.part_metadata(index, "", "buffer", msg, is_last.then_some(index + 1));
 
-            new_msg["payload"] = Variant::Bytes(buffer);
-            new_msg["parts"] = Variant::Object({
-                let mut parts = BTreeMap::new();
-                parts.insert("index".to_string(), Variant::Number(Number::from(index)));
-                parts.insert("ch".to_string(), Variant::String("".to_string()));
-                parts.insert("type".to_string(), Variant::String("buffer".to_string()));
-                parts.insert("id".to_string(), Variant::String(msg_id.clone()));
-
-                // 如果这是最后一个块（小于 chunk_size），设置 count
-                if bytes_read < chunk_size {
-                    parts.insert("count".to_string(), Variant::Number(Number::from(index + 1)));
-                }
-
-                parts
-            });
-
-            messages.push(new_msg);
+            messages.push(part);
             index += 1;
         }
 
@@ -266,16 +285,28 @@ impl FlowNodeBehavior for FileInNode {
             with_uow(node.as_ref(), stop_token.clone(), |node, msg| async move {
                 let filename = {
                     let msg_guard = msg.read().await;
-                    node.get_filename(&msg_guard)
-                };
-
-                let filename = match filename {
-                    Some(f) => f,
-                    None => {
-                        log::warn!("FileInNode: No filename specified");
-                        return Ok(());
+                    match node.evaluated_filename(&msg_guard).await {
+                        Ok(filename) => filename.unwrap_or_default(),
+                        Err(err) => {
+                            // `evaluateNodeProperty` failed: Node-RED reports it and drops the msg.
+                            node.publish_node_log("ERROR", format!("{err:#}"));
+                            return Ok(());
+                        }
                     }
                 };
+                // Upstream strips tabs, CR and LF from the filename before it is used.
+                let filename: String = filename.chars().filter(|c| !matches!(c, '\t' | '\r' | '\n')).collect();
+
+                if filename.is_empty() {
+                    node.warn_event("file.errors.nofilename");
+                    return Ok(());
+                }
+
+                let full_filename = node.settings.resolve(&filename);
+                {
+                    let mut msg_guard = msg.write().await;
+                    msg_guard.set("filename".to_string(), Variant::String(filename.clone()));
+                }
 
                 node.report_status(
                     StatusObject {
@@ -290,18 +321,17 @@ impl FlowNodeBehavior for FileInNode {
                 let result = match node.config.format {
                     FileFormat::Lines => {
                         let msg_guard = msg.read().await;
-                        node.read_file_lines(&filename, &msg_guard).await
+                        node.read_file_lines(&full_filename, &msg_guard).await
                     }
                     FileFormat::Stream => {
                         let msg_guard = msg.read().await;
-                        node.read_file_stream(&filename, &msg_guard).await
+                        node.read_file_stream(&full_filename, &msg_guard).await
                     }
                     _ => {
                         let msg_guard = msg.read().await;
-                        node.read_file_utf8(&filename, &msg_guard).await.map(|payload| {
+                        node.read_file_utf8(&full_filename, &msg_guard).await.map(|payload| {
                             let mut new_msg = msg_guard.clone();
                             new_msg["payload"] = payload;
-                            new_msg["filename"] = Variant::String(filename.clone());
                             vec![new_msg]
                         })
                     }
@@ -320,7 +350,15 @@ impl FlowNodeBehavior for FileInNode {
                         }
                     }
                     Err(e) => {
-                        log::warn!("FileInNode: Read error: {e}");
+                        let io_error = e.downcast_ref::<std::io::Error>();
+                        match io_error {
+                            Some(io_error) => node.error_event(io_error),
+                            None => {
+                                let message = format!("Error: {e:#}");
+                                log::error!("[file in:{}] {message}", node.name());
+                                node.publish_node_log("ERROR", message);
+                            }
+                        }
 
                         node.report_status(
                             StatusObject {
@@ -338,8 +376,11 @@ impl FlowNodeBehavior for FileInNode {
                                 msg_guard.clone()
                             };
                             error_msg.remove("payload");
-                            error_msg["error"] = Variant::String(format!("{e}"));
                             error_msg["filename"] = Variant::String(filename);
+                            error_msg["error"] = match io_error {
+                                Some(io_error) => FileInNode::error_variant(io_error, &full_filename),
+                                None => Variant::String(format!("{e:#}")),
+                            };
 
                             let envelope = Envelope { port: 0, msg: MsgHandle::new(error_msg) };
                             node.fan_out_one(envelope, CancellationToken::new()).await?;

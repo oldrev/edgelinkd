@@ -6,7 +6,9 @@ enum DebugStatusType {
     Auto,
     Counter,
     Property(String),
-    Jsonata(String),
+    /// `statusType: "jsonata"`: the status text is the `statusVal` expression's result.
+    #[cfg(feature = "jsonata")]
+    Jsonata,
 }
 
 use std::sync::Arc;
@@ -14,37 +16,78 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::{self, Deserialize};
 
-use crate::runtime::debug_channel::create_debug_message;
+use crate::runtime::debug_channel::{
+    create_debug_message, debug_complete_console_text, debug_console_text, debug_status_text,
+};
 use crate::runtime::flow::Flow;
+use crate::runtime::model::Variant;
 use crate::runtime::model::json::RedFlowNodeConfig;
 use crate::runtime::nodes::*;
 use edgelink_macro::*;
 
 #[derive(Deserialize, Debug, Clone)]
 struct DebugNodeConfig {
-    #[serde(default)]
-    console: bool,
+    /// The editor writes this flag as the string `"true"`/`"false"`, a hand-written flow as a
+    /// boolean, and Node-RED reads it as `""+(n.console || false)`.
+    #[serde(default, deserialize_with = "deser_red_optional_bool")]
+    console: Option<bool>,
 
-    #[serde(default)]
-    tosidebar: bool,
+    /// Node-RED defaults this to `true` when the flow does not say (`21-debug.js`:
+    /// `if (this.tosidebar === undefined) { this.tosidebar = true; }`), so it stays an `Option`
+    /// here: an explicit `false` has to remain distinguishable from "absent".
+    #[serde(default, deserialize_with = "deser_red_optional_bool")]
+    tosidebar: Option<bool>,
 
-    #[serde(default)]
-    #[allow(dead_code)]
-    tostatus: bool,
+    #[serde(default, deserialize_with = "deser_red_optional_bool")]
+    tostatus: Option<bool>,
 
     #[serde(default)]
     complete: DebugComplete,
 
-    #[serde(default)]
-    #[allow(dead_code)]
+    #[serde(default, rename = "targetType")]
     target_type: DebugTargetType,
 
-    #[serde(default = "default_active")]
-    active: bool,
+    /// Node-RED keeps the node running unless `active` is explicitly falsy.
+    #[serde(default, deserialize_with = "deser_red_optional_bool")]
+    active: Option<bool>,
 }
 
-fn default_active() -> bool {
-    true
+impl DebugNodeConfig {
+    fn console(&self) -> bool {
+        self.console.unwrap_or(false)
+    }
+
+    fn tosidebar(&self) -> bool {
+        self.tosidebar.unwrap_or(true)
+    }
+
+    fn tostatus(&self) -> bool {
+        self.tostatus.unwrap_or(false)
+    }
+
+    fn active(&self) -> bool {
+        self.active.unwrap_or(true)
+    }
+}
+
+/// Read one of the debug node's boolean flags, which the editor writes as the strings `"true"` and
+/// `"false"` and a hand-written flow may write as JSON booleans.
+///
+/// `None` means the flow did not mention the flag at all, which is not the same as an explicit
+/// `false`: `tosidebar` and `active` default to `true` when they are absent.
+fn deser_red_optional_bool<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error as _;
+
+    match serde_json::Value::deserialize(deserializer)? {
+        serde_json::Value::Bool(value) => Ok(Some(value)),
+        serde_json::Value::String(value) if value == "true" => Ok(Some(true)),
+        serde_json::Value::String(value) if value == "false" || value.is_empty() => Ok(Some(false)),
+        serde_json::Value::Null => Ok(None),
+        other => Err(D::Error::custom(format!("expected a boolean, got {other}"))),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -60,11 +103,9 @@ pub enum DebugTargetType {
     Msg,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(untagged)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DebugComplete {
-    /// Complete message object (when "true")
-    #[serde(deserialize_with = "deserialize_bool_true")]
+    /// Complete message object (`complete: "true"`)
     Full,
     /// Message property path (e.g., "payload", "foo.bar")
     Property(String),
@@ -76,13 +117,26 @@ impl Default for DebugComplete {
     }
 }
 
-/// Custom deserializer to handle "true" string as Full variant
-fn deserialize_bool_true<'de, D>(deserializer: D) -> Result<(), D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let s = String::deserialize(deserializer)?;
-    if s == "true" { Ok(()) } else { Err(serde::de::Error::custom("expected 'true'")) }
+/// `complete` is the string `"true"`, the string `"false"` or a message property path, but
+/// Node-RED also accepts a boolean (`(n.complete||"payload").toString()`), and it folds `"false"`
+/// into `"payload"`, so all four spellings are read here.
+impl<'de> Deserialize<'de> for DebugComplete {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error as _;
+
+        match serde_json::Value::deserialize(deserializer)? {
+            serde_json::Value::Bool(true) => Ok(DebugComplete::Full),
+            serde_json::Value::Bool(false) => Ok(DebugComplete::default()),
+            serde_json::Value::String(s) if s == "true" => Ok(DebugComplete::Full),
+            serde_json::Value::String(s) if s == "false" || s.is_empty() => Ok(DebugComplete::default()),
+            serde_json::Value::String(s) => Ok(DebugComplete::Property(s)),
+            serde_json::Value::Null => Ok(DebugComplete::default()),
+            other => Err(D::Error::custom(format!("'complete' must be a boolean or a string, got {other}"))),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -93,6 +147,15 @@ struct DebugNode {
     is_active: AtomicBool,
     old_status: tokio::sync::Mutex<Option<StatusObject>>,
     status_type: DebugStatusType,
+    /// The compiled `complete` expression of a `targetType: "jsonata"` node.
+    #[cfg(feature = "jsonata")]
+    edit_expression: Option<crate::runtime::jsonata::JsonataExpression>,
+    /// The compiled `statusVal` expression of a `statusType: "jsonata"` node.
+    #[cfg(feature = "jsonata")]
+    status_expression: Option<crate::runtime::jsonata::JsonataExpression>,
+    /// A JSONata expression that did not compile. Node-RED reports it through
+    /// `node.error(RED._("debug.invalid-exp", ...))` and the node then handles no input at all.
+    jsonata_error: Option<String>,
     counter: AtomicUsize,
     last_time: TokioMutex<Instant>,
     notify: Arc<Notify>,
@@ -106,35 +169,88 @@ impl DebugNode {
         config: &RedFlowNodeConfig,
         _options: Option<&config::Config>,
     ) -> crate::Result<Box<dyn FlowNodeBehavior>> {
-        // Compatibility: if complete == "false", convert to "payload"
-        let mut json = config.rest.clone();
-        if let Some(obj) = json.as_object_mut()
-            && let Some(complete_val) = obj.get_mut("complete")
-            && complete_val == "false"
-        {
-            *complete_val = serde_json::Value::String("payload".to_string());
-        }
+        let json = config.rest.clone();
         let debug_config: DebugNodeConfig = DebugNodeConfig::deserialize(&json)?;
 
-        // Parse statusType/statusVal
-        let status_type = if let Some(status_type_val) = json.get("statusType").and_then(|v| v.as_str()) {
-            match status_type_val {
-                "counter" => DebugStatusType::Counter,
-                "jsonata" => {
-                    let expr = json.get("statusVal").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                    DebugStatusType::Jsonata(expr)
-                }
-                "auto" | "" => DebugStatusType::Auto,
-                other => {
-                    // Treat other values as navigation paths
-                    DebugStatusType::Property(other.to_string())
-                }
+        #[cfg(feature = "jsonata")]
+        let mut edit_expression = None;
+        #[cfg(feature = "jsonata")]
+        let mut status_expression = None;
+        let mut jsonata_error = None;
+
+        // `targetType: "jsonata"` turns `complete` into the JSONata expression for the debugged
+        // value (`hasEditExpression ? n.complete : null`), which is compiled at deploy time the way
+        // `prepareJSONataExpression` compiles it.
+        if debug_config.target_type == DebugTargetType::Jsonata {
+            let source = json.get("complete").and_then(|v| v.as_str()).unwrap_or_default();
+            if source.is_empty() {
+                return Err(EdgelinkError::InvalidOperation(
+                    "the debug node has 'targetType': 'jsonata' but no JSONata expression in 'complete'".to_string(),
+                )
+                .into());
             }
-        } else {
-            DebugStatusType::Auto
+            #[cfg(feature = "jsonata")]
+            match crate::runtime::jsonata::JsonataExpression::compile(source) {
+                Ok(expression) => edit_expression = Some(expression),
+                // A syntax error is not a deploy failure upstream: the node reports it and stops
+                // handling messages.
+                Err(_) => jsonata_error = Some(format!("Invalid JSONata expression: {source}")),
+            }
+            #[cfg(not(feature = "jsonata"))]
+            return Err(EdgelinkError::NotSupported(
+                "the debug node's JSONata output expression ('targetType': 'jsonata') is not supported in this build"
+                    .to_string(),
+            )
+            .into());
+        }
+
+        // `statusType` picks the kind of status and `statusVal` the message property it reads, which
+        // is how the editor's typed input writes them; `auto` follows `complete` instead.
+        let status_type = match json.get("statusType").and_then(|v| v.as_str()).unwrap_or("auto") {
+            "" | "auto" => DebugStatusType::Auto,
+            "counter" => DebugStatusType::Counter,
+            "jsonata" => {
+                let source = json.get("statusVal").and_then(|v| v.as_str()).unwrap_or_default();
+                if source.is_empty() {
+                    return Err(EdgelinkError::InvalidOperation(
+                        "the debug node has 'statusType': 'jsonata' but no JSONata expression in 'statusVal'"
+                            .to_string(),
+                    )
+                    .into());
+                }
+                #[cfg(feature = "jsonata")]
+                {
+                    match crate::runtime::jsonata::JsonataExpression::compile(source) {
+                        Ok(expression) => status_expression = Some(expression),
+                        Err(_) => {
+                            jsonata_error.get_or_insert_with(|| format!("Invalid JSONata expression: {source}"));
+                        }
+                    }
+                    DebugStatusType::Jsonata
+                }
+                #[cfg(not(feature = "jsonata"))]
+                return Err(EdgelinkError::NotSupported(
+                    "the debug node's JSONata status expression ('statusType': 'jsonata') is not supported in this build"
+                        .to_string(),
+                )
+                .into());
+            }
+            _ => {
+                let default_status_val = match &debug_config.complete {
+                    DebugComplete::Full => "true".to_string(),
+                    DebugComplete::Property(prop) => prop.clone(),
+                };
+                let path = json
+                    .get("statusVal")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+                    .unwrap_or(default_status_val);
+                DebugStatusType::Property(path)
+            }
         };
 
-        let active = debug_config.active;
+        let active = debug_config.active();
         let now = Instant::now();
         let node = DebugNode {
             base: state,
@@ -142,6 +258,11 @@ impl DebugNode {
             is_active: AtomicBool::new(active),
             old_status: tokio::sync::Mutex::new(None),
             status_type,
+            #[cfg(feature = "jsonata")]
+            edit_expression,
+            #[cfg(feature = "jsonata")]
+            status_expression,
+            jsonata_error,
             counter: AtomicUsize::new(0),
             last_time: TokioMutex::new(now),
             notify: Arc::new(Notify::new()),
@@ -149,52 +270,101 @@ impl DebugNode {
         };
         Ok(Box::new(node))
     }
-    /// 构造 Node-RED 兼容的 StatusObject
-    fn make_status_object(&self, msg: &crate::runtime::model::Msg) -> StatusObject {
-        match &self.status_type {
-            DebugStatusType::Counter => {
-                let count = self.counter.load(Ordering::Relaxed);
-                StatusObject {
-                    fill: Some(StatusFill::Blue),
-                    shape: Some(StatusShape::Ring),
-                    text: Some(count.to_string()),
-                }
+
+    /// Whether the debugged value comes from a JSONata expression rather than from a message
+    /// property.
+    #[cfg(feature = "jsonata")]
+    fn uses_edit_expression(&self) -> bool {
+        self.edit_expression.is_some()
+    }
+
+    #[cfg(not(feature = "jsonata"))]
+    fn uses_edit_expression(&self) -> bool {
+        false
+    }
+
+    /// Evaluate `expression` against the message, with the node's context and environment available
+    /// to it (`RED.util.evaluateJSONataExpression`).
+    #[cfg(feature = "jsonata")]
+    fn evaluate_jsonata(
+        &self,
+        expression: &crate::runtime::jsonata::JsonataExpression,
+        msg: &crate::runtime::model::Msg,
+    ) -> crate::Result<Option<Variant>> {
+        let host = crate::runtime::jsonata::JsonataHost::new(self.flow().as_ref(), Some(self));
+        expression.evaluate(Some(msg), &host)
+    }
+
+    /// The counter status, which never evaluates an expression.
+    fn counter_status_object(&self) -> StatusObject {
+        let count = self.counter.load(Ordering::Relaxed);
+        StatusObject { fill: Some(StatusFill::Blue), shape: Some(StatusShape::Ring), text: Some(count.to_string()) }
+    }
+
+    /// Build the node status the way the upstream `prepareStatus()` does: the text of the value it
+    /// reports, and the `grey`/`dot` pair unless the value itself carries a status.
+    fn make_status_object(&self, msg: &crate::runtime::model::Msg) -> crate::Result<StatusObject> {
+        let text = match &self.status_type {
+            DebugStatusType::Counter => return Ok(self.counter_status_object()),
+            DebugStatusType::Property(path) => debug_status_text(msg.get_nav_stripped(path)),
+            #[cfg(feature = "jsonata")]
+            DebugStatusType::Jsonata => {
+                let value = match &self.status_expression {
+                    Some(expression) => self.evaluate_jsonata(expression, msg)?,
+                    None => None,
+                };
+                debug_status_text(value.as_ref())
             }
-            DebugStatusType::Property(path) => {
-                // Navigation path
-                let value = msg.get_nav(path).map(|v| format!("{v:?}")).unwrap_or_default();
-                StatusObject { fill: Some(StatusFill::Grey), shape: Some(StatusShape::Dot), text: Some(value) }
+            DebugStatusType::Auto => debug_status_text(self.status_value(msg)?.as_ref()),
+        };
+        Ok(StatusObject { fill: Some(StatusFill::Grey), shape: Some(StatusShape::Dot), text: Some(text) })
+    }
+
+    /// Report the status of `msg` when it differs from the last one reported (`node.oldState`).
+    ///
+    /// A status whose expression fails to evaluate is reported through `node.error()` and leaves the
+    /// previous status alone, the way `prepareStatus()`'s error path does.
+    async fn report_status_for_msg(&self, msg: &crate::runtime::model::Msg, stop_token: &CancellationToken) {
+        let status_obj = match self.make_status_object(msg) {
+            Ok(status_obj) => status_obj,
+            Err(err) => {
+                self.publish_node_log("ERROR", format!("{err:#}"));
+                return;
             }
-            DebugStatusType::Jsonata(expr) => StatusObject {
-                fill: Some(StatusFill::Red),
-                shape: Some(StatusShape::Ring),
-                text: Some(format!("jsonata statusType not implemented: {expr}")),
-            },
-            DebugStatusType::Auto => StatusObject {
-                fill: Some(StatusFill::Grey),
-                shape: Some(StatusShape::Dot),
-                text: match &self._config.complete {
-                    DebugComplete::Full => Some("debug".to_string()),
-                    DebugComplete::Property(prop) => msg.get(prop).map(|v| format!("{v:?}")).or(Some("".to_string())),
-                },
-            },
+        };
+        let mut old_status_guard = self.old_status.lock().await;
+        if old_status_guard.as_ref() != Some(&status_obj) {
+            self.report_status(status_obj.clone(), stop_token.clone()).await;
+            *old_status_guard = Some(status_obj);
         }
     }
 
-    /// Extract the message property value
-    fn extract_property_value(&self, msg: &crate::runtime::model::Msg) -> serde_json::Value {
+    /// The value the debug node publishes: the `complete` JSONata expression's result when
+    /// `targetType` is `jsonata`, the whole message for `complete: "true"`, the `complete` property
+    /// otherwise.
+    ///
+    /// `None` is Node-RED's `undefined` - the property is not in the message at all, or the
+    /// expression resolved to nothing - which the editor labels `undefined` and prints as
+    /// `(undefined)`; a property that *is* there and holds `null` is a different thing and is
+    /// labelled `null`.
+    fn debug_value(&self, msg: &crate::runtime::model::Msg) -> crate::Result<Option<Variant>> {
+        #[cfg(feature = "jsonata")]
+        if let Some(expression) = &self.edit_expression {
+            return self.evaluate_jsonata(expression, msg);
+        }
+
+        Ok(match &self._config.complete {
+            DebugComplete::Full => Some(msg.as_variant().clone()),
+            DebugComplete::Property(property) => msg.get_nav_stripped(property).cloned(),
+        })
+    }
+
+    /// The value the node reports as its status: `complete: "true"` reports `msg.payload`, anything
+    /// else the value the node debugs - including a `targetType: "jsonata"` expression.
+    fn status_value(&self, msg: &crate::runtime::model::Msg) -> crate::Result<Option<Variant>> {
         match &self._config.complete {
-            DebugComplete::Full => {
-                // Full message
-                serde_json::to_value(msg).unwrap_or(serde_json::Value::Null)
-            }
-            DebugComplete::Property(property) => {
-                // Extract a specific property and convert Variant to serde_json::Value
-                match msg.get(property) {
-                    Some(variant) => serde_json::to_value(variant).unwrap_or(serde_json::Value::Null),
-                    None => serde_json::Value::Null,
-                }
-            }
+            DebugComplete::Full if !self.uses_edit_expression() => Ok(msg.get("payload").cloned()),
+            _ => self.debug_value(msg),
         }
     }
 }
@@ -206,7 +376,16 @@ impl FlowNodeBehavior for DebugNode {
     }
 
     async fn run(self: Arc<Self>, stop_token: CancellationToken) {
-        if self._config.tostatus {
+        // A JSONata expression that did not compile is reported once and then leaves the node
+        // handling nothing, which is what upstream's early `return` out of the constructor does.
+        if let Some(err) = &self.jsonata_error {
+            self.publish_node_log("ERROR", err.clone());
+            log::error!("[debug:{}] {}", self.name(), err);
+            stop_token.cancelled().await;
+            return;
+        }
+
+        if self._config.tostatus() {
             self.report_status(
                 StatusObject { fill: Some(StatusFill::Grey), shape: Some(StatusShape::Ring), text: None },
                 stop_token.clone(),
@@ -221,21 +400,32 @@ impl FlowNodeBehavior for DebugNode {
                 match self.recv_msg(stop_token.child_token()).await {
                     Ok(msg) => {
                         let msg = msg.unwrap_async().await;
-
-                        // Console output
-                        if self._config.console {
-                            match serde_json::to_string_pretty(&msg) {
-                                Ok(pretty_json) => {
-                                    log::info!("[debug:{}] Message Received: \n{}", self.name(), pretty_json)
-                                }
-                                Err(err) => {
-                                    log::error!("[debug:{}] {:#?}", self.name(), err);
-                                }
+                        // A value expression that fails to evaluate is reported through
+                        // `node.error()` and nothing is published, the way `prepareValue()` does.
+                        let value = match self.debug_value(&msg) {
+                            Ok(value) => value,
+                            Err(err) => {
+                                self.publish_node_log("ERROR", format!("{err:#}"));
+                                continue;
                             }
+                        };
+
+                        // Console output: Node-RED calls `node.log()`, which the specs observe as a
+                        // `{level, id, type, msg, path}` event, so the same text is published here and
+                        // written to the runtime log.
+                        if self._config.console() {
+                            let text = match &self._config.complete {
+                                DebugComplete::Full if !self.uses_edit_expression() => {
+                                    debug_complete_console_text(msg.as_variant())
+                                }
+                                _ => debug_console_text(value.as_ref()),
+                            };
+                            self.publish_node_log("INFO", text.clone());
+                            log::info!("[debug:{}]{}", self.name(), text);
                         }
 
                         // Status reporting (Node-RED old_status logic)
-                        if self._config.tostatus {
+                        if self._config.tostatus() {
                             match &self.status_type {
                                 DebugStatusType::Counter => {
                                     let now = Instant::now();
@@ -245,12 +435,7 @@ impl FlowNodeBehavior for DebugNode {
                                     let _ = self.counter.fetch_add(1, Ordering::Relaxed);
                                     if diff > Duration::from_millis(100) {
                                         // Report immediately
-                                        let status_obj = self.make_status_object(&msg);
-                                        let mut old_status_guard = self.old_status.lock().await;
-                                        if old_status_guard.as_ref() != Some(&status_obj) {
-                                            self.report_status(status_obj.clone(), stop_token.clone()).await;
-                                            *old_status_guard = Some(status_obj);
-                                        }
+                                        self.report_status_for_msg(&msg, &stop_token).await;
                                     } else {
                                         // Only allow one delayed task
                                         if !self.has_delay_task.swap(true, Ordering::SeqCst) {
@@ -267,12 +452,7 @@ impl FlowNodeBehavior for DebugNode {
                                                             // Timeout reached, refresh status
                                                             let peeked_msg_handle = this.base.msg_rx.peek_msg().await.unwrap_or_default();
                                                             let peeked_msg_guard = peeked_msg_handle.read().await;
-                                                            let status_obj = this.make_status_object(&peeked_msg_guard);
-                                                            let mut old_status_guard = this.old_status.lock().await;
-                                                            if old_status_guard.as_ref() != Some(&status_obj) {
-                                                                this.report_status(status_obj.clone(), stop_token2.clone()).await;
-                                                                *old_status_guard = Some(status_obj);
-                                                            }
+                                                            this.report_status_for_msg(&peeked_msg_guard, &stop_token2).await;
                                                             this.has_delay_task.store(false, Ordering::SeqCst);
                                                             break;
                                                         }
@@ -285,37 +465,30 @@ impl FlowNodeBehavior for DebugNode {
                                         }
                                     }
                                 }
-                                DebugStatusType::Jsonata(expr) => {
-                                    let status_obj = self.make_status_object(&msg);
-                                    let mut old_status_guard = self.old_status.lock().await;
-                                    if old_status_guard.as_ref() != Some(&status_obj) {
-                                        self.report_status(status_obj.clone(), stop_token.clone()).await;
-                                        *old_status_guard = Some(status_obj);
-                                    }
-                                    log::error!("[debug:{}] statusType=jsonata not implemented: {expr}", self.name());
-                                }
                                 _ => {
-                                    let status_obj = self.make_status_object(&msg);
-                                    let mut old_status_guard = self.old_status.lock().await;
-                                    if old_status_guard.as_ref() != Some(&status_obj) {
-                                        self.report_status(status_obj.clone(), stop_token.clone()).await;
-                                        *old_status_guard = Some(status_obj);
-                                    }
+                                    self.report_status_for_msg(&msg, &stop_token).await;
                                 }
                             }
                         }
 
-                        // Send to sidebar (WebSocket)
-                        if self._config.tosidebar {
+                        // Send to sidebar (WebSocket); `tosidebar` is absent in most flows and
+                        // Node-RED publishes unless it was explicitly turned off.
+                        if self._config.tosidebar() {
                             if let Some(engine) = self.engine() {
                                 let debug_channel = engine.debug_channel();
 
-                                let property = match &self._config.complete {
-                                    DebugComplete::Full => None,
-                                    DebugComplete::Property(prop) => Some(prop.as_str()),
+                                // A `targetType: "jsonata"` node publishes the expression's value and
+                                // no `property` field at all, which is what `prepareValue`'s jsonata
+                                // branch sends.
+                                let property = if self.uses_edit_expression() {
+                                    None
+                                } else {
+                                    match &self._config.complete {
+                                        DebugComplete::Full => None,
+                                        DebugComplete::Property(prop) => Some(prop.as_str()),
+                                    }
                                 };
 
-                                let msg_value = self.extract_property_value(&msg);
                                 let path = self.flow().map(|f| f.get_path()).unwrap_or_else(|| "global".to_string());
                                 let topic = msg.get("topic").and_then(|t| t.as_str());
                                 let msgid = msg.get("_msgid").and_then(|id| id.as_str());
@@ -323,7 +496,7 @@ impl FlowNodeBehavior for DebugNode {
                                 let debug_msg = create_debug_message(
                                     &self.id().to_string(),
                                     if self.name().is_empty() { None } else { Some(self.name()) },
-                                    msg_value,
+                                    value.as_ref(),
                                     property,
                                     &path,
                                     topic,

@@ -16,6 +16,7 @@ use crate::EdgelinkError;
 use crate::runtime::flow::*;
 use crate::runtime::model::json::{RedFlowNodeConfig, RedGlobalNodeConfig};
 use crate::runtime::model::*;
+use crate::runtime::node_log_channel::NodeLogMessage;
 use crate::runtime::red_env::*;
 use crate::*;
 
@@ -34,6 +35,7 @@ mod network_nodes;
 pub mod wellknown_names {
     pub const UNKNOWN_GLOBAL_NODE: &str = "unknown.global";
     pub const UNKNOWN_FLOW_NODE: &str = "unknown";
+    pub const GLOBAL_CONFIG_NODE: &str = "global-config";
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -280,6 +282,26 @@ pub trait FlowNodeBehavior: Send + Sync + FlowsElement {
     fn on_loaded(&self) {}
 
     async fn on_starting(&self) {}
+
+    /// Publish a structured node log event (`node.log()`/`node.warn()`/... in a node's own terms).
+    ///
+    /// Node-RED records these as `{level, id, type, msg, path}` and its mocha helper exposes them as
+    /// `helper.log()`, which is what the ported specs assert on; the editor's console view shows the
+    /// same data. The human-readable line is written separately through the `log` crate.
+    fn publish_node_log(&self, level: &str, msg: String) {
+        if let Some(flow) = self.flow()
+            && let Some(engine) = flow.engine()
+        {
+            engine.node_log_channel().send(NodeLogMessage {
+                id: self.id(),
+                name: self.name().to_owned(),
+                node_type: self.type_str().to_owned(),
+                level: level.to_owned(),
+                msg,
+                path: flow.get_path(),
+            });
+        }
+    }
 }
 
 impl dyn GlobalNodeBehavior {
@@ -336,20 +358,28 @@ where
 {
     match node.recv_msg(cancel.clone()).await {
         Ok(msg) => {
-            if let Err(ref err) = proc(node, msg.clone()).await {
-                let flow = node.flow().expect("flow");
-                let error_message = err.to_string();
+            let result = proc(node, msg.clone()).await;
+            match result {
+                Ok(()) => {
+                    // Report the completion
+                    node.notify_uow_completed(msg, cancel.clone()).await;
+                }
+                Err(ref err) => {
+                    let flow = node.flow().expect("flow");
+                    let error_message = err.to_string();
 
-                match flow.handle_error(node, &error_message, Some(msg.clone()), None, cancel.clone()).await {
-                    Ok(_) => (),
-                    Err(e) => {
-                        log::error!("Failed to handle error: {e:?}");
+                    match flow.handle_error(node, &error_message, Some(msg.clone()), None, cancel.clone()).await {
+                        Ok(_) => (),
+                        Err(e) => {
+                            log::error!("Failed to handle error: {e:?}");
+                        }
                     }
+
+                    // A failed unit of work is an error, not a completion: Node-RED's `done(err)`
+                    // emits the error event (which is what `catch` nodes receive) and does *not*
+                    // emit the complete event a `complete` node listens for.
                 }
             }
-
-            // Report the completion
-            node.notify_uow_completed(msg, cancel.clone()).await;
         }
         Err(ref err) => {
             if let Some(EdgelinkError::TaskCancelled) = err.downcast_ref::<EdgelinkError>() {

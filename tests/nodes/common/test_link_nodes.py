@@ -125,53 +125,83 @@ class TestInjectNode:
             print(msgs)
             assert int(round(msgs[0]["payload"])) == int(round(payload + payload))
 
-        """ TODO implements the `catch` node
         @pytest.mark.asyncio
-        async def test_0006():
-            # '''should timeout waiting for link return'''
-            payload = float(time.time())
+        @pytest.mark.it('should timeout waiting for link return')
+        async def test_should_timeout_waiting_for_link_return(self):
+            # The `link out` is in its normal (non-return) mode, so it never answers the call: after
+            # `timeout` the original message travels back through the catch node carrying the error.
             flows = [
                 {"id": "100", "type": "tab", "label": "Flow 1"},
-                { "id": "1", "z": "100", "type": "link in", "name": "double payload", "wires": [["3"]]},
-                { "id": "2", "z": "200", "type": "link in", "name": "double payload", "wires": [["3"]]},
-                { "id": "3", "z": "100", "type": "function", "func": 'msg.payload = msg.payload + msg.payload; return msg;', "wires": [["4"]]
-                },
-                {"id": "4", "z": "100", "type": "link out", "mode": "return"},
-                {
-                    "id": "5", "z": "100", "type": "link call",
-                    "linkType": "dynamic", "links": [], "wires": [["6"]]
-                },
-                {"id": "6", "z": "100", "type": "test-once"}
+                {"id": "1", "z": "100", "type": "link in", "name": "double payload", "wires": [["3"]]},
+                {"id": "3", "z": "100", "type": "function",
+                    "func": "msg.payload += msg.payload; return msg;", "wires": [["4"]]},
+                {"id": "4", "z": "100", "type": "link out", "mode": ""},
+                {"id": "5", "z": "100", "type": "link call", "linkType": "static", "timeout": "0.5",
+                    "links": ["1"], "wires": [["6"]]},
+                {"id": "7", "z": "100", "type": "catch", "scope": ["5"], "uncaught": True, "wires": [["6"]]},
+                {"id": "6", "z": "100", "type": "test-once"},
             ]
             injections = [
-                {"nid": "5", "msg": {'payload': payload, 'target': 'double payload'}},
+                {"nid": "5", "msg": {"payload": "hello", "target": "double payload"}},
             ]
-            msgs = await run_flow_with_msgs_ntimes(flows, injections, 1)
-            assert msgs[0]["payload"] == payload + payload
+            msgs = await run_flow_with_msgs_ntimes(flows, injections, 1, timeout=1.5)
+            assert msgs[0]["target"] == "double payload"
+            assert msgs[0]["error"]["message"] == "timeout"
+            assert "source" in msgs[0]["error"]
 
-        0007 should raise error due to multiple targets on same tab',
-        0008 should raise error due to multiple targets on different tabs
-        """
-
-        """ We are not going to support the dynamic node modification in run time.
         @pytest.mark.asyncio
-        async def test_0009():
-            # '''should not raise error after deploying a name change to a duplicate link-in node'''
-            payload = float(time.time())
+        @pytest.mark.it('should raise error due to multiple targets on same tab')
+        async def test_should_raise_error_due_to_multiple_targets_on_same_tab(self):
             flows = [
-                { "id": "100", "type": "tab", "label": "Flow 1"},
-                { "id": "1", "z": "100", "type": "link in", "name": "duplicate", "wires": [["3"]]},
-                { "id": "2", "z": "100", "type": "link in", "name": "duplicate", "wires": [["3"]]},
-                { "id": "3", "z": "100", "type": "link out", "mode": "return"},
-                { "id": "4", "z": "100", "type": "link call", "linkType": "dynamic", "links": [], "wires": [["5"]] },
-                { "id": "5", "z": "100", "type": "test-once"}
+                {"id": "100", "type": "tab", "label": "Flow 1"},
+                {"id": "1", "z": "100", "type": "link in", "name": "double payload", "wires": [["3"]]},
+                {"id": "2", "z": "100", "type": "link in", "name": "double payload", "wires": [["3"]]},
+                {"id": "3", "z": "100", "type": "function",
+                    "func": "msg.payload += msg.payload; return msg;", "wires": [["4"]]},
+                {"id": "4", "z": "100", "type": "link out", "mode": "return"},
+                {"id": "5", "z": "100", "type": "link call", "linkType": "dynamic", "links": [], "wires": [["6"]]},
+                {"id": "7", "z": "100", "type": "catch", "scope": ["5"], "uncaught": True, "wires": [["6"]]},
+                {"id": "6", "z": "100", "type": "test-once"},
             ]
             injections = [
-                {"nid": "5", "msg": {'payload': payload, 'target': 'double payload'}},
+                {"nid": "5", "msg": {"payload": "hello", "target": "double payload"}},
             ]
             msgs = await run_flow_with_msgs_ntimes(flows, injections, 1)
-            assert msgs[0]["payload"] == payload + payload
-        """
+            assert msgs[0]["target"] == "double payload"
+            assert "Multiple link-in nodes" in msgs[0]["error"]["message"]
+            assert "source" in msgs[0]["error"]
+
+        @pytest.mark.asyncio
+        @pytest.mark.it('should raise error due to multiple targets on different tabs')
+        async def test_should_raise_error_due_to_multiple_targets_on_different_tabs(self):
+            flows = [
+                {"id": "100", "type": "tab", "label": "Flow 1"},
+                {"id": "200", "type": "tab", "label": "Flow 2"},
+                {"id": "300", "type": "tab", "label": "Flow 3"},
+                {"id": "1", "z": "200", "type": "link in", "name": "double payload", "wires": [["3"]]},
+                {"id": "2", "z": "300", "type": "link in", "name": "double payload", "wires": [["3"]]},
+                {"id": "3", "z": "100", "type": "function",
+                    "func": "msg.payload += msg.payload; return msg;", "wires": [["4"]]},
+                {"id": "4", "z": "100", "type": "link out", "mode": "return"},
+                {"id": "5", "z": "100", "type": "link call", "linkType": "dynamic", "links": [], "wires": [["6"]]},
+                {"id": "7", "z": "100", "type": "catch", "scope": ["5"], "uncaught": True, "wires": [["6"]]},
+                {"id": "6", "z": "100", "type": "test-once"},
+            ]
+            injections = [
+                {"nid": "5", "msg": {"payload": "hello", "target": "double payload"}},
+            ]
+            msgs = await run_flow_with_msgs_ntimes(flows, injections, 1)
+            assert msgs[0]["target"] == "double payload"
+            assert "Multiple link-in nodes" in msgs[0]["error"]["message"]
+            assert "source" in msgs[0]["error"]
+
+        @pytest.mark.skip(reason="the spec redeploys the flow (`helper.setFlows`) to rename a "
+                                 "duplicate link-in and then calls the new name: the pytest bridge "
+                                 "loads the engine once per test and has no redeploy API")
+        @pytest.mark.asyncio
+        @pytest.mark.it('should not raise error after deploying a name change to a duplicate link-in node')
+        async def test_should_not_raise_error_after_deploying_a_name_change(self):
+            pass
 
         @pytest.mark.asyncio
         @pytest.mark.it('should allow nested link-call flows')

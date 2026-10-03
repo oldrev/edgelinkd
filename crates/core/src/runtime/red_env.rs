@@ -59,6 +59,16 @@ impl RedEnvs {
         }
     }
 
+    /// Merge `other` into this store, overwriting names that are already there.
+    ///
+    /// This is how the `global-config` node publishes its environment: Node-RED evaluates those
+    /// entries on top of the process environment of the global flow, so a name it defines wins.
+    pub fn update_with(&self, other: &RedEnvs) {
+        for entry in other.inner.envs.iter() {
+            self.inner.envs.insert(entry.key().clone(), entry.value().clone());
+        }
+    }
+
     fn get_normalized(&self, env_expr: &str) -> Option<Variant> {
         let trimmed = env_expr.trim();
         if trimmed.starts_with("${") && env_expr.ends_with("}") {
@@ -84,8 +94,22 @@ struct EnvEntry {
 
     pub value: String,
 
-    #[serde(alias = "type")]
+    #[serde(alias = "type", deserialize_with = "deser_env_entry_type")]
     pub type_: RedPropertyType,
+}
+
+/// The type of one environment variable entry.
+///
+/// Node-RED feeds the spelling to `evaluateNodeProperty`, which leaves a value it does not
+/// recognise exactly as it is (`runtime/lib/flows/util.js`); the editor writes `"string"` for a
+/// plain string, and that is that same case. Reading an unknown spelling as a plain string keeps
+/// such an entry working instead of failing the whole environment.
+fn deser_env_entry_type<'de, D>(deserializer: D) -> Result<RedPropertyType, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let spelling = String::deserialize(deserializer)?;
+    Ok(RedPropertyType::from(&spelling).unwrap_or(RedPropertyType::Str))
 }
 
 #[derive(Debug, Default, Clone)]

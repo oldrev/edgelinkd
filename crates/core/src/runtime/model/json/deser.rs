@@ -673,7 +673,7 @@ where
         where
             E: de::Error,
         {
-            if value.trim().is_empty() { Ok(f64::NAN) } else { value.parse::<f64>().map_err(de::Error::custom) }
+            if value.trim().is_empty() { Ok(<f64>::NAN) } else { value.parse::<f64>().map_err(de::Error::custom) }
         }
 
         fn visit_string<E>(self, value: String) -> Result<f64, E>

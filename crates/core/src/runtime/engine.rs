@@ -13,6 +13,7 @@ use super::engine_events::{EngineEvent, EngineEventBus};
 use super::http_registry::HttpResponseRegistry;
 use super::model::json::{RedFlowConfig, RedGlobalNodeConfig};
 use super::model::*;
+use super::node_log_channel::NodeLogChannel;
 use super::nodes::FlowNodeBehavior;
 use super::red_env::*;
 use super::status_channel::StatusChannel;
@@ -73,6 +74,7 @@ struct InnerEngine {
     http_response_registry: Arc<HttpResponseRegistry>,
     debug_channel: DebugChannel,
     status_channel: StatusChannel,
+    node_log_channel: NodeLogChannel,
     event_bus: EngineEventBus,
     flows_hash: tokio::sync::RwLock<Vec<u8>>,
 
@@ -147,6 +149,7 @@ impl Engine {
                 http_response_registry: Arc::new(HttpResponseRegistry::new()),
                 debug_channel: DebugChannel::new(1000),
                 status_channel: StatusChannel::new(1000),
+                node_log_channel: NodeLogChannel::new(1000),
                 event_bus: EngineEventBus::new(100),
                 flows_hash: tokio::sync::RwLock::new(flows_hash.clone()),
 
@@ -520,15 +523,30 @@ impl Engine {
         self.inner.all_flow_nodes.get(id).map(|x| x.value().clone())
     }
 
+    /// Look a flow node up by name across every flow.
+    ///
+    /// A duplicated name is an error, not a first-match win: Node-RED resolves a `link call`
+    /// target by name across tabs and reports `Multiple link-in nodes named '<name>' found`
+    /// (`60-link.js`) instead of silently picking one of them.
     pub fn find_flow_node_by_name(&self, name: &str) -> crate::Result<Option<Arc<dyn FlowNodeBehavior>>> {
+        let mut found: Option<Arc<dyn FlowNodeBehavior>> = None;
         for i in self.inner.flows.iter() {
             let flow = i.value();
-            let opt_node = flow.get_node_by_name(name)?;
-            if opt_node.is_some() {
-                return Ok(opt_node.clone());
+            match flow.get_node_by_name(name) {
+                Ok(Some(node)) => {
+                    if found.is_some() {
+                        return Err(EdgelinkError::InvalidOperation(format!(
+                            "There are multiple node with name '{name}'"
+                        ))
+                        .into());
+                    }
+                    found = Some(node);
+                }
+                Ok(None) => (),
+                Err(e) => return Err(e),
             }
         }
-        Ok(None)
+        Ok(found)
     }
 
     pub fn find_global_node_by_id(&self, id: &ElementId) -> Option<Arc<dyn GlobalNodeBehavior>> {
@@ -564,6 +582,14 @@ impl Engine {
         self.inner.envs.clone()
     }
 
+    /// Merge environment variables into the engine-wide environment.
+    ///
+    /// Every flow, group and node environment has the engine environment as its ultimate parent, so
+    /// this is what makes the `global-config` node's `env` visible everywhere.
+    pub fn add_envs(&self, envs: &RedEnvs) {
+        self.inner.envs.update_with(envs);
+    }
+
     pub fn get_env(&self, key: &str) -> Option<Variant> {
         self.inner.envs.evalute_env(key)
     }
@@ -586,6 +612,11 @@ impl Engine {
 
     pub fn status_channel(&self) -> &StatusChannel {
         &self.inner.status_channel
+    }
+
+    /// The channel carrying every `node.log()`/`node.warn()`/... call of the running nodes.
+    pub fn node_log_channel(&self) -> &NodeLogChannel {
+        &self.inner.node_log_channel
     }
 
     pub fn report_node_status(&self, from: ElementId, status: StatusObject) {

@@ -6,6 +6,7 @@ pub(crate) mod status;
 mod comment;
 mod console_json;
 mod debug;
+mod global_config;
 mod inject;
 mod junction;
 mod link_in;

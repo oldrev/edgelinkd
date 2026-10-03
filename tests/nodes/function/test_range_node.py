@@ -108,3 +108,11 @@ class TestRangeNode:
         ]
         msgs = await run_flow_with_msgs_ntimes(flows, injections, 1)
         assert 'error' in msgs[0]
+
+    @pytest.mark.skip(reason="the spec asserts on the deployed node's own properties (`name`, "
+                             "`round`), which the pytest bridge cannot read back: it only observes "
+                             "messages")
+    @pytest.mark.asyncio
+    @pytest.mark.it('should load some defaults')
+    async def test_should_load_some_defaults(self):
+        pass

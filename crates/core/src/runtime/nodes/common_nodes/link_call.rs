@@ -160,12 +160,18 @@ impl LinkCallNode {
                     // Found by id
                     Some(node)
                 } else {
-                    // Not found by id, try to find by name
+                    // Not found by id, try to find by name. Both lookups only fail on a duplicated
+                    // name (`Flow::get_node_by_name` counts within a tab, `Engine::
+                    // find_flow_node_by_name` across tabs); Node-RED reports that with its own
+                    // wording (`60-link.js`), which is what a flow's catch node sees.
                     let flow = self.flow().expect("The flow must be instanced!");
-                    if let Some(node) = flow.get_node_by_name(target_name)? {
-                        Some(node)
-                    } else {
-                        engine.find_flow_node_by_name(target_name)?
+                    match flow.get_node_by_name(target_name) {
+                        Ok(Some(node)) => Some(node),
+                        Ok(None) => match engine.find_flow_node_by_name(target_name) {
+                            Ok(node) => node,
+                            Err(_) => return Err(duplicate_target_error(target_name)),
+                        },
+                        Err(_) => return Err(duplicate_target_error(target_name)),
                     }
                 }
             }
@@ -192,15 +198,25 @@ impl LinkCallNode {
 
     async fn timeout_task(&self, event_id: ElementId) {
         tokio::time::sleep(Duration::from_secs_f64(self.config.timeout.unwrap_or(30.0))).await;
-        log::warn!("LinkCallNode: flow timed out, event_id={event_id}");
-        let mut mut_state = self.mut_state.lock().await;
-        if let Some(event) = mut_state.msg_events.remove(&event_id) {
-            drop(event);
-        // TODO report the msg
-        } else {
-            log::warn!("LinkCallNode: Cannot found the event_id={event_id}");
+        let event = {
+            let mut mut_state = self.mut_state.lock().await;
+            mut_state.msg_events.remove(&event_id)
+        };
+        // Node-RED answers a timed-out call by passing the original message to `node.error`
+        // ("timeout"), so the flow's catch node sees it with `msg.error.message === "timeout"`
+        // instead of the call disappearing (60-link.js `timeoutMessage`).
+        match event {
+            Some(event) => {
+                self.report_error("timeout".to_string(), event._msg.clone(), CancellationToken::new()).await;
+            }
+            None => log::warn!("LinkCallNode: Cannot found the event_id={event_id}"),
         }
     }
+}
+
+/// The wording Node-RED uses when a `link call` target name matches more than one `link in` node.
+fn duplicate_target_error(target_name: &str) -> anyhow::Error {
+    EdgelinkError::InvalidOperation(format!("Multiple link-in nodes named '{target_name}' found")).into()
 }
 
 #[async_trait]

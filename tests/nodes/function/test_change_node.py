@@ -551,6 +551,57 @@ class TestChangeNode:
             msgs = await run_flow_with_msgs_ntimes(flows, injections, 1)
             assert msgs[0]["payload"] == 2
 
+        # Upstream declares this title twice (15-change_spec.js); the second copy needs its own
+        # method name or Python would silently replace the first.
+        @pytest.mark.asyncio
+        @pytest.mark.it('sets the value of a message property using a nested property in flow context')
+        async def test_it_sets_the_value_of_a_message_property_using_a_nested_property_in_flow_context_again(self):
+            flows = [
+                {"id": "100", "type": "tab"},  # flow 1
+                {"id": "1", "type": "change", "name": "", "z": "100", "action": "", "property": "", "from": "", "to": "",
+                 "reg": False, "wires": [["2"]], "rules": [
+                    {"t":"set","p":"lookup","pt":"flow","to":'{"a":1, "b":2}',"tot":"json"},
+                ]},
+                {"id": "2", "type": "change", "name": "", "z": "100", "rules": [
+                    {"t":"set","p":"payload","pt":"msg","to":"lookup[msg.topic]","tot":"flow"}
+                 ], "action": "", "property": "", "from": "", "to": "", "reg": False, "wires": [["3"]]},
+                {"id": "3", "z": "100", "type": "test-once"}
+            ]
+            injections = [
+                {
+                    "nid": "1",
+                    "msg": {"payload": "", "topic": "b"}
+                },
+            ]
+            msgs = await run_flow_with_msgs_ntimes(flows, injections, 1)
+            assert msgs[0]["payload"] == 2
+
+        @pytest.mark.asyncio
+        @pytest.mark.it('deep copies the property if selected')
+        async def test_it_deep_copies_the_property_if_selected(self):
+            # Upstream reaches into the live JS objects to prove the copy is not an alias
+            # (`originalObject.a.c = 3` after the node ran). The pytest bridge cannot touch a
+            # deployed message, so the same mutation happens inside the flow, downstream of the
+            # change node: if the node aliased `source` into `payload`, `payload.a.c` would appear.
+            flows = [
+                {"id": "100", "type": "tab"},
+                {"id": "1", "z": "100", "type": "change", "name": "changeNode", "wires": [["2"]], "rules": [
+                    {"t": "set", "p": "payload", "pt": "msg", "to": "source", "tot": "msg", "dc": True},
+                ]},
+                {"id": "2", "z": "100", "type": "function",
+                 "func": "var original = msg.source; msg.payload_before = JSON.stringify(msg.payload);"
+                         " original.a.c = 3; msg.payload_after = JSON.stringify(msg.payload);"
+                         " return msg;",
+                 "wires": [["3"]]},
+                {"id": "3", "z": "100", "type": "test-once"},
+            ]
+            injections = [{"nid": "1", "msg": {"source": {"a": {"b": 2}}}}]
+            msgs = await run_flow_with_msgs_ntimes(flows, injections, 1)
+            assert msgs[0]["payload_before"] == '{"a":{"b":2}}'
+            # The mutation of `source` must not show up in the copied payload.
+            assert msgs[0]["payload_after"] == '{"a":{"b":2}}'
+            assert msgs[0]["source"] == {"a": {"b": 2, "c": 3}}
+
         @pytest.mark.asyncio
         @pytest.mark.it('sets the value of a nested flow context property using a message property')
         async def test_it_sets_the_value_of_a_nested_flow_context_property_using_a_message_property(self):
@@ -844,6 +895,15 @@ class TestChangeNode:
             assert msgs[0]["payload"] == "Hello-Hello-Hello World"
 
 # 10 reports invalid regex
+
+        @pytest.mark.skip(reason="upstream asserts on a captured runtime log event (`helper.log()`), "
+                                 "which the pytest bridge cannot observe; EdgeLinkd also compiles the "
+                                 "regex while building the node, so an invalid one fails the deploy "
+                                 "loudly instead of logging at runtime")
+        @pytest.mark.asyncio
+        @pytest.mark.it('reports invalid regex')
+        async def test_change_10_reports_invalid_regex(self):
+            pass
 
         @pytest.mark.asyncio
         @pytest.mark.it('supports regex groups - new rule format')
@@ -1322,6 +1382,14 @@ class TestChangeNode:
             assert msgs[0]["payload"] == "abc"
 
 # 34 reports invalid fromValue
+
+        @pytest.mark.skip(reason="upstream asserts on a captured runtime log event (`helper.log()`), "
+                                 "which the pytest bridge cannot observe; the node reports the "
+                                 "failure through `node.error`/the catch path, not as a message")
+        @pytest.mark.asyncio
+        @pytest.mark.it('reports invalid fromValue')
+        async def test_change_34_reports_invalid_from_value(self):
+            pass
 
         @pytest.mark.describe('env var')
         class TestChangeEnvVar:

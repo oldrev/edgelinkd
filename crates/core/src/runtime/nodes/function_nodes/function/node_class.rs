@@ -141,57 +141,68 @@ impl<'js> NodeClass {
     fn log(&self, text: Value<'js>, ctx: Ctx<'js>) -> rquickjs::Result<()> {
         let node = self.node.upgrade().ok_or(rquickjs::Error::Exception)?;
         let name = &node.get_base().name;
-        if text.type_of() == rquickjs::Type::String {
-            log::info!("[function:{}] {}", name, text.get::<String>()?);
-        } else {
-            log::info!("[function:{}] {:?}", name, ctx.json_stringify(text)?);
-        }
+        let text = Self::log_text(&text, &ctx)?;
+        log::info!("[function:{}] {}", name, text);
+        node.publish_node_log("INFO", text);
         Ok(())
     }
 
     fn warn(&self, text: Value<'js>, ctx: Ctx<'js>) -> rquickjs::Result<()> {
         let node = self.node.upgrade().ok_or(rquickjs::Error::Exception)?;
         let name = &node.get_base().name;
-        if text.type_of() == rquickjs::Type::String {
-            log::warn!("[function:{}] {}", name, text.get::<String>()?);
-        } else {
-            log::warn!("[function:{}] {:?}", name, ctx.json_stringify(text)?);
-        }
+        let text = Self::log_text(&text, &ctx)?;
+        log::warn!("[function:{}] {}", name, text);
+        node.publish_node_log("WARN", text);
         Ok(())
     }
 
-    fn error(&self, text: Value<'js>, _msg: Opt<rquickjs::Value<'js>>, ctx: Ctx<'js>) -> rquickjs::Result<()> {
-        // TODO
+    fn error(&self, text: Value<'js>, msg: Opt<Value<'js>>, ctx: Ctx<'js>) -> rquickjs::Result<()> {
         let node = self.node.upgrade().ok_or(rquickjs::Error::Exception)?;
         let name = &node.get_base().name;
-        if text.type_of() == rquickjs::Type::String {
-            log::error!("[function:{}] {}", name, text.get::<String>()?);
-        } else {
-            log::error!("[function:{}] {:?}", name, ctx.json_stringify(text)?);
-        }
+        let text = Self::log_text(&text, &ctx)?;
+        log::error!("[function:{}] {}", name, text);
+        node.publish_node_log("ERROR", text.clone());
+
+        // `node.error(err, msg)` reports through the flow as well, so a `catch` node sees the
+        // message with `error.message`/`error.source` exactly like a native node's error does.
+        let msg_handle = match msg.0 {
+            Some(value) if value.is_object() => Some(MsgHandle::new(Msg::from_js(&ctx, value)?)),
+            _ => None,
+        };
+        let async_node = node.clone() as Arc<dyn FlowNodeBehavior>;
+        ctx.spawn(async move {
+            if let Some(flow) = async_node.flow()
+                && let Err(e) =
+                    flow.handle_error(async_node.as_ref(), &text, msg_handle, None, CancellationToken::new()).await
+            {
+                log::error!("Failed to report the function node error: {e}");
+            }
+        });
         Ok(())
     }
 
     fn debug(&self, text: Value<'js>, ctx: Ctx<'js>) -> rquickjs::Result<()> {
         let node = self.node.upgrade().ok_or(rquickjs::Error::Exception)?;
         let name = &node.get_base().name;
-        if text.type_of() == rquickjs::Type::String {
-            log::debug!("[function:{}] {}", name, text.get::<String>()?);
-        } else {
-            log::debug!("[function:{}] {:?}", name, ctx.json_stringify(text)?);
-        }
+        let text = Self::log_text(&text, &ctx)?;
+        log::debug!("[function:{}] {}", name, text);
+        node.publish_node_log("DEBUG", text);
         Ok(())
     }
 
     fn trace(&self, text: Value<'js>, ctx: Ctx<'js>) -> rquickjs::Result<()> {
         let node = self.node.upgrade().ok_or(rquickjs::Error::Exception)?;
         let name = &node.get_base().name;
-        if text.type_of() == rquickjs::Type::String {
-            log::trace!("[function:{}] {}", name, text.get::<String>()?);
-        } else {
-            log::trace!("[function:{}] {:?}", name, ctx.json_stringify(text)?);
-        }
+        let text = Self::log_text(&text, &ctx)?;
+        log::trace!("[function:{}] {}", name, text);
+        node.publish_node_log("TRACE", text);
         Ok(())
+    }
+
+    /// Node-RED logs whatever was passed: a string as-is, anything else through `JSON.stringify`.
+    #[qjs(skip)]
+    fn log_text(text: &Value<'js>, ctx: &Ctx<'js>) -> rquickjs::Result<String> {
+        Ok(FunctionNode::js_value_text(text, ctx))
     }
 }
 

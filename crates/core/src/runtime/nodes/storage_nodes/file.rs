@@ -1,32 +1,47 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde::{Deserialize, Deserializer};
-use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 
+use crate::runtime::eval;
 use crate::runtime::flow::Flow;
+use crate::runtime::model::RedPropertyType;
 use crate::runtime::nodes::*;
 use edgelink_macro::*;
 
-#[derive(Debug, Clone, Deserialize)]
+/// The `file` nodes' runtime settings.
+#[derive(Debug, Clone, Default)]
 pub struct FileNodeSettings {
-    #[serde()]
-    pub working_directory: PathBuf,
+    /// `RED.settings.fileWorkingDirectory`: the directory a relative filename resolves against.
+    ///
+    /// Node-RED only applies it to a relative path and otherwise leaves the filename alone, so the
+    /// `None` default (resolve against the process working directory) is the same behaviour as not
+    /// setting it at all.
+    pub working_directory: Option<PathBuf>,
 }
 
 impl FileNodeSettings {
     pub fn load(settings: Option<&config::Config>) -> crate::Result<Self> {
-        match settings {
-            Some(settings) => match settings.get::<Self>("runtime.nodes.file") {
-                Ok(res) => Ok(res),
-                Err(config::ConfigError::NotFound(_)) => {
-                    Ok(Self { working_directory: std::env::temp_dir().join("file-node") })
-                }
-                Err(e) => Err(e.into()),
-            },
-            _ => Ok(Self { working_directory: std::env::temp_dir().join("file-node") }), // FIXME
+        let Some(settings) = settings else {
+            return Ok(Self::default());
+        };
+        // `fileWorkingDirectory` is the documented setting; the per-node section is accepted too.
+        let working_directory = settings
+            .get::<PathBuf>("fileWorkingDirectory")
+            .ok()
+            .or_else(|| settings.get::<PathBuf>("runtime.nodes.file.working_directory").ok());
+        Ok(Self { working_directory })
+    }
+
+    /// Apply the working directory to a relative filename (`processMsg2` upstream).
+    pub fn resolve(&self, filename: &str) -> String {
+        match &self.working_directory {
+            Some(dir) if !filename.is_empty() && !Path::new(filename).is_absolute() => {
+                dir.join(filename).to_string_lossy().to_string()
+            }
+            _ => filename.to_string(),
         }
     }
 }
@@ -94,9 +109,11 @@ struct FileNodeConfig {
     #[serde(default = "default_filename")]
     filename: String,
 
-    #[serde(default = "default_filename_type")]
+    /// Absent in a flow that predates typed inputs, which is what the in-place upgrade below keys
+    /// on (Node-RED reads `node.filenameType` the same way, without a default).
+    #[serde(default)]
     #[serde(rename = "filenameType")]
-    filename_type: String,
+    filename_type: Option<String>,
 
     #[serde(rename = "appendNewline")]
     append_newline: RedBool,
@@ -114,10 +131,6 @@ struct FileNodeConfig {
 
 fn default_filename() -> String {
     "".to_string()
-}
-
-fn default_filename_type() -> String {
-    "str".to_string()
 }
 
 fn default_create_dir() -> RedBool {
@@ -151,56 +164,38 @@ impl FileNode {
         Ok(Box::new(node))
     }
 
-    fn get_filename(&self, msg: &Msg) -> Option<String> {
-        // Node-RED compatibility: in-place upgrade if filenameType is empty
-        let mut filename_type = self.config.filename_type.as_str();
-        let mut filename = self.config.filename.as_str();
-        if filename_type.is_empty() {
-            if filename.is_empty() {
-                filename_type = "msg";
-                filename = "filename";
-            } else {
-                filename_type = "str";
-            }
+    /// The filename of a message, evaluated the way `RED.util.evaluateNodeProperty` evaluates a
+    /// typed input (`str`, `msg`, `env`, `jsonata`, ...), plus the in-place upgrade of a flow that
+    /// predates `filenameType`.
+    ///
+    /// `None` is Node-RED's `undefined`/`null`/empty value, which the node reports as
+    /// `file.errors.nofilename`.
+    async fn evaluated_filename(&self, msg: &Msg) -> crate::Result<Option<String>> {
+        let (filename, filename_type) =
+            match (self.config.filename_type.as_deref().unwrap_or(""), self.config.filename.as_str()) {
+                ("", "") => ("filename", "msg"),
+                ("", unknown) => (unknown, "str"),
+                (kind, value) => (value, kind),
+            };
+        if filename.is_empty() && filename_type == "str" {
+            return Ok(None);
         }
 
-        let value = match filename_type {
-            "msg" => {
-                // Get filename from message
-                let prop = if filename.is_empty() { "filename" } else { filename };
-                if let Some(Variant::String(s)) = msg.get(prop) {
-                    if !s.is_empty() { Some(s.clone()) } else { None }
-                } else {
-                    None
-                }
-            }
-            "env" => {
-                // Get filename from environment variable
-                if !filename.is_empty() { std::env::var(filename).ok() } else { None }
-            }
-            "jsonata" => {
-                // Out of scope: the file nodes do not evaluate their filename with JSONata, and
-                // falling through to the static branch would use the expression as a literal path.
-                log::error!("[file:{}] filenameType 'jsonata' is not supported", self.name());
-                None
-            }
-            _ => {
-                // Static filename
-                if !filename.is_empty() { Some(filename.to_string()) } else { None }
-            }
+        let property_type = RedPropertyType::from(filename_type).unwrap_or(RedPropertyType::Str);
+        let value = if property_type == RedPropertyType::Msg {
+            // `RED.util.getMessageProperty` resolves a property that is not there to `undefined`,
+            // which the node reports as a missing filename rather than as an error.
+            msg.get_nav_stripped(filename).cloned().unwrap_or(Variant::Null)
+        } else {
+            eval::evaluate_raw_node_property(filename, property_type, Some(self), self.flow().as_ref(), Some(msg))
+                .await?
         };
-
-        // Node-RED: resolve relative path with fileWorkingDirectory if present
-        if let Some(ref fname) = value {
-            if !fname.is_empty() && !std::path::Path::new(fname).is_absolute() {
-                // Try to get fileWorkingDirectory from settings (if available)
-                let mut pb = std::path::PathBuf::from(&self.settings.working_directory);
-                pb.push(fname);
-                return Some(pb.to_string_lossy().to_string());
-            }
-            return Some(fname.clone());
-        }
-        None
+        Ok(match value {
+            Variant::Null => None,
+            Variant::String(text) => Some(text),
+            // Upstream calls `value.toString()` on anything else, so a number is a filename too.
+            other => Some(other.to_string().or_else(|_| serde_json::to_string(&other)).unwrap_or_default()),
+        })
     }
 
     fn _encode_data(&self, data: &str, encoding: FileEncoding) -> Vec<u8> {
@@ -215,14 +210,21 @@ impl FileNode {
         }
     }
 
-    async fn do_write(&self, filename: &str, payload: &Variant, append: bool, msg: &Msg) -> crate::Result<()> {
-        let path = PathBuf::from(filename);
-        if *self.config.create_dir
-            && let Some(parent) = path.parent()
-        {
-            tokio::fs::create_dir_all(parent).await?;
-        }
+    /// `file.errors.*` are the i18n keys Node-RED reports; the specs assert on those keys, so the
+    /// same text is published as a node log event.
+    fn warn_event(&self, key: &str) {
+        log::warn!("[file:{}] {key}", self.name());
+        self.publish_node_log("WARN", key.to_string());
+    }
 
+    fn error_event(&self, key: &str, err: &std::io::Error) {
+        let message = format!("{key}: {err}");
+        log::error!("[file:{}] {message}", self.name());
+        self.publish_node_log("ERROR", message);
+    }
+
+    /// Write (or append) one message's payload, without any of the node's own bookkeeping.
+    async fn write_payload(&self, filename: &str, payload: &Variant, append: bool, msg: &Msg) -> std::io::Result<()> {
         // Prepare data (Node-RED: object/array -> JSON, bool/number -> string, bytes -> as-is)
         let data_bytes: Vec<u8> = match payload {
             Variant::String(s) => s.as_bytes().to_vec(),
@@ -252,7 +254,7 @@ impl FileNode {
         };
 
         // If encoding is not none, encode accordingly
-        let encoded_bytes = match encoding {
+        let mut final_bytes = match encoding {
             FileEncoding::None | FileEncoding::Utf8 => data_bytes.clone(),
             FileEncoding::Base64 => {
                 use base64::{Engine as _, engine::general_purpose};
@@ -262,32 +264,16 @@ impl FileNode {
             FileEncoding::SetByMsg => data_bytes.clone(),
         };
 
-        // Append newline if needed (Node-RED: only if not last part for multipart)
-        let mut final_bytes = encoded_bytes;
-        let append_newline = self.config.append_newline;
-        if *append_newline {
-            // Check multipart: only append newline if not last part
-            let is_last_part = if let Some(Variant::Object(parts)) = msg.get("parts") {
-                if let (Some(Variant::Number(index)), Some(Variant::Number(count))) =
-                    (parts.get("index"), parts.get("count"))
-                {
-                    if let (Some(idx), Some(cnt)) = (index.as_u64(), count.as_u64()) { idx == cnt - 1 } else { true }
-                } else {
-                    true
-                }
-            } else {
-                true
-            };
-            if !is_last_part {
-                #[cfg(target_os = "windows")]
-                final_bytes.extend_from_slice(b"\r\n");
-                #[cfg(not(target_os = "windows"))]
-                final_bytes.push(b'\n');
-            }
+        // `appendNewline` adds the platform line ending, except for the last part of a string
+        // multipart message (`aflg` upstream).
+        if *self.config.append_newline && !matches!(payload, Variant::Bytes(_)) && self.appends_newline(msg) {
+            #[cfg(target_os = "windows")]
+            final_bytes.extend_from_slice(b"\r\n");
+            #[cfg(not(target_os = "windows"))]
+            final_bytes.push(b'\n');
         }
 
-        // Write to file (async)
-        let mut options = OpenOptions::new();
+        let mut options = tokio::fs::OpenOptions::new();
         options.write(true).create(true);
         if append {
             options.append(true);
@@ -295,15 +281,24 @@ impl FileNode {
             options.truncate(true);
         }
 
-        let mut file = options.open(&path).await?;
+        let mut file = options.open(filename).await?;
         file.write_all(&final_bytes).await?;
-        file.flush().await?;
-        Ok(())
+        file.flush().await
     }
 
-    async fn do_delete(&self, filename: &str) -> crate::Result<()> {
-        tokio::fs::remove_file(filename).await?;
-        Ok(())
+    /// Whether `appendNewline` applies to this message: upstream skips the newline for the last
+    /// part of a string sequence (`msg.parts.type === "string"` and the last index).
+    fn appends_newline(&self, msg: &Msg) -> bool {
+        let Some(parts) = msg.parts() else {
+            return true;
+        };
+        let is_string = matches!(parts.get("type"), Some(Variant::String(kind)) if kind == "string");
+        let last = || {
+            let index = parts.get("index").and_then(|value| value.as_number()).and_then(|n| n.as_u64());
+            let count = parts.get("count").and_then(|value| value.as_number()).and_then(|n| n.as_u64());
+            matches!((index, count), (Some(index), Some(count)) if index + 1 == count)
+        };
+        !(is_string && last())
     }
 }
 
@@ -320,60 +315,67 @@ impl FlowNodeBehavior for FileNode {
                 // Node-RED: queue/serialize file operations using Mutex
                 let _guard = node.state.lock().await;
 
-                let filename = {
+                let (filename, payload) = {
                     let msg_guard = msg.read().await;
-                    node.get_filename(&msg_guard)
+                    let filename = match node.evaluated_filename(&msg_guard).await {
+                        Ok(filename) => filename.unwrap_or_default(),
+                        Err(err) => {
+                            // `evaluateNodeProperty` failed: Node-RED reports it and drops the msg.
+                            node.publish_node_log("ERROR", format!("{err:#}"));
+                            return Ok(());
+                        }
+                    };
+                    // `msg.filename` is the evaluated name, before the working directory is applied.
+                    let payload = msg_guard.get("payload").cloned();
+                    (filename, payload)
                 };
 
-                let filename = match filename {
-                    Some(f) => f,
-                    None => {
-                        log::warn!("FileNode: No filename specified");
-                        return Ok(());
-                    }
-                };
+                {
+                    let mut msg_guard = msg.write().await;
+                    msg_guard.set("filename".to_string(), Variant::String(filename.clone()));
+                }
 
-                // 根据 overwrite_file 字段决定操作
-                let mut error_variant: Option<Variant> = None;
+                if filename.is_empty() {
+                    node.warn_event("file.errors.nofilename");
+                    return Ok(());
+                }
+
+                let full_filename = node.settings.resolve(&filename);
                 match node.config.overwrite_file {
                     OverwriteFile::Delete => {
-                        // 删除文件
-                        if let Err(e) = node.do_delete(&filename).await {
-                            log::error!("FileNode: Delete error: {e}");
-                            error_variant = Some(Variant::String(format!("Delete error: {e}")));
-                        } else {
-                            log::debug!("FileNode: Deleted file: {filename}");
+                        if let Err(err) = tokio::fs::remove_file(&full_filename).await {
+                            node.error_event("file.errors.deletefail", &err);
+                            return Ok(());
                         }
+                        log::debug!("[file:{}] Deleted file: {full_filename}", node.name());
                     }
-                    OverwriteFile::True => {
-                        // 覆盖写入
-                        let msg_guard = msg.read().await;
-                        if let Some(payload) = msg_guard.get("payload")
-                            && let Err(e) = node.do_write(&filename, payload, false, &msg_guard).await
+                    overwrite => {
+                        // A message without a payload is ignored (`msg.hasOwnProperty("payload")`).
+                        let Some(payload) = payload.as_ref() else {
+                            return Ok(());
+                        };
+                        let append = overwrite == OverwriteFile::False;
+                        let failure_key = if append { "file.errors.appendfail" } else { "file.errors.writefail" };
+
+                        if *node.config.create_dir
+                            && let Some(parent) = Path::new(&full_filename).parent()
+                            && let Err(err) = tokio::fs::create_dir_all(parent).await
                         {
-                            log::error!("FileNode: Write error: {e}");
-                            error_variant = Some(Variant::String(format!("Write error: {e}")));
+                            node.error_event("file.errors.createfail", &err);
+                            return Ok(());
                         }
-                    }
-                    OverwriteFile::False => {
-                        // 追加写入
-                        let msg_guard = msg.read().await;
-                        if let Some(payload) = msg_guard.get("payload")
-                            && let Err(e) = node.do_write(&filename, payload, true, &msg_guard).await
-                        {
-                            log::error!("FileNode: Append error: {e}");
-                            error_variant = Some(Variant::String(format!("Append error: {e}")));
+
+                        let write_result = {
+                            let msg_guard = msg.read().await;
+                            node.write_payload(&full_filename, payload, append, &msg_guard).await
+                        };
+                        if let Err(err) = write_result {
+                            node.error_event(failure_key, &err);
+                            return Ok(());
                         }
                     }
                 }
 
-                // Node-RED: on error, optionally pass error in message
-                if let Some(err) = error_variant {
-                    let mut msg_guard = msg.write().await;
-                    msg_guard.set("error".into(), err);
-                }
-
-                // Always forward the message (Node-RED always calls nodeSend)
                 node.fan_out_one(Envelope { port: 0, msg }, CancellationToken::new()).await
             })
             .await;

@@ -248,6 +248,40 @@ def red_id(name: str) -> str:
     return digest
 
 
+def take_node_logs() -> list[dict]:
+    """Return (and clear) the `node.log()`/`node.debug()`/`node.trace()`/`node.warn()`/
+    `node.error()` calls made during the last run.
+
+    Node-RED's mocha helper records these as structured events (`helper.log()`), and the specs
+    assert on the level, the node id, the node type, the message and the flow path; each entry here
+    is `{"id", "name", "type", "level", "msg", "path"}`. `id` is the runtime's 16-digit hex form of
+    the flow JSON id, because `ElementId` is a `u64` and the original spelling is not kept.
+    """
+    return edgelink.take_node_logs()
+
+
+def take_debug_messages() -> list[dict]:
+    """Return (and clear) the messages the `debug` nodes published during the last run.
+
+    Node-RED's debug specs listen on the editor's WebSocket for records shaped
+    `{"id", "name", "msg", "path", "format", "property"}`; this is the same data straight from the
+    runtime's debug channel. `msg` is the text the editor receives - a string as it is, an object or
+    array as its JSON text, a Buffer as hex - `format` the label the editor renders it with
+    (`string[4]`, `Object`, `array[3]`, ...) and `path` the flow the node logged from.
+    """
+    return edgelink.take_debug_messages()
+
+
+def take_status_messages() -> list[dict]:
+    """Return (and clear) the node statuses reported during the last run.
+
+    Node-RED's specs observe these as `n1.status.lastCall.args[0]`; each entry here is
+    `{"sender_id", "status": {"fill", "shape", "text"}}`, with `sender_id` the runtime's 16-digit hex
+    form of the flow JSON id (Node-RED reports the node object instead).
+    """
+    return edgelink.take_status_messages()
+
+
 async def run_with_single_node_ntimes(payload_type: str | None, payload, node_json: object,
                                       nexpected: int, once: bool = True, topic: str | None = None):
     inject = {

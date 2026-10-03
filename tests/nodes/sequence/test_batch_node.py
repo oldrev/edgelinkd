@@ -487,3 +487,72 @@ class TestBatchNode:
     # live here were removed: the audit compares titles against the Node-RED spec, so a test
     # with no upstream counterpart only adds noise.
 
+
+    @pytest.mark.describe('messaging API')
+    class TestBatchMessagingApi:
+        """Upstream holds every batched message's `done` callback and calls it when the batch is
+        emitted, when the message is dropped as `too-many`, or on reset - the specs assert the
+        *timing* of the resulting `complete` events.
+
+        The EdgeLinkd batch node uses `with_uow`, which completes each input message as soon as it
+        has been buffered, so the deferred `done` contract (and therefore these timings) is not
+        implemented; see `batch.rs::run`.
+        """
+
+        _REASON = ("the batch node completes each input message when it is buffered instead of "
+                   "when the batch is emitted/dropped/reset, so Node-RED's deferred `done` "
+                   "timing contract is not implemented")
+
+        @pytest.mark.skip(reason=_REASON)
+        @pytest.mark.asyncio
+        @pytest.mark.it('should call done() when message is sent (mode: count)')
+        async def test_done_message_sent_count(self):
+            pass
+
+        @pytest.mark.skip(reason=_REASON)
+        @pytest.mark.asyncio
+        @pytest.mark.it('should call done() when reset (mode: count)')
+        async def test_done_reset_count(self):
+            pass
+
+        @pytest.mark.skip(reason=_REASON)
+        @pytest.mark.asyncio
+        @pytest.mark.it('should call done() regardless of buffer overflow (mode: count)')
+        async def test_done_overflow_count(self):
+            pass
+
+        @pytest.mark.skip(reason=_REASON)
+        @pytest.mark.asyncio
+        @pytest.mark.it('should call done() when message is sent (mode: interval)')
+        async def test_done_message_sent_interval(self):
+            pass
+
+        @pytest.mark.skip(reason=_REASON)
+        @pytest.mark.asyncio
+        @pytest.mark.it('should call done() when reset (mode: interval)')
+        async def test_done_reset_interval(self):
+            pass
+
+        @pytest.mark.skip(reason=_REASON)
+        @pytest.mark.asyncio
+        @pytest.mark.it('should call done() regardless of buffer overflow (mode: interval)')
+        async def test_done_overflow_interval(self):
+            pass
+
+        @pytest.mark.skip(reason=_REASON)
+        @pytest.mark.asyncio
+        @pytest.mark.it('should call done() when message is sent (mode: concat)')
+        async def test_done_message_sent_concat(self):
+            pass
+
+        @pytest.mark.skip(reason=_REASON)
+        @pytest.mark.asyncio
+        @pytest.mark.it('should call done() when reset (mode: concat)')
+        async def test_done_reset_concat(self):
+            pass
+
+        @pytest.mark.skip(reason=_REASON)
+        @pytest.mark.asyncio
+        @pytest.mark.it('should call done() regardless of buffer overflow (mode: concat)')
+        async def test_done_overflow_concat(self):
+            pass

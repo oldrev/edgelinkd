@@ -741,3 +741,98 @@ class TestTriggerNode:
         assert len(msgs) >= 2
         for msg in msgs:
             assert msg['payload'] == 'foo'
+
+    # ---------------------------------------------------------------------------------------
+    # Persistable-context outputs: the same contract as the flow/global test above, with an
+    # explicit `#:(memoryN)::` store on both the payload and the "second output" property.
+    # ---------------------------------------------------------------------------------------
+
+    async def _persistable_context_trigger(self, op1, op1type, op2, op2type,
+                                           flow_set, global_set):
+        rules = [{"t": "set", "p": p, "pt": "flow", "to": v, "tot": "str"} for p, v in flow_set]
+        rules += [{"t": "set", "p": p, "pt": "global", "to": v, "tot": "str"} for p, v in global_set]
+        flows = [
+            {"id": "0", "type": "tab"},
+            {"id": "2", "z": "0", "type": "change", "name": "set-context", "reg": False, "rules": rules,
+             "wires": [["1"]]},
+            {"id": "1", "z": "0", "type": "trigger", "name": "triggerNode", "op1": op1, "op1type": op1type,
+             "op2": op2, "op2type": op2type, "duration": "20", "wires": [["3"]]},
+            {"id": "3", "z": "0", "type": "test-once"},
+        ]
+        return await run_flow_with_msgs_ntimes(flows, [{"nid": "2", "msg": {"payload": None}}], 2)
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('should be able to return things from persistable flow and global context variables')
+    async def test_0011m(self):
+        msgs = await self._persistable_context_trigger(
+            "#:(memory1)::foo", "flow", "#:(memory1)::bar", "global",
+            [("#:(memory1)::foo", "foo")], [("#:(memory1)::bar", "bar")])
+        assert msgs[0]['payload'] == "foo"
+        assert msgs[1]['payload'] == "bar"
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('should be able to return things from multiple persistable global context variables')
+    async def test_0011n(self):
+        msgs = await self._persistable_context_trigger(
+            "#:(memory1)::val", "global", "#:(memory2)::val", "global",
+            [], [("#:(memory1)::val", "foo"), ("#:(memory2)::val", "bar")])
+        assert msgs[0]['payload'] == "foo"
+        assert msgs[1]['payload'] == "bar"
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('should be able to return things from multiple persistable flow context variables')
+    async def test_0011o(self):
+        msgs = await self._persistable_context_trigger(
+            "#:(memory1)::val", "flow", "#:(memory2)::val", "flow",
+            [("#:(memory1)::val", "foo"), ("#:(memory2)::val", "bar")], [])
+        assert msgs[0]['payload'] == "foo"
+        assert msgs[1]['payload'] == "bar"
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('should be able to return things from multiple persistable flow & global context variables')
+    async def test_0011p(self):
+        msgs = await self._persistable_context_trigger(
+            "#:(memory1)::val", "flow", "#:(memory2)::val", "global",
+            [("#:(memory1)::val", "foo")], [("#:(memory2)::val", "bar")])
+        assert msgs[0]['payload'] == "foo"
+        assert msgs[1]['payload'] == "bar"
+
+    # ---------------------------------------------------------------------------------------
+    # messaging API: upstream observes `node.done()` through a scoped `complete` node, which is
+    # exactly what the pytest bridge can do too - the flow below completes the trigger's input
+    # message and collects the event. `duration` is a full second, so the 0.5s wait only passes
+    # when the completion follows the first output instead of the end of the trigger.
+    # ---------------------------------------------------------------------------------------
+
+    @pytest.mark.describe('messaging API')
+    class TestTriggerMessagingApi:
+
+        @pytest.mark.asyncio
+        @pytest.mark.it('should call done() when first message has been processed')
+        async def test_done_when_first_message_is_processed(self):
+            flows = [
+                {"id": "100", "type": "tab"},
+                {"id": "1", "z": "100", "type": "trigger", "name": "triggerNode", "units": "s",
+                 "duration": "1", "wires": [[]]},
+                {"id": "2", "z": "100", "type": "complete", "scope": ["1"], "uncaught": False,
+                 "wires": [["3"]]},
+                {"id": "3", "z": "100", "type": "test-once"},
+            ]
+            msgs = await run_flow_with_msgs_ntimes(flows, [{"nid": "1", "msg": {"seq": 0, "payload": "A"}}],
+                                                   1, timeout=0.5)
+            assert msgs[0]["payload"] == "A"
+
+        @pytest.mark.asyncio
+        @pytest.mark.it('should call done() when it receives reset message')
+        async def test_done_when_reset_received(self):
+            flows = [
+                {"id": "100", "type": "tab"},
+                {"id": "1", "z": "100", "type": "trigger", "name": "triggerNode", "units": "s",
+                 "duration": "1", "wires": [[]]},
+                {"id": "2", "z": "100", "type": "complete", "scope": ["1"], "uncaught": False,
+                 "wires": [["3"]]},
+                {"id": "3", "z": "100", "type": "test-once"},
+            ]
+            msgs = await run_flow_with_msgs_ntimes(
+                flows, [{"nid": "1", "msg": {"seq": 0, "payload": "A", "reset": True}}], 1, timeout=0.5)
+            assert msgs[0]["payload"] == "A"

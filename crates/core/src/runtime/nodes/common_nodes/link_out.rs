@@ -10,7 +10,9 @@ use edgelink_macro::*;
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 enum LinkOutMode {
     #[default]
-    #[serde(rename = "link")]
+    // `mode` is absent on flows saved by older versions and the editor writes `"link"`; Node-RED
+    // only special-cases `"return"`, so an empty string has to load as a normal link out.
+    #[serde(rename = "link", alias = "")]
     Link = 0,
 
     #[serde(rename = "return")]
