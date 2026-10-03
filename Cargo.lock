@@ -775,6 +775,7 @@ dependencies = [
  "ctor",
  "dashmap",
  "edgelink-macro",
+ "encoding_rs",
  "futures",
  "futures-util",
  "hex",

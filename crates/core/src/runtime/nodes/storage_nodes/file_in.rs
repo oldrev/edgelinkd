@@ -38,6 +38,12 @@ enum FileEncoding {
     Base64,
     #[serde(rename = "binary")]
     Binary,
+    #[serde(rename = "hex")]
+    Hex,
+    #[serde(rename = "ucs2", alias = "utf16le", alias = "utf-16le")]
+    Ucs2,
+    #[serde(rename = "utf-16be")]
+    Utf16Be,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -166,6 +172,12 @@ impl FileInNode {
                 general_purpose::STANDARD.encode(data)
             }
             FileEncoding::Binary => String::from_utf8_lossy(data).to_string(),
+            FileEncoding::Hex => hex::encode(data),
+            FileEncoding::Ucs2 => {
+                let units = data.chunks_exact(2).map(|pair| u16::from_le_bytes([pair[0], pair[1]]));
+                String::from_utf16_lossy(&units.collect::<Vec<_>>())
+            }
+            FileEncoding::Utf16Be => encoding_rs::UTF_16BE.decode(data).0.into_owned(),
         }
     }
 

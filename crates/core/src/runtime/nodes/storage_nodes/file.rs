@@ -100,6 +100,12 @@ enum FileEncoding {
     Base64,
     #[serde(rename = "binary")]
     Binary,
+    #[serde(rename = "hex")]
+    Hex,
+    #[serde(rename = "ucs2", alias = "utf16le", alias = "utf-16le")]
+    Ucs2,
+    #[serde(rename = "utf-16be")]
+    Utf16Be,
     #[serde(rename = "setbymsg")]
     SetByMsg,
 }
@@ -206,6 +212,9 @@ impl FileNode {
                 general_purpose::STANDARD.decode(data).unwrap_or_else(|_| data.as_bytes().to_vec())
             }
             FileEncoding::Binary => data.as_bytes().to_vec(),
+            FileEncoding::Hex => hex::decode(data).unwrap_or_else(|_| data.as_bytes().to_vec()),
+            FileEncoding::Ucs2 => data.encode_utf16().flat_map(u16::to_le_bytes).collect(),
+            FileEncoding::Utf16Be => encoding_rs::UTF_16BE.encode(data).0.into_owned(),
             FileEncoding::SetByMsg => data.as_bytes().to_vec(), // 如果消息没有指定编码，默认使用 UTF-8
         }
     }
@@ -261,6 +270,13 @@ impl FileNode {
                 general_purpose::STANDARD.decode(&data_bytes).unwrap_or(data_bytes.clone())
             }
             FileEncoding::Binary => data_bytes.clone(),
+            FileEncoding::Hex => {
+                hex::decode(String::from_utf8_lossy(&data_bytes).as_bytes()).unwrap_or(data_bytes.clone())
+            }
+            FileEncoding::Ucs2 => {
+                String::from_utf8_lossy(&data_bytes).encode_utf16().flat_map(u16::to_le_bytes).collect()
+            }
+            FileEncoding::Utf16Be => encoding_rs::UTF_16BE.encode(&String::from_utf8_lossy(&data_bytes)).0.into_owned(),
             FileEncoding::SetByMsg => data_bytes.clone(),
         };
 
