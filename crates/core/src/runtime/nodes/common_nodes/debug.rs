@@ -176,7 +176,10 @@ impl DebugNode {
         let mut edit_expression = None;
         #[cfg(feature = "jsonata")]
         let mut status_expression = None;
+        #[cfg(feature = "jsonata")]
         let mut jsonata_error = None;
+        #[cfg(not(feature = "jsonata"))]
+        let jsonata_error = None;
 
         // `targetType: "jsonata"` turns `complete` into the JSONata expression for the debugged
         // value (`hasEditExpression ? n.complete : null`), which is compiled at deploy time the way
