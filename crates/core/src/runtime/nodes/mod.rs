@@ -23,6 +23,7 @@ use crate::*;
 pub(crate) mod common_nodes;
 mod function_nodes;
 
+#[cfg(feature = "nodes_parser")]
 mod parser_nodes;
 mod sequence_nodes;
 
