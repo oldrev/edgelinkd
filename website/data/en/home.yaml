@@ -12,7 +12,7 @@ hero:
     tag: "Alpha"
     text: "Nightly builds on GitHub Releases"
     href: "https://github.com/oldrev/edgelinkd/releases"
-  title: "The Node-RED runtime, **reforged in Rust** for the edge."
+  title: "The Node-RED runtime, **reforged in Rust**."
   lead: "EdgeLinkd runs your existing `flows.json` as a single native binary — with the full Node-RED editor built in, runtime nodes implemented in Rust, and roughly a tenth of Node-RED's memory footprint."
   primary:
     label: "Get started"
@@ -26,7 +26,7 @@ hero:
     - "Linux · Windows"
     - "x86_64 · AArch64 · ARMv7"
   canvas:
-    aria: "A Node-RED flow running on EdgeLinkd: MQTT and inject sources feed json and function nodes; a switch routes alerts to MQTT and to debug."
+    aria: "The EdgeLinkd web editor showing a Node-RED flow with inject nodes feeding a switch and three debug outputs."
     tabs: ["Sensors", "Alarms"]
     deploy: "Deploy"
     status: "running"

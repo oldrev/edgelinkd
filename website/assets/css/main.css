@@ -851,6 +851,12 @@ html:not(.js-theme)[data-theme-pref="system"] .seg [data-theme-value="system"] {
   box-shadow: var(--shadow-lg);
 }
 
+.flow-screenshot {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
 .flow-bar {
   display: flex;
   align-items: center;

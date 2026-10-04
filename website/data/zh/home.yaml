@@ -24,7 +24,7 @@ hero:
     - "Linux · Windows"
     - "x86_64 · AArch64 · ARMv7"
   canvas:
-    aria: "一个运行在 EdgeLinkd 上的 Node-RED 流程：MQTT 与 inject 数据源进入 json 和 function 节点，switch 节点将告警分发到 MQTT 与 debug。"
+    aria: "EdgeLinkd 网页编辑器中的 Node-RED 流程：inject 节点进入 switch，并分发到三个 debug 输出。"
     tabs: ["传感器", "告警"]
     deploy: "部署"
     status: "运行中"
