@@ -221,72 +221,61 @@ Refer [REDNODES-SPECS-DIFF.md](tests/REDNODES-SPECS-DIFF.md) to view the details
 
 - Core nodes:
     - Common nodes:
-        - [x] :heavy_check_mark: Console-JSON (For integration tests)
         - [x] :heavy_check_mark: Inject
-        - [x] Debug (WIP)
+        - [x] :heavy_check_mark: Debug
         - [x] :heavy_check_mark: Complete
         - [x] :heavy_check_mark: Catch
         - [x] :heavy_check_mark: Status
         - [x] :heavy_check_mark: Link In
         - [x] :heavy_check_mark: Link Call
         - [x] :heavy_check_mark: Link Out
-        - [x] :heavy_check_mark: Comment (Ignored automatically)
-        - [x] GlobalConfig (WIP)
+        - [x] :heavy_check_mark: Comment (ignored automatically)
+        - [x] :heavy_check_mark: GlobalConfig
         - [x] :heavy_check_mark: Unknown
         - [x] :heavy_check_mark: Junction
     - Function nodes:
         - [x] Function (WIP)
-            - [x] Basic functions
-            - [x] `node` object (WIP)
-            - [x] `context` object
-            - [x] `flow` object
-            - [x] `global` object
-            - [x] `RED.util` object
-            - [x] `env` object
         - [x] :heavy_check_mark: Switch
         - [x] :heavy_check_mark: Change
         - [x] :heavy_check_mark: Range
         - [x] :heavy_check_mark: Template
-        - [x] Delay
-        - [x] Trigger
-        - [x] Exec
+        - [x] Delay (WIP)
+        - [x] Trigger (WIP)
+        - [x] Exec (WIP)
         - [x] :heavy_check_mark: Filter (RBE)
     - Network nodes:
-        - [x] MQTT In
-        - [x] MQTT Out
-        - [ ] MQTT Broker
-        - [x] HTTP In
-        - [x] HTTP Out
-        - [x] HTTP Request (core methods, request/response headers and bodies, status codes, redirects, cookies, and response types; TLS/proxy/authentication and multipart upload remain scoped out)
-        - [x] WebSocket Listener
-        - [x] WebSocket Client
-        - [x] WebSocket In
-        - [x] WebSocket Out
-        - [x] TCP In
-        - [x] TCP Out
-        - [x] TCP Get
-        - [x] UDP In
+        - [x] MQTT In (WIP)
+        - [x] MQTT Out (WIP)
+        - [x] MQTT Broker (WIP)
+        - [x] HTTP In (WIP)
+        - [x] HTTP Out (WIP)
+        - [x] HTTP Request (WIP)
+        - [x] WebSocket Listener (WIP)
+        - [x] WebSocket Client (WIP)
+        - [x] WebSocket In (WIP)
+        - [x] WebSocket Out (WIP)
+        - [x] TCP In (WIP)
+        - [x] TCP Out (WIP)
+        - [x] TCP Get (WIP)
+        - [x] UDP In (WIP)
         - [x] :heavy_check_mark: UDP Out
-            - [x] Unicast
-            - [x] Multicast
         - [x] TLS (WIP)
         - [x] HTTP Proxy (WIP)
     - Sequence nodes:
-        - [x] Split (string, array, object, length and stream modes; binary bridge and chained sequence edge cases remain scoped out)
-        - [x] Join (string, array, object, manual/automatic modes, accumulation and reset; timeout, reduce, Buffer and full-message merge remain scoped out)
-        - [x] Sort (basic payload, property, numeric and sequence sorting; JSONata/context/object-key modes remain scoped out)
-        - [x] Batch (count, interval and concat modes, reset, overlap, buffer overflow, and deferred completion semantics)
-    - Parse nodes:
-        - [x] CSV
-        - [x] HTML (CSS selection and `single`/`multi` output via the Rust `scraper` crate; core behavior covered by `tests/nodes/parsers/test_html_node.py`)
+        - [x] Split (WIP)
+        - [x] Join (WIP)
+        - [x] Sort (WIP)
+        - [x] Batch (WIP)
+    - Parser nodes:
+        - [x] :heavy_check_mark: CSV
+        - [x] :heavy_check_mark: HTML
         - [x] :heavy_check_mark: JSON
         - [x] :heavy_check_mark: XML
-        - [x] YAML
-    - Storage
-        - [x] File
-        - [x] File In
-        - [x] Watch
-
+        - [x] :heavy_check_mark: YAML
+    - Storage nodes:
+        - [x] :heavy_check_mark: File
+        - [x] File In (WIP)
+        - [x] Watch (WIP)
 ## Roadmap
 
 Check out our [milestones](https://github.com/oldrev/edgelinkd/milestones) to get a glimpse of the upcoming features and milestones.
