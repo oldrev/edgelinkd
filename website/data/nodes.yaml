@@ -31,9 +31,9 @@ groups:
       - { name: "range", status: "verified" }
       - { name: "template", status: "verified" }
       - { name: "filter (rbe)", status: "verified" }
-      - { name: "delay", status: "progress" }
-      - { name: "trigger", status: "progress" }
-      - { name: "exec", status: "progress" }
+      - { name: "delay", status: "verified" }
+      - { name: "trigger", status: "verified" }
+      - { name: "exec", status: "verified" }
   - id: "network"
     nodes:
       - { name: "mqtt in", status: "progress" }

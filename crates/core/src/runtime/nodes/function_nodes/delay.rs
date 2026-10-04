@@ -302,6 +302,22 @@ impl DelayNodeConfig {
 }
 
 impl DelayNode {
+    async fn report_depth(&self, count: usize, cancel: &CancellationToken) {
+        self.report_status(
+            StatusObject { fill: Some(StatusFill::Blue), shape: Some(StatusShape::Dot), text: Some(count.to_string()) },
+            cancel.clone(),
+        )
+        .await;
+    }
+
+    async fn report_reset(&self, cancel: &CancellationToken) {
+        self.report_status(
+            StatusObject { fill: Some(StatusFill::Blue), shape: Some(StatusShape::Ring), text: Some("0".to_string()) },
+            cancel.clone(),
+        )
+        .await;
+    }
+
     fn build(
         flow: &Flow,
         base: BaseFlowNodeState,
@@ -371,6 +387,7 @@ impl DelayNode {
                 completion: Arc::clone(&completion),
             });
         }
+        self.report_depth(self.pending_delays.lock().await.len(), &cancel).await;
 
         let this = Arc::clone(self);
         tokio::spawn(async move {
@@ -382,6 +399,7 @@ impl DelayNode {
             // `flush` may have taken it over while this task was sleeping.
             if this.take_pending_delay(id).await {
                 let _ = this.fan_out_one(Envelope { port: 0, msg }, interrupt).await;
+                this.report_depth(this.pending_delays.lock().await.len(), &CancellationToken::new()).await;
                 // Upstream calls `done()` right after the delayed send.
                 completion.complete(&this).await;
             }
@@ -411,6 +429,7 @@ impl DelayNode {
             // Upstream clears the timers through `clearDelayList`, whose handler calls `done()`.
             entry.completion.complete(self).await;
         }
+        self.report_reset(&CancellationToken::new()).await;
     }
 
     /// `flush`: send up to `count` (all of them when `None`) pending messages right now.
@@ -431,6 +450,7 @@ impl DelayNode {
             // A triggered timer runs the same handler as a fired one, `done()` included.
             entry.completion.complete(self).await;
         }
+        self.report_depth(self.pending_delays.lock().await.len(), &cancel).await;
         Ok(())
     }
 

@@ -176,13 +176,28 @@ pub struct ExecNode {
 }
 
 impl ExecNode {
+    async fn report_status_text(&self, fill: StatusFill, text: impl Into<String>, cancel: &CancellationToken) {
+        self.report_status(
+            StatusObject { fill: Some(fill), shape: Some(StatusShape::Dot), text: Some(text.into()) },
+            cancel.clone(),
+        )
+        .await;
+    }
+
+    async fn clear_status(&self, cancel: &CancellationToken) {
+        self.report_status(StatusObject::empty(), cancel.clone()).await;
+    }
+
     pub fn build(
         _flow: &Flow,
         base_node: BaseFlowNodeState,
         config: &RedFlowNodeConfig,
         _options: Option<&config::Config>,
     ) -> crate::Result<Box<dyn FlowNodeBehavior>> {
-        let config = ExecNodeConfig::deserialize(&config.rest)?;
+        let mut config = ExecNodeConfig::deserialize(&config.rest)?;
+        // Node-RED normalizes these fields before every input is processed.
+        config.command = config.command.trim().to_string();
+        config.append = config.append.trim().to_string();
         Ok(Box::new(ExecNode { base: base_node, config, active_processes: Arc::new(Mutex::new(HashMap::new())) }))
     }
 
@@ -192,14 +207,9 @@ impl ExecNode {
 
         // Add payload if configured
         if !self.config.addpay.is_empty()
-            && let Some(value) = msg.get(&self.config.addpay)
+            && let Some(value) = msg.get_nav_stripped(&self.config.addpay)
         {
-            let value_str = match value {
-                Variant::String(s) => s.clone(),
-                Variant::Number(n) => n.to_string(),
-                Variant::Bool(b) => b.to_string(),
-                _ => format!("{value:?}"),
-            };
+            let value_str = Self::js_to_string(value);
             if !value_str.is_empty() {
                 cmd.push(' ');
                 cmd.push_str(&value_str);
@@ -213,6 +223,25 @@ impl ExecNode {
         }
 
         cmd
+    }
+
+    /// Convert a message property using the coercion JavaScript applies when Node-RED appends it
+    /// to the command string (`arg += " " + value`).
+    fn js_to_string(value: &Variant) -> String {
+        match value {
+            Variant::Null => "null".to_string(),
+            Variant::String(value) => value.clone(),
+            Variant::Number(value) => value.to_string(),
+            Variant::Bool(value) => value.to_string(),
+            Variant::Bytes(value) => String::from_utf8_lossy(value).into_owned(),
+            Variant::Array(values) => values.iter().map(Self::js_to_string).collect::<Vec<_>>().join(","),
+            Variant::Object(_) => "[object Object]".to_string(),
+            Variant::Date(value) => value
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_millis().to_string())
+                .unwrap_or_default(),
+            Variant::Regexp(value) => value.to_string(),
+        }
     }
 
     /// Publish `rc` the way Node-RED does: the object form by default, the bare exit code
@@ -230,6 +259,22 @@ impl ExecNode {
                 None => Variant::Null,
             },
         );
+        if let Some(signal) = signal {
+            payload.insert("signal".to_string(), Variant::String(signal.to_string()));
+        }
+        Variant::Object(payload)
+    }
+
+    fn simple_error_payload(code: Option<i32>, signal: Option<&str>, stderr: &[u8]) -> Variant {
+        let mut payload = VariantObjectMap::new();
+        payload.insert(
+            "code".to_string(),
+            code.map_or(Variant::Null, |code| Variant::Number(serde_json::Number::from(code))),
+        );
+        let message = String::from_utf8_lossy(stderr).trim_end().to_string();
+        if !message.is_empty() {
+            payload.insert("message".to_string(), Variant::String(message));
+        }
         if let Some(signal) = signal {
             payload.insert("signal".to_string(), Variant::String(signal.to_string()));
         }
@@ -422,6 +467,9 @@ impl ExecNode {
             }
         };
         let pid = child.id();
+        if let Some(pid) = pid {
+            self.report_status_text(StatusFill::Blue, format!("pid:{pid}"), &cancel).await;
+        }
         let kill_rx = self.register_process(&child).await;
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
@@ -483,6 +531,15 @@ impl ExecNode {
         .await;
         // rc 端口
         let rc = self.rc_payload(code, signal.as_deref());
+        match (code, signal.as_deref()) {
+            (Some(0), None) => self.clear_status(&cancel).await,
+            (None, Some(_)) => self.report_status_text(StatusFill::Red, "killed", &cancel).await,
+            (Some(code), _) if code < 0 => {
+                self.report_status_text(StatusFill::Red, format!("rc:{code}"), &cancel).await
+            }
+            (Some(code), _) => self.report_status_text(StatusFill::Yellow, format!("rc:{code}"), &cancel).await,
+            _ => {}
+        }
         self.send_output(&node, &msg, 2, rc, None, &cancel).await;
         Ok(())
     }
@@ -511,7 +568,14 @@ impl ExecNode {
         };
         #[cfg(not(target_os = "windows"))]
         let mut command = {
-            let mut c = Command::new("sh");
+            // Node-RED selects bash when it is available on Linux. Keep the same shell choice so
+            // command substitution, arrays and other bash syntax behave the same way.
+            let shell = if cfg!(target_os = "linux") && std::path::Path::new("/bin/bash").exists() {
+                "/bin/bash"
+            } else {
+                "sh"
+            };
+            let mut c = Command::new(shell);
             c.arg("-c");
             c.arg(&cmd);
             c.stdout(Stdio::piped());
@@ -521,6 +585,9 @@ impl ExecNode {
 
         let mut child = command.spawn()?;
         let pid = child.id();
+        if let Some(pid) = pid {
+            self.report_status_text(StatusFill::Blue, format!("pid:{pid}"), &cancel).await;
+        }
         let kill_rx = self.register_process(&child).await;
         // The pipes have to be drained while the child runs, otherwise a chatty command fills
         // the pipe buffer and never exits.
@@ -547,20 +614,37 @@ impl ExecNode {
         let stdout = stdout_task.await.unwrap_or_default();
         let stderr = stderr_task.await.unwrap_or_default();
         let rc = self.rc_payload(code, signal.as_deref());
+        let failed = code != Some(0) || signal.is_some();
+        let simple_rc = if self.config.oldrc && failed {
+            Self::simple_error_payload(code, signal.as_deref(), &stderr)
+        } else {
+            rc.clone()
+        };
+        match (code, signal.as_deref()) {
+            (Some(0), None) => self.clear_status(&cancel).await,
+            (None, Some(_)) => self.report_status_text(StatusFill::Red, "killed", &cancel).await,
+            (Some(code), _) => self.report_status_text(StatusFill::Red, format!("error:{code}"), &cancel).await,
+            _ => {}
+        }
 
         // Node-RED always sends the stdout message in this mode - an empty payload included -
         // and carries the return code on it.
         let stdout_payload = Self::payload_from_bytes(&stdout);
-        self.send_output(&node, &msg, 0, stdout_payload, Some(rc.clone()), &cancel).await;
+        let output_rc = if self.config.oldrc { failed.then_some(simple_rc.clone()) } else { Some(rc.clone()) };
+        self.send_output(&node, &msg, 0, stdout_payload, output_rc.clone(), &cancel).await;
 
         // stderr is only forwarded when the command actually wrote something there.
         if !stderr.is_empty() {
             let stderr_payload = Self::payload_from_bytes(&stderr);
-            self.send_output(&node, &msg, 1, stderr_payload, Some(rc.clone()), &cancel).await;
+            self.send_output(&node, &msg, 1, stderr_payload, output_rc, &cancel).await;
         }
 
-        // rc 端口
-        self.send_output(&node, &msg, 2, rc, None, &cancel).await;
+        // With oldrc enabled Node-RED only sends a third output when the command failed. A
+        // successful command leaves the third output empty, while the modern format always emits
+        // its `{code}` object.
+        if !self.config.oldrc || failed {
+            self.send_output(&node, &msg, 2, simple_rc, None, &cancel).await;
+        }
         Ok(())
     }
 
@@ -611,7 +695,9 @@ impl ExecNode {
             let pid = msg_guard.get("pid").and_then(|v| v.as_u64()).map(|n| n as u32);
 
             drop(msg_guard);
-            return self.kill_process(&kill_signal, pid).await;
+            let result = self.kill_process(&kill_signal, pid).await;
+            self.report_status_text(StatusFill::Red, "killed", &cancel).await;
+            return result;
         }
 
         // Build command

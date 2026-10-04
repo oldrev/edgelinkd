@@ -239,9 +239,9 @@ Refer [REDNODES-SPECS-DIFF.md](tests/REDNODES-SPECS-DIFF.md) to view the details
         - [x] :heavy_check_mark: Change
         - [x] :heavy_check_mark: Range
         - [x] :heavy_check_mark: Template
-        - [x] Delay (WIP)
-        - [x] Trigger (WIP)
-        - [x] Exec (WIP)
+        - [x] :heavy_check_mark: Delay
+        - [x] :heavy_check_mark: Trigger
+        - [x] :heavy_check_mark: Exec
         - [x] :heavy_check_mark: Filter (RBE)
     - Network nodes:
         - [x] MQTT In (WIP)

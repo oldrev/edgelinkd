@@ -350,6 +350,20 @@ impl TriggerNodeConfig {
 }
 
 impl TriggerNode {
+    async fn report_topic_status(&self, cancel: &CancellationToken) {
+        let count = self.mut_state.lock().await.events.len();
+        let status = match count {
+            0 => StatusObject::empty(),
+            1 => StatusObject { fill: Some(StatusFill::Blue), shape: Some(StatusShape::Dot), text: None },
+            count => StatusObject {
+                fill: Some(StatusFill::Blue),
+                shape: Some(StatusShape::Dot),
+                text: Some(count.to_string()),
+            },
+        };
+        self.report_status(status, cancel.clone()).await;
+    }
+
     /// Evaluate the configured `op1`/`op2` value the way Node-RED's `evaluateNodeProperty` does.
     ///
     /// A `str` holding `{{...}}` is a mustache template and `nul` produces no edge at all; the
@@ -432,6 +446,7 @@ impl TriggerNode {
             }
             self.send_second_edge(event, cancel.clone()).await;
         }
+        self.report_topic_status(&cancel).await;
     }
 
     /// Build and emit the second edge that upstream's timeout callback sends.
@@ -543,6 +558,8 @@ impl TriggerNode {
             if let Some(event) = mut_state.events.remove(&topic) {
                 event.cancel_token.cancel();
             }
+            drop(mut_state);
+            self.report_topic_status(&cancel).await;
             return Ok(());
         }
 
@@ -672,6 +689,8 @@ impl TriggerNode {
                 },
             );
         }
+        drop(mut_state);
+        self.report_topic_status(&cancel).await;
         Ok(())
     }
 }
