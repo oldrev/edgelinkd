@@ -1,5 +1,5 @@
 {{- $page := . -}}
-{{- $s := (index site.Data site.Language.Name).site -}}
+{{- $s := (index hugo.Data site.Language.Name).site -}}
 {{- $langs := partial "func/lang-links.html" . -}}
 <header class="site-header" data-header>
   <div class="container header-inner">

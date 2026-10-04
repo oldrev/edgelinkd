@@ -10,8 +10,8 @@
   {{- $links = merge $links (dict .Language.Name .RelPermalink) -}}
 {{- end -}}
 {{- $out := slice -}}
-{{- range site.Languages -}}
-  {{- $href := index $links .Name | default (printf "%s/" .Name | relURL) -}}
-  {{- $out = $out | append (dict "name" .Name "label" .Label "locale" .Locale "href" $href "current" (eq .Name site.Language.Name)) -}}
+{{- range $page.AllTranslations -}}
+  {{- $href := index $links .Language.Name | default (printf "%s/" .Language.Name | relURL) -}}
+  {{- $out = $out | append (dict "name" .Language.Name "label" .Language.LanguageName "locale" .Language.Lang "href" $href "current" (eq .Language.Name site.Language.Name)) -}}
 {{- end -}}
 {{- return $out -}}

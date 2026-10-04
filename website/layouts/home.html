@@ -1,6 +1,6 @@
 {{ define "main" }}
 {{- /* All home page content comes from data/<lang>/home.yaml. */ -}}
-{{- $h := (index site.Data site.Language.Name).home -}}
+{{- $h := (index hugo.Data site.Language.Name).home -}}
 {{ partial "sections/hero.html" $h.hero }}
 {{ partial "sections/why.html" $h.why }}
 {{ partial "sections/features.html" $h.features }}
