@@ -49,6 +49,9 @@ why:
     - aspect: "执行方式"
       a: "Node.js 与 V8：JIT 编译、垃圾回收"
       b: "基于 Tokio 的原生 Rust：无 JIT、无垃圾回收"
+    - aspect: "调度模型"
+      a: "标准运行时受限于单个 JavaScript 事件循环"
+      b: "Tokio 多线程调度器让独立节点任务跨多个 CPU 核心运行"
     - aspect: "内存"
       a: "基准"
       b: "约为 Node-RED 的 **1/10**"
@@ -95,8 +98,8 @@ features:
       title: "JavaScript 只出现在你写的地方"
       body: "所有节点均为原生 Rust。`function` 节点运行在内嵌的 QuickJS 沙箱中，提供 `node`、`context`、`flow`、`global`、`env` 与 `RED.util`。"
     - icon: "cpu"
-      title: "每个节点一个 Tokio 任务"
-      body: "每个节点拥有一个有界收件箱，按顺序逐条处理消息——遵循 Node-RED 语义，并在每条连线上形成背压。"
+      title: "多线程异步调度"
+      body: "标准 Node-RED 运行时受单个 JavaScript 事件循环限制。EdgeLinkd 为每个节点创建独立任务，由 Tokio worker 线程跨多个 CPU 核心调度；同时保持单个节点内部按序处理，并在每条连线上形成背压。"
     - icon: "shield-check"
       title: "用 Node-RED 自己的规范来验证"
       body: "上游 mocha 测试被移植为 pytest，通过 PyO3 模块直接驱动 Rust 引擎运行，测试标题与上游逐字一致。"
@@ -207,7 +210,7 @@ compat:
     - { label: "分组", status: "progress" }
     - { label: "插件子系统（静态链接）", status: "progress" }
   matrix_title: "核心节点状态"
-  matrix_note: "与项目 README 保持同步。"
+  matrix_note: "“可用”表示节点已实现并可使用；“已通过规范测试”表示同时对齐了已覆盖的 Node-RED 测试。"
   report_label: "完整规范覆盖报告"
 
 quickstart:

@@ -2,7 +2,8 @@
 # (group_<id>), status labels from i18n (status_<status>).
 #
 #   verified — passes the integration tests ported from Node-RED
-#   progress — implemented, partially implemented or being ported
+#   available — implemented and usable, with known upstream-spec gaps
+#   progress — still being implemented or not ready for general use
 #
 # Keep in sync with the README and tests/REDNODES-SPECS-DIFF.md.
 
@@ -25,7 +26,7 @@ groups:
       - { name: "global-config", status: "verified" }
   - id: "function"
     nodes:
-      - { name: "function", status: "progress" }
+      - { name: "function", status: "available" }
       - { name: "switch", status: "verified" }
       - { name: "change", status: "verified" }
       - { name: "range", status: "verified" }
@@ -36,29 +37,29 @@ groups:
       - { name: "exec", status: "verified" }
   - id: "network"
     nodes:
-      - { name: "mqtt in", status: "progress" }
-      - { name: "mqtt out", status: "progress" }
-      - { name: "mqtt broker", status: "progress" }
-      - { name: "http in", status: "progress" }
-      - { name: "http out", status: "progress" }
-      - { name: "http request", status: "progress" }
-      - { name: "websocket listener", status: "progress" }
-      - { name: "websocket client", status: "progress" }
-      - { name: "websocket in", status: "progress" }
-      - { name: "websocket out", status: "progress" }
-      - { name: "tcp in", status: "progress" }
-      - { name: "tcp out", status: "progress" }
-      - { name: "tcp get", status: "progress" }
-      - { name: "udp in", status: "progress" }
+      - { name: "mqtt in", status: "available" }
+      - { name: "mqtt out", status: "available" }
+      - { name: "mqtt broker", status: "available" }
+      - { name: "http in", status: "available" }
+      - { name: "http out", status: "available" }
+      - { name: "http request", status: "available" }
+      - { name: "websocket listener", status: "available" }
+      - { name: "websocket client", status: "available" }
+      - { name: "websocket in", status: "available" }
+      - { name: "websocket out", status: "available" }
+      - { name: "tcp in", status: "available" }
+      - { name: "tcp out", status: "available" }
+      - { name: "tcp get", status: "available" }
+      - { name: "udp in", status: "available" }
       - { name: "udp out", status: "verified" }
-      - { name: "tls", status: "progress" }
-      - { name: "http proxy", status: "progress" }
+      - { name: "tls", status: "available" }
+      - { name: "http proxy", status: "available" }
   - id: "sequence"
     nodes:
-      - { name: "split", status: "progress" }
-      - { name: "join", status: "progress" }
-      - { name: "sort", status: "progress" }
-      - { name: "batch", status: "progress" }
+      - { name: "split", status: "available" }
+      - { name: "join", status: "available" }
+      - { name: "sort", status: "available" }
+      - { name: "batch", status: "available" }
   - id: "parser"
     nodes:
       - { name: "json", status: "verified" }
@@ -69,5 +70,5 @@ groups:
   - id: "storage"
     nodes:
       - { name: "file", status: "verified" }
-      - { name: "file in", status: "progress" }
-      - { name: "watch", status: "progress" }
+      - { name: "file in", status: "available" }
+      - { name: "watch", status: "available" }

@@ -417,6 +417,14 @@ pre code {
   background: var(--accent);
 }
 
+.status--available {
+  color: var(--text);
+}
+
+.status--available::before {
+  background: var(--yellow, #d99a00);
+}
+
 .status--progress {
   color: var(--muted);
 }
@@ -1831,6 +1839,18 @@ html:not(.js-theme)[data-theme-pref="system"] .seg [data-theme-value="system"] {
 .node-pill[data-status="verified"]::before {
   border-color: var(--accent);
   background: var(--accent);
+  opacity: 1;
+}
+
+.node-pill[data-status="available"] {
+  border-color: var(--line-strong);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.node-pill[data-status="available"]::before {
+  border-color: var(--yellow, #d99a00);
+  background: var(--yellow, #d99a00);
   opacity: 1;
 }
 

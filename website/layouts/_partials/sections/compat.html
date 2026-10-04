@@ -23,12 +23,13 @@
       <div class="matrix">
         <div class="matrix-head">
           <h3 class="matrix-title">{{ $d.matrix_title }}</h3>
-          <div class="legend">{{ partial "status.html" "verified" }}{{ partial "status.html" "progress" }}</div>
+          <div class="legend">{{ partial "status.html" "verified" }}{{ partial "status.html" "available" }}{{ partial "status.html" "progress" }}</div>
         </div>
         {{- range $nodes.groups }}
         {{- $verified := where .nodes "status" "verified" }}
+        {{- $available := where .nodes "status" "available" }}
         <div class="matrix-group">
-          <div class="matrix-group-name">{{ T (printf "group_%s" .id) }}<span class="matrix-group-count">{{ len $verified }}/{{ len .nodes }}</span></div>
+          <div class="matrix-group-name">{{ T (printf "group_%s" .id) }}<span class="matrix-group-count">{{ add (len $verified) (len $available) }}/{{ len .nodes }}</span></div>
           <ul class="node-list">
             {{- range .nodes }}
             <li class="node-pill" data-status="{{ .status }}">{{ .name }}</li>

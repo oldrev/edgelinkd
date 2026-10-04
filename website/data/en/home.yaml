@@ -51,6 +51,9 @@ why:
     - aspect: "Execution"
       a: "Node.js and V8 — JIT-compiled, garbage-collected"
       b: "Native Rust on Tokio — no JIT, no garbage collector"
+    - aspect: "Scheduling"
+      a: "One JavaScript event loop for the standard runtime"
+      b: "Tokio's multi-threaded scheduler runs independent node tasks across CPU cores"
     - aspect: "Memory"
       a: "Baseline"
       b: "**≈ 1/10** of Node-RED"
@@ -97,8 +100,8 @@ features:
       title: "JavaScript only where you write it"
       body: "Every node is native Rust. `function` nodes run in an embedded QuickJS sandbox with `node`, `context`, `flow`, `global`, `env` and `RED.util`."
     - icon: "cpu"
-      title: "One Tokio task per node"
-      body: "Each node owns a bounded inbox and handles one message at a time, in order — Node-RED semantics, with back-pressure along every wire."
+      title: "Multi-threaded async scheduling"
+      body: "The standard Node-RED runtime is constrained by one JavaScript event loop. EdgeLinkd schedules one task per node across Tokio worker threads, while each node still processes its own messages in order with back-pressure along every wire."
     - icon: "shield-check"
       title: "Verified against Node-RED's own specs"
       body: "Upstream mocha tests are ported to pytest and run against the Rust engine through a PyO3 module, with test titles matching upstream character for character."
@@ -209,7 +212,7 @@ compat:
     - { label: "Groups", status: "progress" }
     - { label: "Plug-in subsystem (static)", status: "progress" }
   matrix_title: "Core node status"
-  matrix_note: "Mirrors the project README."
+  matrix_note: "Available nodes are implemented and usable; Spec-verified nodes also match the covered Node-RED tests."
   report_label: "Full spec coverage report"
 
 quickstart:
