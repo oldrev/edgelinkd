@@ -30,7 +30,7 @@ struct SplitNodeConfig {
     #[serde(rename = "spltType", default)]
     split_type: SplitType,
     /// Split delimiter (string, binary array, or length)
-    #[serde(rename = "splt", default = "split_default_delimiter")]
+    #[serde(rename = "splt", default = "split_default_delimiter", deserialize_with = "deserialize_split_value")]
     split: String,
     /// Array split length
     #[serde(rename = "arraySplt", default = "array_split_default")]
@@ -49,6 +49,19 @@ struct SplitNodeConfig {
 
 fn split_default_delimiter() -> String {
     "\\n".to_string()
+}
+
+fn deserialize_split_value<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(match value {
+        serde_json::Value::String(value) => value,
+        serde_json::Value::Number(value) => value.to_string(),
+        serde_json::Value::Null => String::new(),
+        other => other.to_string(),
+    })
 }
 
 fn array_split_default() -> usize {
@@ -77,7 +90,7 @@ struct SplitNode {
     base: BaseFlowNodeState,
     config: SplitNodeConfig,
     /// Processed split delimiter
-    split_delimiter: SplitDelimiter,
+    split_delimiter: Option<SplitDelimiter>,
     state: Mutex<SplitNodeState>,
 }
 
@@ -108,29 +121,18 @@ impl SplitNode {
                     .replace("\\e", "\x1b")
                     .replace("\\f", "\x0c")
                     .replace("\\0", "\0");
-                SplitDelimiter::String(processed)
+                Some(SplitDelimiter::String(processed))
             }
             SplitType::Binary => {
-                let array: Vec<u8> = serde_json::from_str(&split_config.split)
-                    .map_err(|_| crate::EdgelinkError::invalid_operation("Invalid binary array for split"))?;
-                SplitDelimiter::Binary(array)
+                let array: Option<Vec<u8>> = serde_json::from_str(&split_config.split).ok();
+                array.map(SplitDelimiter::Binary)
             }
             SplitType::Length => {
-                let len = split_config
-                    .split
-                    .parse::<usize>()
-                    .map_err(|_| crate::EdgelinkError::invalid_operation("Invalid length for split"))?;
-                if len < 1 {
-                    return Err(crate::EdgelinkError::invalid_operation("Split length must be >= 1"));
-                }
-                SplitDelimiter::Length(len)
+                split_config.split.parse::<usize>().ok().filter(|len| *len >= 1).map(SplitDelimiter::Length)
             }
         };
 
-        // Validate array split length
-        if split_config.array_split < 1 {
-            return Err(crate::EdgelinkError::invalid_operation("Array split length must be >= 1"));
-        }
+        let split_delimiter = if split_config.array_split < 1 { None } else { split_delimiter };
 
         let node = SplitNode {
             base: base_node,
@@ -161,8 +163,8 @@ impl SplitNode {
         // Generate a single ID for all parts of this split operation
         let parts_id = self.generate_id();
 
-        match &self.split_delimiter {
-            SplitDelimiter::String(delimiter) => {
+        match self.split_delimiter.as_ref() {
+            Some(SplitDelimiter::String(delimiter)) => {
                 let parts: Vec<&str> = full_value.split(delimiter).collect();
                 let parts_count = parts.len();
 
@@ -202,7 +204,7 @@ impl SplitNode {
                     state.remainder.clear();
                 }
             }
-            SplitDelimiter::Length(len) => {
+            Some(SplitDelimiter::Length(len)) => {
                 let char_len = full_value.chars().count();
                 let count = char_len.div_ceil(*len); // Ceiling division
 
@@ -348,8 +350,8 @@ impl SplitNode {
         let mut full_buffer = state.buffer.clone();
         full_buffer.extend_from_slice(&value);
 
-        match &self.split_delimiter {
-            SplitDelimiter::Binary(delimiter) => {
+        match self.split_delimiter.as_ref() {
+            Some(SplitDelimiter::Binary(delimiter)) => {
                 // Find all occurrences of delimiter
                 let mut parts = Vec::new();
                 let mut start = 0;
@@ -420,7 +422,7 @@ impl SplitNode {
                     state.counter = 0;
                 }
             }
-            SplitDelimiter::Length(len) => {
+            Some(SplitDelimiter::Length(len)) => {
                 let count = full_buffer.len().div_ceil(*len);
                 if !self.config.stream {
                     state.counter = 0;
@@ -475,6 +477,9 @@ impl SplitNode {
 
     /// Process incoming message
     async fn process_message(&self, msg: &mut Msg) -> crate::Result<Vec<Msg>> {
+        if self.split_delimiter.is_none() {
+            return Ok(vec![]);
+        }
         // Get the value to split
         let value = msg.get_nav(&self.config.property);
 
@@ -501,7 +506,7 @@ impl SplitNode {
             Variant::Object(obj) => self.split_object(msg, obj).await,
             Variant::Bytes(buf) => {
                 // Use proper binary splitting logic
-                if matches!(self.split_delimiter, SplitDelimiter::Binary(_) | SplitDelimiter::Length(_)) {
+                if matches!(self.split_delimiter, Some(SplitDelimiter::Binary(_)) | Some(SplitDelimiter::Length(_))) {
                     self.split_buffer(msg, buf).await
                 } else {
                     // For string delimiters, convert to string

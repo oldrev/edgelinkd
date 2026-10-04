@@ -56,7 +56,7 @@ struct JoinNodeConfig {
     #[serde(rename = "joiner", default)]
     join_char: Option<String>, // Delimiter for string join (Node-RED's `joiner` property)
 
-    #[serde(default)]
+    #[serde(rename = "key", alias = "keyProperty", default)]
     key_property: Option<String>, // Key property for object join
 
     #[serde(default)]
@@ -70,7 +70,7 @@ fn default_property() -> String {
     "payload".to_string()
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 #[allow(dead_code)]
 struct JoinGroup {
     msgs: Vec<Msg>,                               // Messages in this group
@@ -83,7 +83,7 @@ struct JoinGroup {
     property: Option<String>,                     // Property being joined
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[allow(dead_code)]
 enum GroupPayload {
     Array(Vec<Option<Variant>>),                         // Array with indexed slots
@@ -101,6 +101,7 @@ impl Default for GroupPayload {
 #[derive(Debug, Default)]
 struct JoinNodeState {
     groups: HashMap<String, JoinGroup>, // All join groups by id
+    accumulated: Option<GroupPayload>,
 }
 
 #[derive(Debug)]
@@ -187,6 +188,7 @@ impl JoinNode {
         // Handle reset message
         if msg.get("reset").is_some() {
             state.groups.clear();
+            state.accumulated = None;
             return Ok(None);
         }
 
@@ -312,18 +314,29 @@ impl JoinNode {
                     }
                 },
                 GroupPayload::Object(obj) => {
-                    let key = if let Some(parts) = parts {
-                        parts.get("key").and_then(|v| v.as_str()).unwrap_or("").to_string()
-                    } else {
-                        let key_prop = self.config.key_property.as_deref().unwrap_or("topic");
-                        msg.get_nav(key_prop).and_then(|v| v.as_str()).unwrap_or("").to_string()
-                    };
-
-                    if !key.is_empty() {
-                        if !obj.contains_key(&key) {
-                            group.current_count += 1;
+                    if group.group_type == "merged" {
+                        if let Variant::Object(values) = value {
+                            for (key, item) in values {
+                                if !obj.contains_key(&key) {
+                                    group.current_count += 1;
+                                }
+                                obj.insert(key, item);
+                            }
                         }
-                        obj.insert(key, value);
+                    } else {
+                        let key = if let Some(parts) = parts {
+                            parts.get("key").and_then(|v| v.as_str()).unwrap_or("").to_string()
+                        } else {
+                            let key_prop = self.config.key_property.as_deref().unwrap_or("topic");
+                            msg.get_nav(key_prop).and_then(|v| v.as_str()).unwrap_or("").to_string()
+                        };
+
+                        if !key.is_empty() {
+                            if !obj.contains_key(&key) {
+                                group.current_count += 1;
+                            }
+                            obj.insert(key, value);
+                        }
                     }
                 }
                 GroupPayload::String(parts_vec) => {
@@ -380,11 +393,47 @@ impl JoinNode {
         let is_complete = explicit_complete || count_reached;
 
         if is_complete {
-            let result = self.join_msgs(group);
+            let mut completed = group.clone();
+            if *self.config.accumulate {
+                if let Some(previous) = state.accumulated.take() {
+                    completed.payload =
+                        Self::accumulate_payload(previous, completed.payload, completed.join_char.as_deref());
+                }
+                state.accumulated = Some(completed.payload.clone());
+            }
+            let result = self.join_msgs(&completed);
             state.groups.remove(&group_id);
             Ok(result)
         } else {
             Ok(None)
+        }
+    }
+
+    fn accumulate_payload(previous: GroupPayload, current: GroupPayload, join_char: Option<&str>) -> GroupPayload {
+        match (previous, current) {
+            (GroupPayload::Object(mut a), GroupPayload::Object(b)) => {
+                a.extend(b);
+                GroupPayload::Object(a)
+            }
+            (GroupPayload::Array(mut a), GroupPayload::Array(b)) => {
+                a.extend(b);
+                GroupPayload::Array(a)
+            }
+            (GroupPayload::String(mut a), GroupPayload::String(b)) => {
+                if let Some(separator) = join_char
+                    && !separator.is_empty()
+                    && !a.is_empty()
+                {
+                    a.push(separator.to_owned());
+                }
+                a.extend(b);
+                GroupPayload::String(a)
+            }
+            (GroupPayload::Buffer(mut a), GroupPayload::Buffer(b)) => {
+                a.extend(b);
+                GroupPayload::Buffer(a)
+            }
+            (_, current) => current,
         }
     }
 }

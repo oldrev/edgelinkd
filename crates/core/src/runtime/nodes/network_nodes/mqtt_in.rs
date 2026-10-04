@@ -123,10 +123,68 @@ struct DynamicSubscription {
     datatype: MqttDataType,
 }
 
+#[derive(Clone)]
+enum MqttInClient {
+    V4(rumqttc::AsyncClient),
+    V5(rumqttc::v5::AsyncClient),
+}
+
+impl MqttInClient {
+    async fn subscribe(&self, topic: &str, qos: MqttQoS) -> Result<(), String> {
+        match self {
+            Self::V4(client) => client
+                .subscribe(
+                    topic,
+                    match qos {
+                        MqttQoS::AtMost => rumqttc::QoS::AtMostOnce,
+                        MqttQoS::AtLeast => rumqttc::QoS::AtLeastOnce,
+                        MqttQoS::Exactly => rumqttc::QoS::ExactlyOnce,
+                    },
+                )
+                .await
+                .map_err(|error| error.to_string()),
+            Self::V5(client) => client
+                .subscribe(
+                    topic,
+                    match qos {
+                        MqttQoS::AtMost => rumqttc::v5::mqttbytes::QoS::AtMostOnce,
+                        MqttQoS::AtLeast => rumqttc::v5::mqttbytes::QoS::AtLeastOnce,
+                        MqttQoS::Exactly => rumqttc::v5::mqttbytes::QoS::ExactlyOnce,
+                    },
+                )
+                .await
+                .map_err(|error| error.to_string()),
+        }
+    }
+
+    async fn unsubscribe(&self, topic: &str) -> Result<(), String> {
+        match self {
+            Self::V4(client) => client.unsubscribe(topic).await.map_err(|error| error.to_string()),
+            Self::V5(client) => client.unsubscribe(topic).await.map_err(|error| error.to_string()),
+        }
+    }
+
+    async fn disconnect(&self) -> Result<(), String> {
+        match self {
+            Self::V4(client) => client.disconnect().await.map_err(|error| error.to_string()),
+            Self::V5(client) => client.disconnect().await.map_err(|error| error.to_string()),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct InboundPublish {
+    topic: String,
+    payload: Vec<u8>,
+    qos: u8,
+    retain: bool,
+}
+
 #[derive(Default)]
 struct MqttConnection {
-    client: Option<rumqttc::AsyncClient>,
+    client: Option<MqttInClient>,
     connected: bool,
+    event_task: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl std::fmt::Debug for MqttConnection {
@@ -145,8 +203,8 @@ struct MqttInNode {
     config: MqttInNodeConfig,
     connection: Mutex<MqttConnection>,
     dynamic_subscriptions: RwLock<HashMap<String, DynamicSubscription>>,
-    publish_tx: mpsc::UnboundedSender<rumqttc::Publish>,
-    publish_rx: Mutex<mpsc::UnboundedReceiver<rumqttc::Publish>>,
+    publish_tx: mpsc::UnboundedSender<InboundPublish>,
+    publish_rx: Mutex<mpsc::UnboundedReceiver<InboundPublish>>,
     /// Whether this node supports dynamic subscriptions
     is_dynamic: bool,
 }
@@ -175,7 +233,7 @@ impl MqttInNode {
         Ok(Box::new(node))
     }
 
-    async fn ensure_connection(&self) -> crate::Result<rumqttc::AsyncClient> {
+    async fn ensure_connection(&self) -> crate::Result<MqttInClient> {
         let mut connection = self.connection.lock().await;
 
         if connection.connected && connection.client.is_some() {
@@ -191,6 +249,74 @@ impl MqttInNode {
             .ok_or_else(|| crate::EdgelinkError::invalid_operation("MQTT broker config not found"))?;
         let client_id =
             settings.client_id.unwrap_or_else(|| format!("edgelink_in_{}", &uuid::Uuid::new_v4().to_string()[..8]));
+        if settings.protocol_version == 5 {
+            let mut options = rumqttc::v5::MqttOptions::new(client_id, settings.host, settings.port);
+            options.set_keep_alive(Duration::from_secs(settings.keepalive as u64));
+            options.set_clean_start(settings.clean);
+            if let Some(username) = settings.username {
+                options.set_credentials(username, settings.password.unwrap_or_default());
+            }
+            let (client, mut eventloop) = rumqttc::v5::AsyncClient::new(options, 100);
+            let publish_tx = self.publish_tx.clone();
+            let topic = self.config.topic.clone();
+            let qos = self.mqtt_qos_to_v5(self.config.qos);
+            let connected = timeout(Duration::from_secs(10), async {
+                loop {
+                    match eventloop.poll().await {
+                        Ok(rumqttc::v5::Event::Incoming(rumqttc::v5::mqttbytes::v5::Packet::ConnAck(connack)))
+                            if connack.code == rumqttc::v5::mqttbytes::v5::ConnectReturnCode::Success =>
+                        {
+                            break;
+                        }
+                        Ok(_) => continue,
+                        Err(error) => return Err(error.to_string()),
+                    }
+                }
+                if !self.is_dynamic && !topic.is_empty() {
+                    client.subscribe(&topic, qos).await.map_err(|error| error.to_string())?;
+                }
+                Ok::<(), String>(())
+            })
+            .await;
+            match connected {
+                Ok(Ok(())) => {
+                    let event_client = client.clone();
+                    let event_task = tokio::spawn(async move {
+                        loop {
+                            match eventloop.poll().await {
+                                Ok(rumqttc::v5::Event::Incoming(rumqttc::v5::mqttbytes::v5::Packet::Publish(
+                                    publish,
+                                ))) => {
+                                    let topic = String::from_utf8_lossy(&publish.topic).into_owned();
+                                    let _ = publish_tx.send(InboundPublish {
+                                        topic,
+                                        payload: publish.payload.to_vec(),
+                                        qos: publish.qos as u8,
+                                        retain: publish.retain,
+                                    });
+                                }
+                                Ok(_) => {}
+                                Err(error) => {
+                                    log::warn!("MQTT In v5 event loop stopped: {error}");
+                                    break;
+                                }
+                            }
+                        }
+                    });
+                    let wrapped = MqttInClient::V5(event_client);
+                    connection.client = Some(wrapped.clone());
+                    connection.connected = true;
+                    connection.event_task = Some(event_task);
+                    return Ok(wrapped);
+                }
+                Ok(Err(error)) => {
+                    return Err(crate::EdgelinkError::invalid_operation(&format!(
+                        "MQTT In v5 connection failed: {error}"
+                    )));
+                }
+                Err(_) => return Err(crate::EdgelinkError::invalid_operation("MQTT In v5 connection timeout")),
+            }
+        }
         let mut mqttoptions = rumqttc::MqttOptions::new(client_id, settings.host, settings.port);
         mqttoptions.set_keep_alive(Duration::from_secs(settings.keepalive as u64));
         mqttoptions.set_clean_session(settings.clean);
@@ -253,14 +379,24 @@ impl MqttInNode {
                     }
                 }
 
-                connection.client = Some(client.clone());
+                connection.client = Some(MqttInClient::V4(client.clone()));
                 connection.connected = true;
                 let publish_tx = self.publish_tx.clone();
-                tokio::spawn(async move {
+                let event_task = tokio::spawn(async move {
                     loop {
                         match eventloop.poll().await {
                             Ok(rumqttc::Event::Incoming(rumqttc::Packet::Publish(publish))) => {
-                                if publish_tx.send(publish).is_err() {
+                                let inbound = InboundPublish {
+                                    topic: publish.topic,
+                                    payload: publish.payload.to_vec(),
+                                    qos: match publish.qos {
+                                        rumqttc::QoS::AtMostOnce => 0,
+                                        rumqttc::QoS::AtLeastOnce => 1,
+                                        rumqttc::QoS::ExactlyOnce => 2,
+                                    },
+                                    retain: publish.retain,
+                                };
+                                if publish_tx.send(inbound).is_err() {
                                     break;
                                 }
                             }
@@ -272,7 +408,10 @@ impl MqttInNode {
                         }
                     }
                 });
-                Ok(client)
+                let wrapped = MqttInClient::V4(client);
+                connection.client = Some(wrapped.clone());
+                connection.event_task = Some(event_task);
+                Ok(wrapped)
             }
             Ok(Err(e)) => {
                 log::error!("MQTT In connection failed: {e}");
@@ -305,12 +444,11 @@ impl MqttInNode {
         }
     }
 
-    /// Convert rumqttc QoS to number for message
-    fn rumqttc_qos_to_number(&self, qos: rumqttc::QoS) -> u8 {
+    fn mqtt_qos_to_v5(&self, qos: MqttQoS) -> rumqttc::v5::mqttbytes::QoS {
         match qos {
-            rumqttc::QoS::AtMostOnce => 0,
-            rumqttc::QoS::AtLeastOnce => 1,
-            rumqttc::QoS::ExactlyOnce => 2,
+            MqttQoS::AtMost => rumqttc::v5::mqttbytes::QoS::AtMostOnce,
+            MqttQoS::AtLeast => rumqttc::v5::mqttbytes::QoS::AtLeastOnce,
+            MqttQoS::Exactly => rumqttc::v5::mqttbytes::QoS::ExactlyOnce,
         }
     }
 
@@ -429,8 +567,7 @@ impl MqttInNode {
             };
 
             // Subscribe
-            let rumqttc_qos = self.mqtt_qos_to_rumqttc(qos);
-            if let Err(e) = client.subscribe(&topic, rumqttc_qos).await {
+            if let Err(e) = client.subscribe(&topic, qos).await {
                 log::error!("Failed to subscribe to '{topic}': {e}");
                 continue;
             }
@@ -472,6 +609,9 @@ impl MqttInNode {
                     let mut connection = self.connection.lock().await;
                     connection.connected = false;
                     connection.client = None;
+                    if let Some(task) = connection.event_task.take() {
+                        task.abort();
+                    }
                     drop(connection);
 
                     self.ensure_connection().await?;
@@ -482,6 +622,9 @@ impl MqttInNode {
                     if let Some(client) = connection.client.take() {
                         let _ = client.disconnect().await;
                         log::info!("MQTT In disconnected");
+                    }
+                    if let Some(task) = connection.event_task.take() {
+                        task.abort();
                     }
                     connection.connected = false;
                 }
@@ -661,10 +804,7 @@ impl FlowNodeBehavior for MqttInNode {
 
             let mut mqtt_msg = Msg::default();
             mqtt_msg.set("topic".to_string(), Variant::String(publish.topic.clone()));
-            mqtt_msg.set(
-                "qos".to_string(),
-                Variant::Number(serde_json::Number::from(self.rumqttc_qos_to_number(publish.qos))),
-            );
+            mqtt_msg.set("qos".to_string(), Variant::Number(serde_json::Number::from(publish.qos)));
             mqtt_msg.set("retain".to_string(), Variant::Bool(publish.retain));
             let datatype = if self.is_dynamic {
                 let subs = self.dynamic_subscriptions.read().await;
@@ -689,6 +829,9 @@ impl FlowNodeBehavior for MqttInNode {
         if let Some(client) = connection.client.take() {
             log::info!("Disconnecting MQTT In client on shutdown");
             let _ = client.disconnect().await;
+        }
+        if let Some(task) = connection.event_task.take() {
+            task.abort();
         }
         connection.connected = false;
 

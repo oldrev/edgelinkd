@@ -96,6 +96,7 @@ struct MqttOutNodeConfig {
 struct MqttConnection {
     client: Option<MqttClient>,
     connected: bool,
+    event_task: Option<tokio::task::JoinHandle<()>>,
 }
 
 #[derive(Clone)]
@@ -179,7 +180,7 @@ impl MqttOutNode {
                 options.set_credentials(username, settings.password.unwrap_or_default());
             }
             let (client, mut event_loop) = rumqttc::v5::AsyncClient::new(options, 10);
-            tokio::spawn(async move {
+            let event_task = tokio::spawn(async move {
                 loop {
                     if event_loop.poll().await.is_err() {
                         break;
@@ -188,6 +189,7 @@ impl MqttOutNode {
             });
             connection.client = Some(MqttClient::V5(client));
             connection.connected = true;
+            connection.event_task = Some(event_task);
             return Ok(());
         }
         let mut mqttoptions = rumqttc::MqttOptions::new(client_id, settings.host, settings.port);
@@ -244,7 +246,7 @@ impl MqttOutNode {
             Ok(Ok(())) => {
                 connection.client = Some(MqttClient::V4(client));
                 connection.connected = true;
-                tokio::spawn(async move {
+                let event_task = tokio::spawn(async move {
                     let mut eventloop = eventloop;
                     loop {
                         if let Err(error) = eventloop.poll().await {
@@ -253,6 +255,7 @@ impl MqttOutNode {
                         }
                     }
                 });
+                connection.event_task = Some(event_task);
                 Ok(())
             }
             Ok(Err(e)) => {
@@ -459,6 +462,9 @@ impl MqttOutNode {
                             if force {
                                 // Force reconnection
                                 let mut connection = self.connection.lock().await;
+                                if let Some(task) = connection.event_task.take() {
+                                    task.abort();
+                                }
                                 if let Some(client) = connection.client.take() {
                                     let _ = client.disconnect().await;
                                 }
@@ -478,6 +484,9 @@ impl MqttOutNode {
                 "disconnect" => {
                     // Handle disconnect action - similar to Node-RED handleDisconnectAction
                     let mut connection = self.connection.lock().await;
+                    if let Some(task) = connection.event_task.take() {
+                        task.abort();
+                    }
                     if let Some(client) = connection.client.take() {
                         let _ = client.disconnect().await;
                         log::info!("MQTT disconnected");
@@ -537,6 +546,9 @@ impl FlowNodeBehavior for MqttOutNode {
 
         // Cleanup connection on shutdown
         let mut connection = self.connection.lock().await;
+        if let Some(task) = connection.event_task.take() {
+            task.abort();
+        }
         if let Some(client) = connection.client.take() {
             log::info!("Disconnecting MQTT client on shutdown");
             let _ = client.disconnect().await;

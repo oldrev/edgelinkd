@@ -185,7 +185,6 @@ class TestSplitNode:
             assert m["payload"] == vals[i]
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason='Rust gap: an invalid split config aborts the whole flow load; upstream loads the node and emits nothing')
     @pytest.mark.it('should handle invalid spltType (not an array)')
     async def test_0014(self):
         node = {"type": "split", "splt": "1", "spltType": "bin"}
@@ -194,7 +193,6 @@ class TestSplitNode:
         assert msgs == []
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason='Rust gap: an invalid split config aborts the whole flow load; upstream loads the node and emits nothing')
     @pytest.mark.it('should handle invalid splt length')
     async def test_0015(self):
         node = {"type": "split", "splt": 0, "spltType": "len"}
@@ -203,7 +201,6 @@ class TestSplitNode:
         assert msgs == []
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason='Rust gap: an invalid split config aborts the whole flow load; upstream loads the node and emits nothing')
     @pytest.mark.it('should handle invalid array splt length')
     async def test_0016(self):
         node = {"type": "split", "arraySplt": 0, "arraySpltType": "len"}
@@ -507,7 +504,6 @@ class TestJoinNode:
         assert msgs[0]["payload"]["foo"] == "d"
         assert msgs[0]["payload"]["topic"] == "a"
 
-    @pytest.mark.skip(reason="join node accumulate mode is not implemented")
     @pytest.mark.asyncio
     @pytest.mark.it('should accumulate a merged object')
     async def test_0014(self):
@@ -524,9 +520,14 @@ class TestJoinNode:
         # Expects the 4th message that reaches n2 (c === 3) to have
         # msg.payload == {a:3, b:2, c:1} (the accumulation is never cleared between
         # groups because accumulate:true).
-        pass
+        node = {"type": "join", "mode": "custom", "build": "merged", "accumulate": True, "count": 3}
+        msgs = await run_single_node_with_msgs_ntimes(node, [
+            {"payload": {"a": 1}, "topic": "a"}, {"payload": {"b": 2}, "topic": "b"},
+            {"payload": {"c": 3}, "topic": "c"}, {"payload": {"a": 3}, "topic": "d"},
+            {"payload": {"b": 2}, "topic": "e"}, {"payload": {"c": 1}, "topic": "f"},
+        ], 2)
+        assert msgs[-1]["payload"] == {"a": 3, "b": 2, "c": 1}
 
-    @pytest.mark.skip(reason="join node accumulate mode is not implemented")
     @pytest.mark.asyncio
     @pytest.mark.it('should be able to reset an accumulation')
     async def test_0015(self):
@@ -548,9 +549,17 @@ class TestJoinNode:
         # n1.receive({payload:{i:3}, topic:"i"});                  -> output #4
         # Expects: message 2 payload {a:1,b:2,c:3,d:4}, message 3 payload {e:2,f:1},
         # message 4 payload {g:2,h:1,i:3} (the reset discards the earlier accumulation).
-        pass
+        node = {"type": "join", "mode": "custom", "build": "merged", "accumulate": True, "count": 3}
+        msgs = await run_single_node_with_msgs_ntimes(node, [
+            {"payload": {"a": 1}, "topic": "a"}, {"payload": {"b": 2}, "topic": "b"},
+            {"payload": {"c": 3}, "topic": "c"}, {"payload": {"d": 4}, "topic": "d", "complete": True},
+            {"payload": {"e": 2}, "topic": "e"}, {"payload": {"f": 1}, "topic": "f", "complete": True},
+            {"payload": {"g": 2}, "topic": "g"}, {"payload": {"h": 1}, "topic": "h"}, {"reset": True},
+            {"payload": {"g": 2}, "topic": "g"}, {"payload": {"h": 1}, "topic": "h"},
+            {"payload": {"i": 3}, "topic": "i"},
+        ], 4)
+        assert msgs[-1]["payload"] == {"g": 2, "h": 1, "i": 3}
 
-    @pytest.mark.skip(reason="join node accumulate mode is not implemented")
     @pytest.mark.asyncio
     @pytest.mark.it('should accumulate a key/value object')
     async def test_0016(self):
@@ -567,7 +576,12 @@ class TestJoinNode:
         # n1.receive({payload:4, foo:"d"});
         # Expects msg.payload == {a:1, b:2, c:3, d:4} in the accumulation that starts
         # after the reset.
-        pass
+        node = {"type": "join", "mode": "custom", "build": "object", "accumulate": True, "count": 4, "key": "foo"}
+        msgs = await run_single_node_with_msgs_ntimes(node, [
+            {"payload": 2, "foo": "b"}, {"payload": 3, "foo": "c"}, {"reset": True},
+            {"payload": 1, "foo": "a"}, {"payload": 2, "foo": "b"}, {"payload": 3, "foo": "c"}, {"payload": 4, "foo": "d"},
+        ], 1)
+        assert msgs[0]["payload"] == {"a": 1, "b": 2, "c": 3, "d": 4}
 
     @pytest.mark.skip(reason="join node timeout mode is not implemented")
     @pytest.mark.asyncio
@@ -817,7 +831,7 @@ class TestJoinNode:
         assert msgs[0]["payload"] == "abcd"
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason='Rust gap: the split node overwrites msg.parts instead of nesting it as msg.parts.parts, so chained split/join flows lose the outer group')
+    @pytest.mark.skip(reason='Rust gap: chained split-split-join-join flows lose the outer sequence metadata')
     @pytest.mark.it('should allow chained split-split-join-join sequences')
     async def test_0027(self):
         # Node-RED flow:
@@ -841,12 +855,6 @@ class TestJoinNode:
         msgs = await run_flow_with_msgs_ntimes(
             flows, [{"nid": red_id("s1"), "msg": {"payload": [[1, 2, 3], "a\nb\nc", [7, 8, 9]]}}], 1
         )
-        # RUST-GAP: upstream expects the round-tripped payload. EdgeLinkd's split node
-        # overwrites msg.parts instead of stacking the incoming parts under msg.parts.parts
-        # (Node-RED: `msg.parts = { parts: msg.parts }`), so the inner split loses the outer
-        # group information; the first join then strips msg.parts and the second join warns
-        # "Message missing msg.parts property - cannot join in 'auto' mode", emits nothing and
-        # this call times out.
         assert msgs[0]["payload"] == [[1, 2, 3], "a\nb\nc", [7, 8, 9]]
 
     @pytest.mark.asyncio

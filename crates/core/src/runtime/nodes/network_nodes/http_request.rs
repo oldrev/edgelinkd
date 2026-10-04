@@ -303,6 +303,9 @@ impl HttpRequestNode {
                     Variant::String(_) => {
                         headers.insert("Content-Type".to_string(), "text/plain; charset=utf-8".to_string());
                     }
+                    Variant::Number(_) | Variant::Bool(_) => {
+                        headers.insert("Content-Type".to_string(), "text/plain; charset=utf-8".to_string());
+                    }
                     _ => {}
                 }
             }

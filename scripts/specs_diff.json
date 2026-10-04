@@ -131,6 +131,11 @@
                 "mqtt node",
                 "nodes/network/test_mqtt_node.py",
                 "test/nodes/core/network/21-mqtt_spec.js"
+            ],
+            [
+                "http request",
+                "nodes/network/test_httprequest_node.py",
+                "test/nodes/core/network/21-httprequest_spec.js"
             ]
         ]
     },

@@ -185,7 +185,7 @@ port = 1888
 - ✅ Settings and configuration management
 - ✅ Import/Export flows functionality
 
-The heavy check mark ( :heavy_check_mark: ) below indicates that this feature has passed the integration test ported from Node-RED.
+The heavy check mark ( :heavy_check_mark: ) below indicates that the supported behavior has passed the ported Node-RED integration tests. A checked node can still have deliberately scoped gaps; the detailed covered and skipped cases are listed in [REDNODES-SPECS-DIFF.md](tests/REDNODES-SPECS-DIFF.md).
 
 ### Node-RED Features Roadmap:
 
@@ -257,7 +257,7 @@ Refer [REDNODES-SPECS-DIFF.md](tests/REDNODES-SPECS-DIFF.md) to view the details
         - [ ] MQTT Broker
         - [x] HTTP In
         - [x] HTTP Out
-        - [x] HTTP Request
+        - [x] HTTP Request (core methods, request/response headers and bodies, status codes, redirects, cookies, and response types; TLS/proxy/authentication and multipart upload remain scoped out)
         - [x] WebSocket Listener
         - [x] WebSocket Client
         - [x] WebSocket In
@@ -271,11 +271,11 @@ Refer [REDNODES-SPECS-DIFF.md](tests/REDNODES-SPECS-DIFF.md) to view the details
             - [x] Multicast
         - [x] TLS (WIP)
         - [x] HTTP Proxy (WIP)
-    - Sqeuence nodes:
-        - [x] Split
-        - [x] Join
-        - [x] Sort
-        - [x] Batch
+    - Sequence nodes:
+        - [x] Split (string, array, object, length and stream modes; binary bridge and chained sequence edge cases remain scoped out)
+        - [x] Join (string, array, object, manual/automatic modes, accumulation and reset; timeout, reduce, Buffer and full-message merge remain scoped out)
+        - [x] Sort (basic payload, property, numeric and sequence sorting; JSONata/context/object-key modes remain scoped out)
+        - [x] Batch (count, interval and concat modes, reset, overlap, buffer overflow, and deferred completion semantics)
     - Parse nodes:
         - [x] CSV
         - [x] HTML (CSS selection and `single`/`multi` output via the Rust `scraper` crate; core behavior covered by `tests/nodes/parsers/test_html_node.py`)

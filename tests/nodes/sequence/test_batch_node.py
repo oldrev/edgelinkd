@@ -36,6 +36,26 @@ def _assert_sequences(msgs, expected_groups):
     assert len(msgs) == position, f"Unexpected extra messages: {[m.get('payload') for m in msgs[position:]]}"
 
 
+async def _completion_messages(mode, inputs, expected, *, count=2, interval=2, max_pending=0):
+    tab = red_id(f"batch-complete-{mode}-tab")
+    batch = red_id(f"batch-complete-{mode}-node")
+    complete = red_id(f"batch-complete-{mode}-complete")
+    collector = red_id(f"batch-complete-{mode}-collector")
+    flows = [
+        {"id": tab, "type": "tab"},
+        {"id": batch, "z": tab, "type": "batch", "mode": mode, "count": count,
+         "interval": interval, "topics": [{"topic": "TA"}], "wires": [[]]},
+        {"id": complete, "z": tab, "type": "complete", "scope": [batch], "uncaught": False,
+         "wires": [[collector]]},
+        {"id": collector, "z": tab, "type": "test-once"},
+    ]
+    config = copy.deepcopy(TEST_EDGELINLKD_CONFIG)
+    if max_pending:
+        config["runtime"]["flow"] = {"node_message_buffer_max_length": max_pending}
+    return await edgelink.run_flows_once(expected, max(3.0, interval + 1), flows,
+                                         [(batch, msg) for msg in inputs], config)
+
+
 @pytest.mark.describe('BATCH node')
 class TestBatchNode:
     @pytest.mark.asyncio
@@ -503,56 +523,68 @@ class TestBatchNode:
                    "when the batch is emitted/dropped/reset, so Node-RED's deferred `done` "
                    "timing contract is not implemented")
 
-        @pytest.mark.skip(reason=_REASON)
         @pytest.mark.asyncio
         @pytest.mark.it('should call done() when message is sent (mode: count)')
         async def test_done_message_sent_count(self):
-            pass
+            msgs = await _completion_messages("count", [{"payload": 0}, {"payload": 1}], 2)
+            assert [msg["payload"] for msg in msgs] == [0, 1]
 
-        @pytest.mark.skip(reason=_REASON)
         @pytest.mark.asyncio
         @pytest.mark.it('should call done() when reset (mode: count)')
         async def test_done_reset_count(self):
-            pass
+            msgs = await _completion_messages("count", [{"payload": 0}, {"payload": 1, "reset": True}], 2)
+            assert [msg["payload"] for msg in msgs] == [0, 1]
 
-        @pytest.mark.skip(reason=_REASON)
         @pytest.mark.asyncio
         @pytest.mark.it('should call done() regardless of buffer overflow (mode: count)')
         async def test_done_overflow_count(self):
-            pass
+            msgs = await _completion_messages("count", [{"payload": 0}, {"payload": 1}, {"payload": 2}], 3,
+                                               count=10, max_pending=2)
+            assert sorted(msg["payload"] for msg in msgs) == [0, 1, 2]
 
-        @pytest.mark.skip(reason=_REASON)
         @pytest.mark.asyncio
         @pytest.mark.it('should call done() when message is sent (mode: interval)')
         async def test_done_message_sent_interval(self):
-            pass
+            msgs = await _completion_messages("interval", [{"payload": 0}, {"payload": 1}], 2)
+            assert sorted(msg["payload"] for msg in msgs) == [0, 1]
 
-        @pytest.mark.skip(reason=_REASON)
         @pytest.mark.asyncio
         @pytest.mark.it('should call done() when reset (mode: interval)')
         async def test_done_reset_interval(self):
-            pass
+            msgs = await _completion_messages("interval", [{"payload": 0}, {"payload": 1, "reset": True}], 2)
+            assert sorted(msg["payload"] for msg in msgs) == [0, 1]
 
-        @pytest.mark.skip(reason=_REASON)
         @pytest.mark.asyncio
         @pytest.mark.it('should call done() regardless of buffer overflow (mode: interval)')
         async def test_done_overflow_interval(self):
-            pass
+            msgs = await _completion_messages("interval", [{"payload": 0}, {"payload": 1}, {"payload": 2}], 3,
+                                               max_pending=2)
+            assert sorted(msg["payload"] for msg in msgs) == [0, 1, 2]
 
-        @pytest.mark.skip(reason=_REASON)
         @pytest.mark.asyncio
         @pytest.mark.it('should call done() when message is sent (mode: concat)')
         async def test_done_message_sent_concat(self):
-            pass
+            msgs = await _completion_messages("concat", [
+                {"topic": "TA", "payload": 0, "parts": {"id": "TA", "index": 0, "count": 2}},
+                {"topic": "TA", "payload": 1, "parts": {"id": "TA", "index": 1, "count": 2}},
+            ], 2)
+            assert [msg["payload"] for msg in msgs] == [0, 1]
 
-        @pytest.mark.skip(reason=_REASON)
         @pytest.mark.asyncio
         @pytest.mark.it('should call done() when reset (mode: concat)')
         async def test_done_reset_concat(self):
-            pass
+            msgs = await _completion_messages("concat", [
+                {"topic": "TA", "payload": 0, "parts": {"id": "TA", "index": 0, "count": 2}},
+                {"payload": 1, "reset": True},
+            ], 2)
+            assert sorted(msg["payload"] for msg in msgs) == [0, 1]
 
-        @pytest.mark.skip(reason=_REASON)
         @pytest.mark.asyncio
         @pytest.mark.it('should call done() regardless of buffer overflow (mode: concat)')
         async def test_done_overflow_concat(self):
-            pass
+            msgs = await _completion_messages("concat", [
+                {"topic": "TA", "payload": 0, "parts": {"id": "TA", "index": 0, "count": 3}},
+                {"topic": "TA", "payload": 1, "parts": {"id": "TA", "index": 1, "count": 3}},
+                {"topic": "TA", "payload": 2, "parts": {"id": "TA", "index": 2, "count": 3}},
+            ], 3, max_pending=2)
+            assert sorted(msg["payload"] for msg in msgs) == [0, 1, 2]
