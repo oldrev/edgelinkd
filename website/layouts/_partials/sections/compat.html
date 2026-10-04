@@ -1,0 +1,46 @@
+{{- $d := . -}}
+{{- $nodes := site.Data.nodes -}}
+<section class="section section--soft" id="compatibility">
+  <div class="container">
+    {{ partial "section-head.html" $d }}
+    <div class="compat">
+      <div class="compat-side">
+        <ul class="principles">
+          {{- range $d.principles }}
+          <li class="principle">
+            <h3 class="principle-title">{{ .title }}</h3>
+            <p class="principle-body">{{ .body | markdownify }}</p>
+          </li>
+          {{- end }}
+        </ul>
+        <h3 class="compat-subtitle">{{ $d.runtime_title }}</h3>
+        <ul class="runtime-list">
+          {{- range $d.runtime }}
+          <li class="status-row"><span>{{ .label | markdownify }}</span>{{ partial "status.html" .status }}</li>
+          {{- end }}
+        </ul>
+      </div>
+      <div class="matrix">
+        <div class="matrix-head">
+          <h3 class="matrix-title">{{ $d.matrix_title }}</h3>
+          <div class="legend">{{ partial "status.html" "verified" }}{{ partial "status.html" "progress" }}</div>
+        </div>
+        {{- range $nodes.groups }}
+        {{- $verified := where .nodes "status" "verified" }}
+        <div class="matrix-group">
+          <div class="matrix-group-name">{{ T (printf "group_%s" .id) }}<span class="matrix-group-count">{{ len $verified }}/{{ len .nodes }}</span></div>
+          <ul class="node-list">
+            {{- range .nodes }}
+            <li class="node-pill" data-status="{{ .status }}">{{ .name }}</li>
+            {{- end }}
+          </ul>
+        </div>
+        {{- end }}
+        <div class="matrix-foot">
+          <span>{{ $d.matrix_note }}</span>
+          <a href="{{ $nodes.report }}" target="_blank" rel="noopener">{{ $d.report_label }}{{ partial "icon.html" "external" }}</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>

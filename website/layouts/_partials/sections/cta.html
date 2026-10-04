@@ -1,0 +1,22 @@
+{{- $d := . -}}
+<section class="cta" id="community">
+  <div class="container cta-inner">
+    <div class="cta-copy">
+      <h2 class="cta-title">{{ $d.title | markdownify }}</h2>
+      <p class="cta-body">{{ $d.body | markdownify }}</p>
+      <div class="cta-actions">
+        {{- with $d.primary }}
+        <a class="btn btn--primary btn--lg" href="{{ partial "func/href.html" .href }}">{{ .label }}{{ partial "icon.html" "arrow-right" }}</a>
+        {{- end }}
+        {{- with $d.secondary }}
+        <a class="btn btn--secondary btn--lg" href="{{ partial "func/href.html" .href }}" target="_blank" rel="noopener">{{ partial "icon.html" "github" }}{{ .label }}</a>
+        {{- end }}
+      </div>
+    </div>
+    <ul class="community">
+      {{- range $d.links }}
+      <li><a href="{{ .href }}" target="_blank" rel="noopener">{{ partial "icon.html" .icon }}<span>{{ .label }}</span>{{ partial "icon.html" "arrow-up-right" }}</a></li>
+      {{- end }}
+    </ul>
+  </div>
+</section>

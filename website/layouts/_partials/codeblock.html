@@ -1,0 +1,5 @@
+{{- /* Context: shell snippet (string). Lines starting with "#" are comments and are not copied. */ -}}
+<div class="codeblock">
+  <pre><code>{{ range split (strings.TrimRight "\n" .) "\n" }}<span class="line{{ if hasPrefix . "#" }} is-comment{{ end }}">{{ . }}</span>{{ end }}</code></pre>
+  <button type="button" class="copy-btn" data-copy aria-label="{{ T "copy" }}">{{ partial "icon.html" "copy" }}{{ partial "icon.html" "check" }}</button>
+</div>

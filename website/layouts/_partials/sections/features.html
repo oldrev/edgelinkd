@@ -1,0 +1,23 @@
+{{- $d := . -}}
+<section class="section section--soft" id="features">
+  <div class="container">
+    {{ partial "section-head.html" $d }}
+    <div class="bento">
+      {{- range $d.items }}
+      <article class="card{{ if .wide }} card--wide{{ end }}">
+        <div class="card-main">
+          <span class="card-icon">{{ partial "icon.html" .icon }}</span>
+          <h3 class="card-title">{{ .title }}</h3>
+          <p class="card-body">{{ .body | markdownify }}</p>
+          {{- with .tags }}
+          <div class="card-tags">{{ range . }}<span class="chip">{{ . }}</span>{{ end }}</div>
+          {{- end }}
+        </div>
+        {{- with .snippet }}
+        <pre class="card-snippet"><code>{{ strings.TrimRight "\n" . }}</code></pre>
+        {{- end }}
+      </article>
+      {{- end }}
+    </div>
+  </div>
+</section>

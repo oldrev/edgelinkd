@@ -536,7 +536,7 @@ mod debug_web {
     use crate::web::StaticWebHandler;
     use crate::web::web_state_trait::WebStateCore;
     use axum::Extension;
-    use axum::extract::Path;
+    use axum::extract::{Json, Path};
     use axum::{http::StatusCode, response::IntoResponse};
     use std::sync::Arc;
 
@@ -571,9 +571,9 @@ mod debug_web {
                     }
                     "disable" => {
                         debug_node.is_active.store(false, Ordering::Relaxed);
-                        (StatusCode::OK, "OK").into_response()
+                        (StatusCode::CREATED, "OK").into_response()
                     }
-                    _ => StatusCode::BAD_REQUEST.into_response(),
+                    _ => StatusCode::NOT_FOUND.into_response(),
                 }
             } else {
                 StatusCode::NOT_FOUND.into_response()
@@ -587,10 +587,61 @@ mod debug_web {
         axum::routing::post(debug_action_handler)
     }
 
+    #[derive(serde::Deserialize)]
+    pub struct BulkDebugRequest {
+        nodes: Vec<String>,
+    }
+
+    /// Handle Node-RED's bulk debug state endpoint (`POST /debug/{action}`).
+    pub async fn debug_bulk_action_handler(
+        Path(action): Path<String>,
+        Extension(state): Extension<Arc<dyn WebStateCore + Send + Sync>>,
+        Json(request): Json<BulkDebugRequest>,
+    ) -> axum::response::Response {
+        if action != "enable" && action != "disable" {
+            return StatusCode::NOT_FOUND.into_response();
+        }
+        if request.nodes.is_empty() {
+            return StatusCode::BAD_REQUEST.into_response();
+        }
+        let engine_guard = state.engine().read().await;
+        let engine = match engine_guard.as_ref() {
+            Some(engine) => engine.clone(),
+            None => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        };
+        for id_str in request.nodes {
+            let Some(id) = parse_red_id_str(&id_str) else {
+                return StatusCode::NOT_FOUND.into_response();
+            };
+            let Some(node) = engine.find_flow_node_by_id(&id) else {
+                return StatusCode::NOT_FOUND.into_response();
+            };
+            if node.type_str() != "debug" {
+                return StatusCode::NOT_FOUND.into_response();
+            }
+            let Some(debug_node) = node.as_any().downcast_ref::<DebugNode>() else {
+                return StatusCode::NOT_FOUND.into_response();
+            };
+            debug_node.is_active.store(action == "enable", Ordering::Relaxed);
+        }
+        StatusCode::CREATED.into_response()
+    }
+
+    fn debug_bulk_action_router() -> axum::routing::MethodRouter {
+        axum::routing::post(debug_bulk_action_handler)
+    }
+
     inventory::submit! {
         StaticWebHandler {
             type_: "/debug/{id_str}/{action}",
             router: debug_action_router,
+        }
+    }
+
+    inventory::submit! {
+        StaticWebHandler {
+            type_: "/debug/{action}",
+            router: debug_bulk_action_router,
         }
     }
 }

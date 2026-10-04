@@ -1,0 +1,68 @@
+# =============================================================================
+# EdgeLinkd website — Hugo configuration
+#
+# Requires Hugo v0.158.0 or later. The standard edition is enough; no
+# extended (SCSS/WebP) features are used.
+#
+#   cd website && hugo server        # local preview
+#   cd website && hugo --minify      # production build → website/public
+# =============================================================================
+
+baseURL: "https://oldrev.github.io/edgelinkd/"
+title: "EdgeLinkd"
+
+# Both languages live in sub-directories (/en/, /zh/). The root /index.html is
+# static/index.html: it picks a language from the visitor's saved preference
+# or browser language, so Hugo's built-in root redirect is switched off.
+defaultContentLanguage: "en"
+defaultContentLanguageInSubdir: true
+disableDefaultSiteRedirect: true
+
+disableKinds: ["taxonomy", "term", "rss"]
+enableRobotsTXT: true
+
+module:
+  hugoVersion:
+    min: "0.158.0"
+
+params:
+  repo: "https://github.com/oldrev/edgelinkd"
+  version: "0.1.99"
+
+languages:
+  en:
+    contentDir: "content/en"
+    label: "English"
+    locale: "en-US"
+    weight: 1
+    title: "EdgeLinkd"
+    params:
+      tagline: "Node-RED compatible flow runtime in Rust"
+      description: "EdgeLinkd is a Node-RED compatible flow runtime written in Rust, with the Node-RED editor built in. Run your existing flows.json as one native binary on resource-constrained edge devices."
+  zh:
+    contentDir: "content/zh"
+    label: "中文"
+    locale: "zh-CN"
+    weight: 2
+    title: "EdgeLinkd"
+    params:
+      tagline: "Rust 实现的 Node-RED 兼容流程运行时"
+      description: "EdgeLinkd 是用 Rust 编写、兼容 Node-RED 的流程运行时，内置 Node-RED 编辑器。以单个原生二进制在资源受限的边缘设备上运行你现有的 flows.json。"
+
+markup:
+  goldmark:
+    extensions:
+      typographer:
+        disable: true
+    renderer:
+      unsafe: false
+  highlight:
+    # Code blocks are styled by assets/css/main.css (monochrome terminal look).
+    codeFences: false
+  tableOfContents:
+    startLevel: 2
+    endLevel: 3
+    ordered: false
+
+sitemap:
+  changeFreq: "weekly"

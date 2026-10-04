@@ -1,0 +1,12 @@
+{{ define "main" }}
+{{- /* All home page content comes from data/<lang>/home.yaml. */ -}}
+{{- $h := (index site.Data site.Language.Name).home -}}
+{{ partial "sections/hero.html" $h.hero }}
+{{ partial "sections/why.html" $h.why }}
+{{ partial "sections/features.html" $h.features }}
+{{ partial "sections/architecture.html" $h.architecture }}
+{{ partial "sections/compat.html" $h.compat }}
+{{ partial "sections/quickstart.html" $h.quickstart }}
+{{ partial "sections/usecases.html" $h.usecases }}
+{{ partial "sections/cta.html" $h.cta }}
+{{ end }}

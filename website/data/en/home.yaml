@@ -1,0 +1,296 @@
+# =============================================================================
+# Home page content — English
+# Rendered by layouts/home.html; one partial per section in
+# layouts/_partials/sections/. Most text fields accept inline Markdown:
+# **bold**, `code`, [link](url).
+# Links: "#anchor" = home section, "docs/..." = page in this language,
+# "https://..." = external.
+# =============================================================================
+
+hero:
+  badge:
+    tag: "Alpha"
+    text: "Nightly builds on GitHub Releases"
+    href: "https://github.com/oldrev/edgelinkd/releases"
+  title: "The Node-RED runtime, **reforged in Rust** for the edge."
+  lead: "EdgeLinkd runs your existing `flows.json` as a single native binary — with the full Node-RED editor built in, runtime nodes implemented in Rust, and roughly a tenth of Node-RED's memory footprint."
+  primary:
+    label: "Get started"
+    href: "docs/getting-started/"
+  secondary:
+    label: "View on GitHub"
+    href: "https://github.com/oldrev/edgelinkd"
+  meta:
+    - "Apache-2.0"
+    - "Rust 1.88+"
+    - "Linux · Windows"
+    - "x86_64 · AArch64 · ARMv7"
+  canvas:
+    aria: "A Node-RED flow running on EdgeLinkd: MQTT and inject sources feed json and function nodes; a switch routes alerts to MQTT and to debug."
+    tabs: ["Sensors", "Alarms"]
+    deploy: "Deploy"
+    status: "running"
+    detail: "7 nodes · 7 tokio tasks"
+  stats:
+    - value: "≈10%"
+      label: "of Node-RED's memory footprint"
+    - value: "1"
+      label: "self-contained binary, editor included"
+    - value: "6"
+      label: "supported target triples"
+    - value: "v4.0.9"
+      label: "Node-RED release used as the behavioural reference"
+
+why:
+  num: "01"
+  label: "Why EdgeLinkd"
+  title: "Keep the flows. Lose the weight."
+  lead: "Node-RED made flow-based programming mainstream. EdgeLinkd keeps its editor, its flow format and its message semantics — and replaces the Node.js runtime underneath with native Rust."
+  columns: ["", "Node-RED", "EdgeLinkd"]
+  rows:
+    - aspect: "Execution"
+      a: "Node.js and V8 — JIT-compiled, garbage-collected"
+      b: "Native Rust on Tokio — no JIT, no garbage collector"
+    - aspect: "Memory"
+      a: "Baseline"
+      b: "**≈ 1/10** of Node-RED"
+    - aspect: "JavaScript"
+      a: "Every node is JavaScript"
+      b: "Only inside `function` nodes, in an embedded QuickJS sandbox"
+    - aspect: "Flow format"
+      a: "`flows.json`"
+      b: "The same `flows.json` — no conversion step"
+    - aspect: "Editor"
+      a: "Node-RED editor"
+      b: "The same editor, served by the binary itself"
+    - aspect: "Deployment"
+      a: "Install Node.js, then npm packages"
+      b: "Copy one binary; add `--headless` for production"
+    - aspect: "Extending"
+      a: "npm packages"
+      b: "Rust crates, statically linked through `#[flow_node]`"
+  note: "**The honest trade-off:** third-party npm nodes do not run on EdgeLinkd, and features that do not fit an embedded budget are rejected at deploy time instead of being silently ignored."
+
+features:
+  num: "02"
+  label: "Capabilities"
+  title: "A complete flow runtime in one native process."
+  lead: "Design, deploy and run in the same binary. Everything except the code you write in `function` nodes is compiled Rust."
+  items:
+    - icon: "file-json"
+      title: "Drop-in flows.json"
+      body: "Author in the Node-RED editor and deploy the same JSON. Flows, subflows, link nodes, environment variables and JSONata expressions follow Node-RED semantics."
+      tags: ["flows", "subflows", "env", "JSONata"]
+      wide: true
+      snippet: |
+        [
+          { "id": "f1", "type": "tab", "label": "Sensors" },
+          { "id": "n1", "type": "mqtt in", "z": "f1",
+            "topic": "sensors/+", "wires": [["n2"]] },
+          { "id": "n2", "type": "json", "z": "f1",
+            "wires": [["n3"]] }
+        ]
+    - icon: "layout"
+      title: "Editor included"
+      body: "The complete Node-RED editor ships inside the binary: palette, deploy, debug sidebar, import and export. Switch it off with `--headless`."
+    - icon: "code"
+      title: "JavaScript only where you write it"
+      body: "Every node is native Rust. `function` nodes run in an embedded QuickJS sandbox with `node`, `context`, `flow`, `global`, `env` and `RED.util`."
+    - icon: "cpu"
+      title: "One Tokio task per node"
+      body: "Each node owns a bounded inbox and handles one message at a time, in order — Node-RED semantics, with back-pressure along every wire."
+    - icon: "shield-check"
+      title: "Verified against Node-RED's own specs"
+      body: "Upstream mocha tests are ported to pytest and run against the Rust engine through a PyO3 module, with test titles matching upstream character for character."
+    - icon: "package"
+      title: "Sized for embedded targets"
+      body: "Release builds optimise for size with LTO and stripped symbols, and node families sit behind Cargo features — so a minimal image compiles only what it uses."
+      tags: ["x86_64", "aarch64", "armv7"]
+      wide: true
+      snippet: |
+        [profile.release]
+        opt-level = "z"     # optimise for size
+        lto = true
+        codegen-units = 1
+        strip = true
+
+        [features]
+        default = ["core", "js", "jsonata", "nodes_network",
+                   "nodes_storage", "nodes_parser"]
+
+architecture:
+  num: "03"
+  label: "Architecture"
+  title: "One process, three crates, a task per node."
+  lead: "The `edgelinkd` binary hosts the runtime and the editor side by side. On deploy, flows become a graph of Tokio tasks joined by bounded channels; all I/O happens at the edges of that graph."
+  caption: "Process view of edgelinkd. Solid arrows carry flows and messages at run time; the dashed harness drives the same engine in CI."
+  authoring:
+    title: "Design time"
+    link: "Admin API · WebSocket"
+    items:
+      - { name: "Node-RED editor", meta: "browser", desc: "Served by edgelinkd; deploys straight to the engine" }
+      - { name: "flows.json", meta: "file", desc: "Unmodified Node-RED flow format" }
+      - { name: "edgelinkd.toml", meta: "config", desc: "Merged with CLI flags at start-up" }
+  core:
+    name: "edgelinkd"
+    tag: "single native process"
+    host:
+      name: "Application host"
+      path: "src/"
+      chips: ["run", "list", "--headless", "config", "log4rs"]
+    web:
+      name: "edgelink-web"
+      path: "crates/web"
+      chips: ["Admin HTTP API", "Editor assets", "Debug comms", "axum"]
+    runtime:
+      name: "edgelink-core"
+      path: "crates/core"
+      modules:
+        - { name: "Engine", desc: "load · deploy · redeploy · stop" }
+        - { name: "Flows", desc: "flows · subflows · groups · links" }
+        - { name: "Message model", desc: "Msg · Variant · MsgHandle" }
+        - { name: "Context", desc: "memory & local-file stores" }
+        - { name: "JSONata", desc: "pure-Rust jsonata-core" }
+        - { name: "JS bridge", desc: "QuickJS · function node only" }
+      lane:
+        nodes: ["inject", "function", "switch", "mqtt out"]
+        caption: "1 node = 1 Tokio task · bounded mpsc inbox · in-order delivery"
+    nodes:
+      name: "Node library"
+      path: "runtime/nodes · node-plugins/"
+      chips: ["common", "function", "network", "sequence", "parser", "storage"]
+      note: "Self-registered with `#[flow_node]` and `inventory` — there is no central node list."
+    foundation: ["Tokio", "Linux", "Windows", "x86_64", "AArch64", "ARMv7"]
+  io:
+    title: "Edge I/O"
+    link: "Network · Files · Processes"
+    items:
+      - { name: "MQTT", meta: "rumqttc", desc: "Subscribe and publish to brokers" }
+      - { name: "HTTP", meta: "axum · reqwest", desc: "Endpoints in, requests out" }
+      - { name: "WebSocket", meta: "tungstenite", desc: "Listeners and clients" }
+      - { name: "TCP / UDP", meta: "tokio", desc: "Raw sockets, unicast & multicast" }
+      - { name: "Files", meta: "fs", desc: "file · file in · watch" }
+      - { name: "Processes", meta: "exec", desc: "Run and signal commands" }
+  harness:
+    name: "Spec harness"
+    path: "tests/ · crates/pymod"
+    desc: "Node-RED's mocha specs, ported to pytest, drive the real engine through the `edgelink_pymod` PyO3 extension on every CI run."
+    chips: ["pytest", "PyO3", "Node-RED v4.0.9 reference"]
+  notes:
+    - title: "Deploy builds a task graph"
+      body: "The engine parses `flows.json`, resolves every node type against the registry and spawns one Tokio task per node, wired through per-port senders."
+    - title: "Bounded wires, real back-pressure"
+      body: "Every inbox is a bounded channel. A slow consumer slows its producers instead of growing an unbounded queue — memory stays predictable on small devices."
+    - title: "Ordered, shared messages"
+      body: "Messages travel as shared `Arc<RwLock<Msg>>` handles and each node processes them one at a time, preserving Node-RED's ordering guarantees."
+    - title: "Native first, scripted last"
+      body: "JSONata is evaluated in pure Rust; only `function` nodes enter QuickJS. Everything else on the hot path is compiled code."
+
+compat:
+  num: "04"
+  label: "Compatibility"
+  title: "Compatible where supported. Explicit everywhere else."
+  lead: "EdgeLinkd is a Node-RED compatible runtime, not a clone. Whatever it ships must behave exactly like Node-RED v4.0.9; whatever does not fit an embedded budget is declined — loudly."
+  principles:
+    - title: "Same behaviour, or no behaviour"
+      body: "For every supported node and option, message semantics, error and status behaviour and the editor contract match upstream."
+    - title: "Never fake support"
+      body: "No silent no-ops, no plausible stubs. Unsupported configuration fails at deploy time or raises `NotSupported`."
+    - title: "Audited, not assumed"
+      body: "A generated report diffs the ported tests against upstream `describe()` and `it()` titles, node by node."
+  runtime_title: "Runtime features"
+  runtime:
+    - { label: "Flows", status: "verified" }
+    - { label: "Subflows", status: "verified" }
+    - { label: "Environment variables", status: "verified" }
+    - { label: "`RED.util` in the function sandbox", status: "verified" }
+    - { label: "JSONata via `jsonata-core`", status: "progress" }
+    - { label: "Context: memory & local file system", status: "progress" }
+    - { label: "Groups", status: "progress" }
+    - { label: "Plug-in subsystem (static)", status: "progress" }
+  matrix_title: "Core node status"
+  matrix_note: "Mirrors the project README."
+  report_label: "Full spec coverage report"
+
+quickstart:
+  num: "05"
+  label: "Quick start"
+  title: "From clone to running flows in three commands."
+  lead: "EdgeLinkd builds with stable Rust. Prebuilt nightly packages are also published on [GitHub Releases](https://github.com/oldrev/edgelinkd/releases)."
+  steps:
+    - title: "Clone with submodules"
+      body: "The pinned Node-RED checkout provides the editor assets and the behavioural reference."
+      code: |
+        git clone --recursive https://github.com/oldrev/edgelinkd.git
+        cd edgelinkd
+    - title: "Build a release binary"
+      body: "Requires Rust 1.88 or later. On Windows, keep Git's `patch.exe` on `PATH` and install the MSVC toolchain."
+      code: |
+        cargo build --release
+    - title: "Run with the editor"
+      body: "Starts the engine and serves the Node-RED editor at `http://127.0.0.1:1888`."
+      code: |
+        ./target/release/edgelinkd run
+    - title: "Go headless in production"
+      body: "Same flows, no web server. To reach the editor from another machine instead, pass `--bind 0.0.0.0:1888`."
+      code: |
+        ./target/release/edgelinkd run ./flows.json --headless
+  cli:
+    title: "edgelinkd --help"
+    usage: "edgelinkd [OPTIONS] [COMMAND]"
+    groups:
+      - name: "Commands"
+        rows:
+          - ["run [FLOWS_PATH]", "Run the flow engine"]
+          - ["list", "List every node type in this build"]
+      - name: "run options"
+        rows:
+          - ["--headless", "Do not start the web server"]
+          - ["--bind <ADDR>", "Web UI address · 127.0.0.1:1888"]
+      - name: "Global options"
+        rows:
+          - ["-u, --user-dir <DIR>", "Use a specific user directory"]
+          - ["--home <DIR>", "Home directory · ~/.edgelink"]
+          - ["--env <ENV>", "dev | prod · default dev"]
+          - ["-l, --log-path <FILE>", "Log configuration file"]
+          - ["-v, --verbose <N>", "0 = quiet · default 2"]
+
+usecases:
+  num: "06"
+  label: "Use cases"
+  title: "Where EdgeLinkd fits."
+  lead: "Anywhere Node-RED flows make sense, but a Node.js runtime does not."
+  items:
+    - icon: "radio"
+      title: "IoT edge gateways"
+      body: "Aggregate and filter sensor traffic — MQTT, HTTP, TCP and UDP — right next to the devices, with minimal RAM."
+    - icon: "factory"
+      title: "Industrial automation"
+      body: "Run control and data-acquisition flows on embedded controllers, with the web editor at hand for maintenance."
+    - icon: "home"
+      title: "Home automation"
+      body: "Keep smart-home logic on a Raspberry Pi-class board instead of a full Node.js stack."
+    - icon: "cloud"
+      title: "Cloud-to-edge migration"
+      body: "Move existing Node-RED flows from servers onto devices without rewriting them."
+    - icon: "layers"
+      title: "Lean containers"
+      body: "Ship one binary in a small image, with or without the web UI."
+    - icon: "flask"
+      title: "Prototype to production"
+      body: "Iterate in the built-in editor during development, then deploy the same flows headless in the field."
+
+cta:
+  title: "Bring your flows **to the edge.**"
+  body: "EdgeLinkd is open source under Apache-2.0 and developed in the open. Try it, report what breaks, or port the next node."
+  primary:
+    label: "Get started"
+    href: "docs/getting-started/"
+  secondary:
+    label: "Star on GitHub"
+    href: "https://github.com/oldrev/edgelinkd"
+  links:
+    - { icon: "discord", label: "Discord", href: "https://discord.gg/XJstgANe26" }
+    - { icon: "issue", label: "Issues", href: "https://github.com/oldrev/edgelinkd/issues" }
+    - { icon: "git-pull", label: "Contributing", href: "https://github.com/oldrev/edgelinkd/blob/master/CONTRIBUTING.md" }
+    - { icon: "heart", label: "Sponsor", href: "https://ko-fi.com/O5O2U4W4E" }

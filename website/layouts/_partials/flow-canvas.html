@@ -1,0 +1,46 @@
+{{- /* Context: hero.canvas (localized captions). Geometry: data/canvas.yaml */ -}}
+{{- $d := . -}}
+{{- $c := site.Data.canvas -}}
+{{- $nw := $c.node.w -}}
+{{- $nh := $c.node.h -}}
+<figure class="flow-canvas">
+  <div class="flow-bar">
+    <div class="flow-tabs">
+      {{- range $i, $tab := $d.tabs }}
+      <span class="flow-tab{{ if eq $i 0 }} is-active{{ end }}">{{ $tab }}</span>
+      {{- end }}
+    </div>
+    <span class="flow-deploy">{{ $d.deploy }}</span>
+  </div>
+  <div class="flow-stage">
+    <svg class="flow-svg" viewBox="0 0 {{ $c.view.w }} {{ $c.view.h }}" role="img" aria-label="{{ $d.aria }}">
+      {{- range $c.wires }}
+      <path class="wire" d="{{ . }}"/>
+      {{- end }}
+      {{- range $i, $w := $c.wires }}
+      <path class="pulse pulse-{{ $i }}" d="{{ $w }}"/>
+      {{- end }}
+      {{- range $c.nodes }}
+      <g class="fnode{{ if .js }} is-js{{ end }}" transform="translate({{ index .pos 0 }} {{ index .pos 1 }})">
+        <rect class="fnode-body" width="{{ $nw }}" height="{{ $nh }}" rx="6"/>
+        <rect class="fnode-strip" x="7" y="9" width="3" height="{{ sub $nh 18 }}" rx="1.5"/>
+        <text class="fnode-type" x="18" y="16">{{ .type }}</text>
+        <text class="fnode-label" x="18" y="30">{{ .label }}</text>
+        {{- if .input }}
+        <rect class="fnode-port" x="-5" y="{{ sub (div $nh 2) 5 }}" width="10" height="10" rx="2.5"/>
+        {{- end }}
+        {{- range .outputs }}
+        <rect class="fnode-port" x="{{ sub $nw 5 }}" y="{{ sub . 5 }}" width="10" height="10" rx="2.5"/>
+        {{- end }}
+        {{- with .status }}
+        <g class="fnode-status" transform="translate(2 {{ add $nh 15 }})"><rect y="-7" width="7" height="7" rx="1.5"/><text x="12">{{ . }}</text></g>
+        {{- end }}
+      </g>
+      {{- end }}
+    </svg>
+  </div>
+  <figcaption class="flow-status">
+    <span class="flow-live"><i></i>{{ $d.status }}</span>
+    <span>{{ $d.detail }}</span>
+  </figcaption>
+</figure>

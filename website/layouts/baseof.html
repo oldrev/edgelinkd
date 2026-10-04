@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="{{ site.Language.Locale }}" data-theme-pref="system">
+<head>
+  {{ partial "head.html" . }}
+</head>
+<body class="{{ if .IsHome }}is-home{{ else }}is-page{{ end }}">
+  <a class="skip-link" href="#main">{{ T "skip_to_content" }}</a>
+  {{ partial "header.html" . }}
+  <main id="main">
+    {{ block "main" . }}{{ end }}
+  </main>
+  {{ partial "footer.html" . }}
+  <template id="tpl-copy-btn"><button type="button" class="copy-btn" data-copy aria-label="{{ T "copy" }}">{{ partial "icon.html" "copy" }}{{ partial "icon.html" "check" }}</button></template>
+  {{ with resources.Get "js/main.js" }}
+    {{ $js := . | minify | fingerprint }}
+    <script src="{{ $js.RelPermalink }}" defer></script>
+  {{ end }}
+</body>
+</html>

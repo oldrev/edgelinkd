@@ -1,0 +1,42 @@
+{{- $d := . -}}
+<section class="hero" id="top">
+  <div class="container">
+    <div class="hero-grid">
+      <div class="hero-copy">
+        {{- with $d.badge }}
+        <a class="hero-badge" href="{{ .href }}" target="_blank" rel="noopener">
+          <span class="hero-badge-tag">{{ .tag }}</span>
+          <span class="hero-badge-text">{{ .text }}</span>
+          {{ partial "icon.html" "arrow-right" }}
+        </a>
+        {{- end }}
+        <h1 class="hero-title">{{ $d.title | markdownify }}</h1>
+        <p class="hero-lead">{{ $d.lead | markdownify }}</p>
+        <div class="hero-actions">
+          {{- with $d.primary }}
+          <a class="btn btn--primary btn--lg" href="{{ partial "func/href.html" .href }}">{{ .label }}{{ partial "icon.html" "arrow-right" }}</a>
+          {{- end }}
+          {{- with $d.secondary }}
+          <a class="btn btn--secondary btn--lg" href="{{ partial "func/href.html" .href }}" target="_blank" rel="noopener">{{ partial "icon.html" "github" }}{{ .label }}</a>
+          {{- end }}
+        </div>
+        <ul class="hero-meta">
+          {{- range $d.meta }}
+          <li>{{ . }}</li>
+          {{- end }}
+        </ul>
+      </div>
+      <div class="hero-visual">
+        {{ partial "flow-canvas.html" $d.canvas }}
+      </div>
+    </div>
+    <div class="stats">
+      {{- range $d.stats }}
+      <div class="stat">
+        <div class="stat-value">{{ .value }}</div>
+        <div class="stat-label">{{ .label }}</div>
+      </div>
+      {{- end }}
+    </div>
+  </div>
+</section>

@@ -1,0 +1,92 @@
+{{- $d := . -}}
+{{- $c := $d.core -}}
+<section class="section" id="architecture">
+  <div class="container">
+    {{ partial "section-head.html" $d }}
+    <figure class="arch-figure">
+      <div class="arch">
+        {{- /* left: design time */}}
+        <div class="arch-col arch-col--in">
+          <div class="arch-col-title">{{ $d.authoring.title }}</div>
+          {{- range $d.authoring.items }}
+          {{ partial "arch-item.html" . }}
+          {{- end }}
+          <div class="arch-col-foot">{{ partial "icon.html" "arrows" }}<span>{{ $d.authoring.link }}</span></div>
+        </div>
+        <div class="arch-link" aria-hidden="true"><span class="arch-link-line"></span></div>
+
+        {{- /* centre: the edgelinkd process */}}
+        <div class="arch-core">
+          <div class="arch-core-tag">{{ $c.name }}<span>{{ $c.tag }}</span></div>
+          {{ partial "arch-layer.html" $c.host }}
+          {{ partial "arch-layer.html" $c.web }}
+          {{- with $c.runtime }}
+          <div class="arch-layer arch-layer--runtime">
+            <div class="arch-layer-head"><span class="arch-layer-name">{{ .name }}</span><code class="arch-layer-path">{{ .path }}</code></div>
+            <div class="arch-modules">
+              {{- range .modules }}
+              <div class="arch-module">
+                <div class="arch-module-name">{{ .name }}</div>
+                <div class="arch-module-desc">{{ .desc }}</div>
+              </div>
+              {{- end }}
+            </div>
+            {{- with .lane }}
+            <div class="arch-lane">
+              <div class="lane-track">
+                {{- range $i, $n := .nodes }}
+                {{- if $i }}
+                <span class="lane-queue" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+                {{- end }}
+                <span class="lane-node">{{ $n }}</span>
+                {{- end }}
+              </div>
+              <div class="arch-lane-caption">{{ .caption }}</div>
+            </div>
+            {{- end }}
+          </div>
+          {{- end }}
+          {{ partial "arch-layer.html" $c.nodes }}
+          <div class="arch-foundation">
+            {{- range $c.foundation }}<span class="chip chip--ghost">{{ . }}</span>{{ end -}}
+          </div>
+        </div>
+
+        {{- /* right: edge I/O */}}
+        <div class="arch-link" aria-hidden="true"><span class="arch-link-line"></span></div>
+        <div class="arch-col arch-col--out">
+          <div class="arch-col-title">{{ $d.io.title }}</div>
+          {{- range $d.io.items }}
+          {{ partial "arch-item.html" . }}
+          {{- end }}
+          <div class="arch-col-foot">{{ partial "icon.html" "arrows" }}<span>{{ $d.io.link }}</span></div>
+        </div>
+
+        {{- /* below the core: CI spec harness */}}
+        {{- with $d.harness }}
+        <div class="arch-harness-wrap">
+          <div class="arch-vlink" aria-hidden="true"></div>
+          <div class="arch-harness">
+            <div class="arch-layer-head"><span class="arch-layer-name">{{ .name }}</span><code class="arch-layer-path">{{ .path }}</code></div>
+            <p class="arch-harness-desc">{{ .desc | markdownify }}</p>
+            <div class="arch-chips">{{ range .chips }}<span class="chip">{{ . }}</span>{{ end }}</div>
+          </div>
+        </div>
+        {{- end }}
+      </div>
+      {{- with $d.caption }}
+      <figcaption class="arch-caption">{{ . }}</figcaption>
+      {{- end }}
+    </figure>
+
+    <div class="arch-notes">
+      {{- range $i, $n := $d.notes }}
+      <div class="note">
+        <span class="note-num">{{ printf "%02d" (add $i 1) }}</span>
+        <h3 class="note-title">{{ $n.title }}</h3>
+        <p class="note-body">{{ $n.body | markdownify }}</p>
+      </div>
+      {{- end }}
+    </div>
+  </div>
+</section>

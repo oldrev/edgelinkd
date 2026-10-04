@@ -1,0 +1,294 @@
+# =============================================================================
+# 首页内容 — 简体中文
+# 由 layouts/home.html 渲染，每个区块对应 layouts/_partials/sections/ 下的一个模板。
+# 大多数文本字段支持行内 Markdown：**粗体**、`代码`、[链接](url)。
+# 链接："#anchor" 指向首页区块，"docs/..." 指向当前语言页面，"https://..." 为外链。
+# =============================================================================
+
+hero:
+  badge:
+    tag: "Alpha"
+    text: "GitHub Releases 提供每日构建"
+    href: "https://github.com/oldrev/edgelinkd/releases"
+  title: "**Rust 重铸**的 Node-RED 运行时，为边缘而生。"
+  lead: "EdgeLinkd 以单个原生二进制文件运行你现有的 `flows.json`：内置完整的 Node-RED 编辑器，运行时节点由 Rust 实现，内存占用约为 Node-RED 的十分之一。"
+  primary:
+    label: "快速开始"
+    href: "docs/getting-started/"
+  secondary:
+    label: "在 GitHub 查看"
+    href: "https://github.com/oldrev/edgelinkd"
+  meta:
+    - "Apache-2.0"
+    - "Rust 1.88+"
+    - "Linux · Windows"
+    - "x86_64 · AArch64 · ARMv7"
+  canvas:
+    aria: "一个运行在 EdgeLinkd 上的 Node-RED 流程：MQTT 与 inject 数据源进入 json 和 function 节点，switch 节点将告警分发到 MQTT 与 debug。"
+    tabs: ["传感器", "告警"]
+    deploy: "部署"
+    status: "运行中"
+    detail: "7 个节点 · 7 个 Tokio 任务"
+  stats:
+    - value: "≈10%"
+      label: "Node-RED 的内存占用"
+    - value: "1"
+      label: "个自包含二进制，内置编辑器"
+    - value: "6"
+      label: "个官方支持的目标平台"
+    - value: "v4.0.9"
+      label: "作为行为基准的 Node-RED 版本"
+
+why:
+  num: "01"
+  label: "为什么选择 EdgeLinkd"
+  title: "保留流程，卸下重量。"
+  lead: "Node-RED 让基于流程的编程走向主流。EdgeLinkd 保留它的编辑器、流程格式与消息语义，只把底层的 Node.js 运行时换成原生 Rust。"
+  columns: ["", "Node-RED", "EdgeLinkd"]
+  rows:
+    - aspect: "执行方式"
+      a: "Node.js 与 V8：JIT 编译、垃圾回收"
+      b: "基于 Tokio 的原生 Rust：无 JIT、无垃圾回收"
+    - aspect: "内存"
+      a: "基准"
+      b: "约为 Node-RED 的 **1/10**"
+    - aspect: "JavaScript"
+      a: "每个节点都是 JavaScript"
+      b: "仅在 `function` 节点中运行，使用内嵌的 QuickJS 沙箱"
+    - aspect: "流程格式"
+      a: "`flows.json`"
+      b: "同一份 `flows.json`，无需任何转换"
+    - aspect: "编辑器"
+      a: "Node-RED 编辑器"
+      b: "同一个编辑器，由二进制自身提供"
+    - aspect: "部署"
+      a: "先安装 Node.js，再安装 npm 包"
+      b: "复制一个二进制；生产环境加上 `--headless`"
+    - aspect: "扩展方式"
+      a: "npm 包"
+      b: "Rust crate，通过 `#[flow_node]` 静态链接"
+  note: "**坦诚的取舍：** 第三方 npm 节点无法在 EdgeLinkd 上运行；超出嵌入式资源预算的功能会在部署时明确报错，而不是被悄悄忽略。"
+
+features:
+  num: "02"
+  label: "核心能力"
+  title: "一个原生进程，一套完整的流程运行时。"
+  lead: "设计、部署、运行都在同一个二进制里完成。除了你在 `function` 节点里写的代码，其余一切都是编译后的 Rust。"
+  items:
+    - icon: "file-json"
+      title: "直接使用 flows.json"
+      body: "在 Node-RED 编辑器中编排，部署同一份 JSON。流程、子流程、Link 节点、环境变量与 JSONata 表达式均遵循 Node-RED 语义。"
+      tags: ["流程", "子流程", "环境变量", "JSONata"]
+      wide: true
+      snippet: |
+        [
+          { "id": "f1", "type": "tab", "label": "Sensors" },
+          { "id": "n1", "type": "mqtt in", "z": "f1",
+            "topic": "sensors/+", "wires": [["n2"]] },
+          { "id": "n2", "type": "json", "z": "f1",
+            "wires": [["n3"]] }
+        ]
+    - icon: "layout"
+      title: "内置编辑器"
+      body: "完整的 Node-RED 编辑器随二进制一同发布：节点面板、部署、调试侧栏、导入导出一应俱全。使用 `--headless` 即可关闭。"
+    - icon: "code"
+      title: "JavaScript 只出现在你写的地方"
+      body: "所有节点均为原生 Rust。`function` 节点运行在内嵌的 QuickJS 沙箱中，提供 `node`、`context`、`flow`、`global`、`env` 与 `RED.util`。"
+    - icon: "cpu"
+      title: "每个节点一个 Tokio 任务"
+      body: "每个节点拥有一个有界收件箱，按顺序逐条处理消息——遵循 Node-RED 语义，并在每条连线上形成背压。"
+    - icon: "shield-check"
+      title: "用 Node-RED 自己的规范来验证"
+      body: "上游 mocha 测试被移植为 pytest，通过 PyO3 模块直接驱动 Rust 引擎运行，测试标题与上游逐字一致。"
+    - icon: "package"
+      title: "为嵌入式目标而裁剪"
+      body: "发布构建以体积为优化目标，启用 LTO 并剥离符号；各类节点由 Cargo feature 控制，最小镜像只编译用得到的部分。"
+      tags: ["x86_64", "aarch64", "armv7"]
+      wide: true
+      snippet: |
+        [profile.release]
+        opt-level = "z"     # 以体积为优化目标
+        lto = true
+        codegen-units = 1
+        strip = true
+
+        [features]
+        default = ["core", "js", "jsonata", "nodes_network",
+                   "nodes_storage", "nodes_parser"]
+
+architecture:
+  num: "03"
+  label: "架构"
+  title: "一个进程，三个 crate，每个节点一个任务。"
+  lead: "`edgelinkd` 二进制同时承载运行时与编辑器。部署时，流程被构建为由有界通道连接的 Tokio 任务图；所有 I/O 都发生在这张图的边缘。"
+  caption: "edgelinkd 进程视图。实线箭头表示运行期的流程与消息；虚线框中的测试工具链在 CI 中驱动同一个引擎。"
+  authoring:
+    title: "设计期"
+    link: "Admin API · WebSocket"
+    items:
+      - { name: "Node-RED 编辑器", meta: "浏览器", desc: "由 edgelinkd 提供，直接部署到引擎" }
+      - { name: "flows.json", meta: "文件", desc: "原样使用 Node-RED 流程格式" }
+      - { name: "edgelinkd.toml", meta: "配置", desc: "启动时与命令行参数合并" }
+  core:
+    name: "edgelinkd"
+    tag: "单个原生进程"
+    host:
+      name: "应用宿主"
+      path: "src/"
+      chips: ["run", "list", "--headless", "配置", "log4rs"]
+    web:
+      name: "edgelink-web"
+      path: "crates/web"
+      chips: ["Admin HTTP API", "编辑器资源", "调试通道", "axum"]
+    runtime:
+      name: "edgelink-core"
+      path: "crates/core"
+      modules:
+        - { name: "引擎", desc: "加载 · 部署 · 重新部署 · 停止" }
+        - { name: "流程", desc: "流程 · 子流程 · 分组 · Link" }
+        - { name: "消息模型", desc: "Msg · Variant · MsgHandle" }
+        - { name: "上下文", desc: "内存与本地文件存储" }
+        - { name: "JSONata", desc: "纯 Rust 的 jsonata-core" }
+        - { name: "JS 桥接", desc: "QuickJS · 仅用于 function" }
+      lane:
+        nodes: ["inject", "function", "switch", "mqtt out"]
+        caption: "1 个节点 = 1 个 Tokio 任务 · 有界 mpsc 收件箱 · 按序投递"
+    nodes:
+      name: "节点库"
+      path: "runtime/nodes · node-plugins/"
+      chips: ["common", "function", "network", "sequence", "parser", "storage"]
+      note: "通过 `#[flow_node]` 与 `inventory` 自注册——不存在中心化的节点清单。"
+    foundation: ["Tokio", "Linux", "Windows", "x86_64", "AArch64", "ARMv7"]
+  io:
+    title: "边缘 I/O"
+    link: "网络 · 文件 · 进程"
+    items:
+      - { name: "MQTT", meta: "rumqttc", desc: "订阅与发布到消息代理" }
+      - { name: "HTTP", meta: "axum · reqwest", desc: "入站端点，出站请求" }
+      - { name: "WebSocket", meta: "tungstenite", desc: "监听端与客户端" }
+      - { name: "TCP / UDP", meta: "tokio", desc: "原始套接字，单播与组播" }
+      - { name: "文件", meta: "fs", desc: "file · file in · watch" }
+      - { name: "进程", meta: "exec", desc: "执行命令并发送信号" }
+  harness:
+    name: "规范测试工具链"
+    path: "tests/ · crates/pymod"
+    desc: "移植为 pytest 的 Node-RED mocha 规范，在每次 CI 中通过 PyO3 扩展 `edgelink_pymod` 驱动真实引擎。"
+    chips: ["pytest", "PyO3", "以 Node-RED v4.0.9 为基准"]
+  notes:
+    - title: "部署即构建任务图"
+      body: "引擎解析 `flows.json`，在注册表中解析每个节点类型，为每个节点创建一个 Tokio 任务，并按输出端口连线。"
+    - title: "有界连线，真正的背压"
+      body: "每个收件箱都是有界通道。慢消费者会拖慢上游生产者，而不是让队列无限增长——小设备上的内存占用始终可预期。"
+    - title: "有序、共享的消息"
+      body: "消息以共享的 `Arc<RwLock<Msg>>` 句柄传递，每个节点逐条处理，保持 Node-RED 的顺序保证。"
+    - title: "原生优先，脚本兜底"
+      body: "JSONata 由纯 Rust 求值；只有 `function` 节点会进入 QuickJS，热路径上的其余部分全是编译后的代码。"
+
+compat:
+  num: "04"
+  label: "兼容性"
+  title: "支持的，就严格兼容；不支持的，就明确拒绝。"
+  lead: "EdgeLinkd 是兼容 Node-RED 的运行时，而不是它的克隆。凡是提供的功能，行为必须与 Node-RED v4.0.9 一致；凡是超出嵌入式预算的功能，都会被明确拒绝。"
+  principles:
+    - title: "要么一致，要么不提供"
+      body: "对每个已支持的节点与选项，消息语义、错误与状态行为、编辑器契约都与上游保持一致。"
+    - title: "绝不假装支持"
+      body: "没有静默的空操作，也没有看似合理的桩实现。不支持的配置会在部署时失败，或返回 `NotSupported`。"
+    - title: "靠审计，而非假设"
+      body: "自动生成的报告逐个节点比对移植测试与上游 `describe()`、`it()` 标题。"
+  runtime_title: "运行时特性"
+  runtime:
+    - { label: "流程", status: "verified" }
+    - { label: "子流程", status: "verified" }
+    - { label: "环境变量", status: "verified" }
+    - { label: "function 沙箱中的 `RED.util`", status: "verified" }
+    - { label: "JSONata（`jsonata-core`）", status: "progress" }
+    - { label: "上下文：内存与本地文件系统", status: "progress" }
+    - { label: "分组", status: "progress" }
+    - { label: "插件子系统（静态链接）", status: "progress" }
+  matrix_title: "核心节点状态"
+  matrix_note: "与项目 README 保持同步。"
+  report_label: "完整规范覆盖报告"
+
+quickstart:
+  num: "05"
+  label: "快速开始"
+  title: "从克隆到运行流程，只需三条命令。"
+  lead: "EdgeLinkd 使用稳定版 Rust 构建，[GitHub Releases](https://github.com/oldrev/edgelinkd/releases) 上也提供每日构建的预编译包。"
+  steps:
+    - title: "带子模块克隆"
+      body: "固定版本的 Node-RED 子模块提供编辑器资源，同时也是行为对照基准。"
+      code: |
+        git clone --recursive https://github.com/oldrev/edgelinkd.git
+        cd edgelinkd
+    - title: "构建发布版二进制"
+      body: "需要 Rust 1.88 或更高版本。Windows 上请确保 Git 自带的 `patch.exe` 位于 `PATH` 中，并安装 MSVC 工具链。"
+      code: |
+        cargo build --release
+    - title: "带编辑器运行"
+      body: "启动引擎，并在 `http://127.0.0.1:1888` 提供 Node-RED 编辑器。"
+      code: |
+        ./target/release/edgelinkd run
+    - title: "生产环境无界面运行"
+      body: "同样的流程，不启动 Web 服务。若需要从其他机器访问编辑器，可改用 `--bind 0.0.0.0:1888`。"
+      code: |
+        ./target/release/edgelinkd run ./flows.json --headless
+  cli:
+    title: "edgelinkd --help"
+    usage: "edgelinkd [OPTIONS] [COMMAND]"
+    groups:
+      - name: "命令"
+        rows:
+          - ["run [FLOWS_PATH]", "运行流程引擎"]
+          - ["list", "列出当前构建包含的全部节点类型"]
+      - name: "run 选项"
+        rows:
+          - ["--headless", "不启动 Web 服务"]
+          - ["--bind <ADDR>", "Web 界面地址 · 127.0.0.1:1888"]
+      - name: "全局选项"
+        rows:
+          - ["-u, --user-dir <DIR>", "使用指定的用户目录"]
+          - ["--home <DIR>", "主目录 · ~/.edgelink"]
+          - ["--env <ENV>", "dev | prod · 默认 dev"]
+          - ["-l, --log-path <FILE>", "日志配置文件"]
+          - ["-v, --verbose <N>", "0 为静默 · 默认 2"]
+
+usecases:
+  num: "06"
+  label: "应用场景"
+  title: "EdgeLinkd 适合在哪里运行。"
+  lead: "凡是适合用 Node-RED 流程、却不适合跑 Node.js 运行时的地方。"
+  items:
+    - icon: "radio"
+      title: "物联网边缘网关"
+      body: "在设备旁就地聚合、过滤传感器数据——MQTT、HTTP、TCP 与 UDP——只占用极少内存。"
+    - icon: "factory"
+      title: "工业自动化"
+      body: "在嵌入式控制器上运行控制与数据采集流程，维护时随时打开 Web 编辑器。"
+    - icon: "home"
+      title: "家庭自动化"
+      body: "把智能家居逻辑放在树莓派级别的开发板上，而不必背负完整的 Node.js 栈。"
+    - icon: "cloud"
+      title: "从云端迁移到边缘"
+      body: "把现有的 Node-RED 流程从服务器搬到设备上，无需重写。"
+    - icon: "layers"
+      title: "精简容器"
+      body: "小巧的镜像里只放一个二进制，Web 界面可有可无。"
+    - icon: "flask"
+      title: "从原型到生产"
+      body: "开发时在内置编辑器中快速迭代，现场以 headless 模式部署同一份流程。"
+
+cta:
+  title: "把你的流程，**带到边缘。**"
+  body: "EdgeLinkd 以 Apache-2.0 协议开源，并以公开方式开发。欢迎试用、反馈问题，或者移植下一个节点。"
+  primary:
+    label: "快速开始"
+    href: "docs/getting-started/"
+  secondary:
+    label: "在 GitHub 上 Star"
+    href: "https://github.com/oldrev/edgelinkd"
+  links:
+    - { icon: "discord", label: "Discord", href: "https://discord.gg/XJstgANe26" }
+    - { icon: "issue", label: "问题反馈", href: "https://github.com/oldrev/edgelinkd/issues" }
+    - { icon: "git-pull", label: "贡献指南", href: "https://github.com/oldrev/edgelinkd/blob/master/CONTRIBUTING.md" }
+    - { icon: "heart", label: "赞助", href: "https://ko-fi.com/O5O2U4W4E" }

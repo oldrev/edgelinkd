@@ -1,0 +1,26 @@
+{{ define "main" }}
+<div class="container docs docs--index">
+  {{ partial "docs-sidebar.html" . }}
+  <article class="docs-article">
+    <header class="docs-head">
+      <span class="eyebrow">{{ T "docs" }}</span>
+      <h1 class="docs-title">{{ .Title }}</h1>
+      {{- with .Description }}
+      <p class="docs-desc">{{ . }}</p>
+      {{- end }}
+    </header>
+    <div class="prose">
+      {{ .Content }}
+    </div>
+    <div class="docs-cards">
+      {{- range .Pages.ByWeight }}
+      <a class="docs-card" href="{{ .RelPermalink }}">
+        <strong>{{ .LinkTitle }}</strong>
+        <span>{{ .Description }}</span>
+        {{ partial "icon.html" "arrow-right" }}
+      </a>
+      {{- end }}
+    </div>
+  </article>
+</div>
+{{ end }}

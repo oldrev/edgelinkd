@@ -1,0 +1,6 @@
+{{- /* Context: extra CSS class (string). State is applied by assets/js/main.js. */ -}}
+<div class="seg theme-switch {{ . }}" role="radiogroup" aria-label="{{ T "theme" }}">
+  <button type="button" role="radio" aria-checked="false" data-theme-value="light" title="{{ T "theme_light" }}">{{ partial "icon.html" "sun" }}<span class="sr-only">{{ T "theme_light" }}</span></button>
+  <button type="button" role="radio" aria-checked="false" data-theme-value="dark" title="{{ T "theme_dark" }}">{{ partial "icon.html" "moon" }}<span class="sr-only">{{ T "theme_dark" }}</span></button>
+  <button type="button" role="radio" aria-checked="false" data-theme-value="system" title="{{ T "theme_system" }}">{{ partial "icon.html" "monitor" }}<span class="sr-only">{{ T "theme_system" }}</span></button>
+</div>

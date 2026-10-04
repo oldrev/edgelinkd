@@ -1,0 +1,31 @@
+{{- $d := . -}}
+<section class="section" id="why">
+  <div class="container">
+    {{ partial "section-head.html" $d }}
+    <div class="compare">
+      <div class="table-scroll">
+        <table class="compare-table">
+          <thead>
+            <tr>
+              {{- range $i, $c := $d.columns }}
+              <th scope="col"{{ if eq $i 2 }} class="is-us"{{ end }}>{{ $c }}</th>
+              {{- end }}
+            </tr>
+          </thead>
+          <tbody>
+            {{- range $d.rows }}
+            <tr>
+              <th scope="row">{{ .aspect }}</th>
+              <td>{{ .a | markdownify }}</td>
+              <td class="is-us">{{ .b | markdownify }}</td>
+            </tr>
+            {{- end }}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {{- with $d.note }}
+    <p class="compare-note">{{ partial "icon.html" "info" }}<span>{{ . | markdownify }}</span></p>
+    {{- end }}
+  </div>
+</section>

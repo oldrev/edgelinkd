@@ -1,0 +1,12 @@
+{{ define "main" }}
+<section class="section notfound">
+  <div class="container">
+    <span class="eyebrow"><span class="eyebrow-num">404</span>{{ T "not_found" }}</span>
+    <h1 class="section-title">{{ T "not_found_title" }}</h1>
+    <p class="section-lead">{{ T "not_found_body" }}</p>
+    <div class="hero-actions">
+      <a class="btn btn--primary" href="{{ site.Home.RelPermalink }}">{{ partial "icon.html" "arrow-left" }}{{ T "back_home" }}</a>
+    </div>
+  </div>
+</section>
+{{ end }}

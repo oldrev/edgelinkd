@@ -1,0 +1,41 @@
+# Site-wide navigation and footer — English.
+# Links: "#anchor" = section on the home page, "docs/..." = page in this
+# language, "https://..." = external (opens in a new tab).
+
+nav:
+  - label: "Why"
+    href: "#why"
+  - label: "Features"
+    href: "#features"
+  - label: "Architecture"
+    href: "#architecture"
+  - label: "Compatibility"
+    href: "#compatibility"
+  - label: "Quick start"
+    href: "#quickstart"
+  - label: "Docs"
+    href: "docs/"
+
+footer:
+  about: "A Node-RED compatible flow runtime written in Rust, with the Node-RED editor built in — designed for resource-constrained edge devices."
+  columns:
+    - title: "Project"
+      links:
+        - { label: "Source code", href: "https://github.com/oldrev/edgelinkd" }
+        - { label: "Releases", href: "https://github.com/oldrev/edgelinkd/releases" }
+        - { label: "Milestones", href: "https://github.com/oldrev/edgelinkd/milestones" }
+        - { label: "Known issues", href: "https://github.com/oldrev/edgelinkd/issues" }
+    - title: "Documentation"
+      links:
+        - { label: "Getting started", href: "docs/getting-started/" }
+        - { label: "Architecture", href: "docs/architecture/" }
+        - { label: "Compatibility", href: "docs/compatibility/" }
+        - { label: "Spec coverage report", href: "https://github.com/oldrev/edgelinkd/blob/master/tests/REDNODES-SPECS-DIFF.md" }
+    - title: "Community"
+      links:
+        - { label: "Discord", href: "https://discord.gg/XJstgANe26" }
+        - { label: "Issues", href: "https://github.com/oldrev/edgelinkd/issues" }
+        - { label: "Contributing", href: "https://github.com/oldrev/edgelinkd/blob/master/CONTRIBUTING.md" }
+        - { label: "Sponsor on Ko-fi", href: "https://ko-fi.com/O5O2U4W4E" }
+  legal: "© Li Wei and contributors · Apache License 2.0"
+  trademark: "Node-RED is a trademark of the OpenJS Foundation. EdgeLinkd is an independent project and is not affiliated with or endorsed by the OpenJS Foundation."

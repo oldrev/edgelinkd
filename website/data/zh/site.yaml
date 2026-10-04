@@ -1,0 +1,40 @@
+# 全站导航与页脚 — 简体中文。
+# 链接："#anchor" 指向首页区块，"docs/..." 指向当前语言下的页面，"https://..." 为外部链接（新标签页打开）。
+
+nav:
+  - label: "为什么"
+    href: "#why"
+  - label: "特性"
+    href: "#features"
+  - label: "架构"
+    href: "#architecture"
+  - label: "兼容性"
+    href: "#compatibility"
+  - label: "快速开始"
+    href: "#quickstart"
+  - label: "文档"
+    href: "docs/"
+
+footer:
+  about: "用 Rust 编写、兼容 Node-RED 的流程运行时，内置 Node-RED 编辑器，专为资源受限的边缘设备设计。"
+  columns:
+    - title: "项目"
+      links:
+        - { label: "源代码", href: "https://github.com/oldrev/edgelinkd" }
+        - { label: "版本发布", href: "https://github.com/oldrev/edgelinkd/releases" }
+        - { label: "里程碑", href: "https://github.com/oldrev/edgelinkd/milestones" }
+        - { label: "已知问题", href: "https://github.com/oldrev/edgelinkd/issues" }
+    - title: "文档"
+      links:
+        - { label: "快速开始", href: "docs/getting-started/" }
+        - { label: "架构", href: "docs/architecture/" }
+        - { label: "兼容性", href: "docs/compatibility/" }
+        - { label: "规范覆盖报告", href: "https://github.com/oldrev/edgelinkd/blob/master/tests/REDNODES-SPECS-DIFF.md" }
+    - title: "社区"
+      links:
+        - { label: "Discord", href: "https://discord.gg/XJstgANe26" }
+        - { label: "问题反馈", href: "https://github.com/oldrev/edgelinkd/issues" }
+        - { label: "贡献指南", href: "https://github.com/oldrev/edgelinkd/blob/master/CONTRIBUTING.md" }
+        - { label: "在 Ko-fi 赞助", href: "https://ko-fi.com/O5O2U4W4E" }
+  legal: "© Li Wei 及全体贡献者 · Apache License 2.0"
+  trademark: "Node-RED 是 OpenJS 基金会的商标。EdgeLinkd 是独立项目，与 OpenJS 基金会无隶属或背书关系。"

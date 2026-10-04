@@ -1,0 +1,26 @@
+# Demo flow drawn in the hero (language-neutral; localized captions live in
+# data/<lang>/home.yaml → hero.canvas). Units are SVG user units.
+#   pos     — top-left corner [x, y]
+#   input   — draw an input port on the left edge
+#   outputs — vertical offsets of output ports on the right edge
+#   wires   — SVG path data, drawn and animated in order
+
+view: { w: 640, h: 272 }
+node: { w: 118, h: 40 }
+
+nodes:
+  - { type: "mqtt in", label: "sensors/+", pos: [24, 56], input: false, outputs: [20], status: "connected" }
+  - { type: "inject", label: "every 5s", pos: [24, 196], input: false, outputs: [20] }
+  - { type: "json", label: "parse", pos: [182, 56], input: true, outputs: [20] }
+  - { type: "function", label: "normalize()", pos: [182, 196], input: true, outputs: [20], js: true }
+  - { type: "switch", label: "temp > 80", pos: [340, 126], input: true, outputs: [13, 27] }
+  - { type: "mqtt out", label: "alerts", pos: [498, 70], input: true, outputs: [], status: "published" }
+  - { type: "debug", label: "msg.payload", pos: [498, 182], input: true, outputs: [] }
+
+wires:
+  - "M142 76 C162 76 162 76 182 76"
+  - "M300 76 C324 76 316 146 340 146"
+  - "M142 216 C162 216 162 216 182 216"
+  - "M300 216 C324 216 316 146 340 146"
+  - "M458 139 C482 139 474 90 498 90"
+  - "M458 153 C482 153 474 202 498 202"

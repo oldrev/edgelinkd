@@ -1,0 +1,6 @@
+{{- /* Context: slice from func/lang-links.html */ -}}
+<div class="seg lang-seg" role="group" aria-label="{{ T "language" }}">
+  {{- range . }}
+  <a href="{{ .href }}" hreflang="{{ .locale }}" lang="{{ .locale }}" data-lang="{{ .name }}"{{ if .current }} aria-current="true"{{ end }}>{{ .label }}</a>
+  {{- end }}
+</div>

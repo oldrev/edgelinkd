@@ -1,0 +1,29 @@
+{{- $s := (index site.Data site.Language.Name).site -}}
+<footer class="site-footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <a class="brand" href="{{ site.Home.RelPermalink }}" aria-label="{{ site.Title }}">
+          {{ partial "logo.html" . }}
+          <span class="brand-name">EdgeLink<span>d</span></span>
+        </a>
+        <p class="footer-about">{{ $s.footer.about }}</p>
+      </div>
+      {{- range $s.footer.columns }}
+      <div class="footer-col">
+        <h3>{{ .title }}</h3>
+        <ul>
+          {{- range .links }}
+          {{- $href := partial "func/href.html" .href }}
+          <li><a href="{{ $href }}"{{ if hasPrefix .href "http" }} target="_blank" rel="noopener"{{ end }}>{{ .label }}</a></li>
+          {{- end }}
+        </ul>
+      </div>
+      {{- end }}
+    </div>
+    <div class="footer-bottom">
+      <span>{{ $s.footer.legal }}</span>
+      <span class="footer-trademark">{{ $s.footer.trademark }}</span>
+    </div>
+  </div>
+</footer>

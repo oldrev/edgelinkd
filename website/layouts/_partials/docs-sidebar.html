@@ -1,0 +1,12 @@
+{{- $page := . -}}
+{{- with site.GetPage "/docs" -}}
+<aside class="docs-sidebar">
+  <div class="docs-sidebar-title">{{ T "docs" }}</div>
+  <ul class="docs-nav">
+    <li><a href="{{ .RelPermalink }}"{{ if eq .RelPermalink $page.RelPermalink }} aria-current="page"{{ end }}>{{ .LinkTitle }}</a></li>
+    {{- range .Pages.ByWeight }}
+    <li><a href="{{ .RelPermalink }}"{{ if eq .RelPermalink $page.RelPermalink }} aria-current="page"{{ end }}>{{ .LinkTitle }}</a></li>
+    {{- end }}
+  </ul>
+</aside>
+{{- end -}}

@@ -1,0 +1,7 @@
+<div class="section-head">
+  <span class="eyebrow"><span class="eyebrow-num">{{ .num }}</span>{{ .label }}</span>
+  <h2 class="section-title">{{ .title | markdownify }}</h2>
+  {{- with .lead }}
+  <p class="section-lead">{{ . | markdownify }}</p>
+  {{- end }}
+</div>

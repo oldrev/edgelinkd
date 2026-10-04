@@ -1,0 +1,40 @@
+{{ define "main" }}
+{{- $pages := .CurrentSection.Pages.ByWeight -}}
+{{- $prev := false -}}
+{{- $next := false -}}
+{{- range $i, $p := $pages -}}
+  {{- if eq $p.RelPermalink $.RelPermalink -}}
+    {{- if gt $i 0 }}{{ $prev = index $pages (sub $i 1) }}{{ end -}}
+    {{- if lt (add $i 1) (len $pages) }}{{ $next = index $pages (add $i 1) }}{{ end -}}
+  {{- end -}}
+{{- end -}}
+<div class="container docs">
+  {{ partial "docs-sidebar.html" . }}
+  <article class="docs-article">
+    <header class="docs-head">
+      <span class="eyebrow">{{ T "docs" }}</span>
+      <h1 class="docs-title">{{ .Title }}</h1>
+      {{- with .Description }}
+      <p class="docs-desc">{{ . }}</p>
+      {{- end }}
+    </header>
+    <div class="prose">
+      {{ .Content }}
+    </div>
+    {{- if or $prev $next }}
+    <nav class="docs-pager">
+      {{- with $prev }}
+      <a class="is-prev" href="{{ .RelPermalink }}"><span>{{ T "previous" }}</span><strong>{{ .LinkTitle }}</strong></a>
+      {{- end }}
+      {{- with $next }}
+      <a class="is-next" href="{{ .RelPermalink }}"><span>{{ T "next" }}</span><strong>{{ .LinkTitle }}</strong></a>
+      {{- end }}
+    </nav>
+    {{- end }}
+  </article>
+  <aside class="docs-toc">
+    <div class="docs-toc-title">{{ T "on_this_page" }}</div>
+    {{ .TableOfContents }}
+  </aside>
+</div>
+{{ end }}

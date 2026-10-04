@@ -1,0 +1,9 @@
+{{- with . -}}
+<div class="arch-layer">
+  <div class="arch-layer-head"><span class="arch-layer-name">{{ .name }}</span><code class="arch-layer-path">{{ .path }}</code></div>
+  <div class="arch-chips">{{ range .chips }}<span class="chip">{{ . }}</span>{{ end }}</div>
+  {{- with .note }}
+  <p class="arch-layer-note">{{ . | markdownify }}</p>
+  {{- end }}
+</div>
+{{- end -}}

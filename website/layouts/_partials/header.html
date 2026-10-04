@@ -1,0 +1,40 @@
+{{- $page := . -}}
+{{- $s := (index site.Data site.Language.Name).site -}}
+{{- $langs := partial "func/lang-links.html" . -}}
+<header class="site-header" data-header>
+  <div class="container header-inner">
+    <a class="brand" href="{{ site.Home.RelPermalink }}" aria-label="{{ site.Title }}">
+      {{ partial "logo.html" . }}
+      <span class="brand-name">EdgeLink<span>d</span></span>
+    </a>
+    <nav class="nav" aria-label="{{ T "nav_primary" }}">
+      <ul>
+        {{- range $s.nav }}
+        {{- $href := partial "func/href.html" .href }}
+        <li><a href="{{ $href }}"{{ if and (not (hasPrefix .href "#")) (hasPrefix $page.RelPermalink $href) }} aria-current="page"{{ end }}>{{ .label }}</a></li>
+        {{- end }}
+      </ul>
+    </nav>
+    <div class="header-actions">
+      {{ partial "lang-menu.html" $langs }}
+      {{ partial "theme-switch.html" "desktop-only" }}
+      <a class="icon-btn" href="{{ site.Params.repo }}" target="_blank" rel="noopener" aria-label="{{ T "github" }}">{{ partial "icon.html" "github" }}</a>
+      <button type="button" class="icon-btn menu-btn" data-menu-toggle aria-expanded="false" aria-controls="mobile-menu" aria-label="{{ T "menu" }}">{{ partial "icon.html" "menu" }}{{ partial "icon.html" "close" }}</button>
+    </div>
+  </div>
+  <div class="mobile-menu" id="mobile-menu" hidden>
+    <div class="container">
+      <nav aria-label="{{ T "nav_primary" }}">
+        <ul>
+          {{- range $s.nav }}
+          <li><a href="{{ partial "func/href.html" .href }}">{{ .label }}</a></li>
+          {{- end }}
+        </ul>
+      </nav>
+      <div class="mobile-menu-row">
+        {{ partial "lang-seg.html" $langs }}
+        {{ partial "theme-switch.html" "" }}
+      </div>
+    </div>
+  </div>
+</header>

@@ -1,0 +1,15 @@
+{{- $d := . -}}
+<section class="section section--soft" id="usecases">
+  <div class="container">
+    {{ partial "section-head.html" $d }}
+    <div class="uses">
+      {{- range $d.items }}
+      <article class="use">
+        <span class="use-icon">{{ partial "icon.html" .icon }}</span>
+        <h3 class="use-title">{{ .title }}</h3>
+        <p class="use-body">{{ .body | markdownify }}</p>
+      </article>
+      {{- end }}
+    </div>
+  </div>
+</section>

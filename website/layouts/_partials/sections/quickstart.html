@@ -1,0 +1,38 @@
+{{- $d := . -}}
+<section class="section" id="quickstart">
+  <div class="container">
+    {{ partial "section-head.html" $d }}
+    <div class="qs">
+      <ol class="steps">
+        {{- range $i, $s := $d.steps }}
+        <li class="step">
+          <span class="step-num">{{ printf "%02d" (add $i 1) }}</span>
+          <div class="step-main">
+            <h3 class="step-title">{{ $s.title }}</h3>
+            <p class="step-body">{{ $s.body | markdownify }}</p>
+            {{- with $s.code }}
+            {{ partial "codeblock.html" . }}
+            {{- end }}
+          </div>
+        </li>
+        {{- end }}
+      </ol>
+      {{- with $d.cli }}
+      <aside class="cli" aria-label="{{ .title }}">
+        <div class="cli-head"><span class="cli-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>{{ .title }}</span></div>
+        <div class="cli-body">
+          <div class="cli-usage">{{ .usage }}</div>
+          {{- range .groups }}
+          <div class="cli-group">
+            <div class="cli-group-name">{{ .name }}</div>
+            {{- range .rows }}
+            <div class="cli-row"><code class="cli-flag">{{ index . 0 }}</code><span class="cli-desc">{{ index . 1 }}</span></div>
+            {{- end }}
+          </div>
+          {{- end }}
+        </div>
+      </aside>
+      {{- end }}
+    </div>
+  </div>
+</section>

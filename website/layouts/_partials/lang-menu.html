@@ -1,0 +1,11 @@
+{{- /* Context: slice from func/lang-links.html */ -}}
+{{- $current := "" -}}
+{{- range . }}{{ if .current }}{{ $current = .label }}{{ end }}{{ end -}}
+<details class="menu lang-menu desktop-only" data-dropdown>
+  <summary class="icon-btn" aria-label="{{ T "language" }}">{{ partial "icon.html" "globe" }}<span class="lang-current">{{ $current }}</span>{{ partial "icon.html" "chevron-down" }}</summary>
+  <ul class="menu-list">
+    {{- range . }}
+    <li><a href="{{ .href }}" hreflang="{{ .locale }}" lang="{{ .locale }}" data-lang="{{ .name }}"{{ if .current }} aria-current="true"{{ end }}>{{ .label }}</a></li>
+    {{- end }}
+  </ul>
+</details>

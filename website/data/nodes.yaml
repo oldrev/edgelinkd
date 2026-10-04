@@ -1,0 +1,73 @@
+# Node support matrix (language-neutral). Group titles come from i18n
+# (group_<id>), status labels from i18n (status_<status>).
+#
+#   verified — passes the integration tests ported from Node-RED
+#   progress — implemented, partially implemented or being ported
+#
+# Keep in sync with the README and tests/REDNODES-SPECS-DIFF.md.
+
+report: "https://github.com/oldrev/edgelinkd/blob/master/tests/REDNODES-SPECS-DIFF.md"
+
+groups:
+  - id: "common"
+    nodes:
+      - { name: "inject", status: "verified" }
+      - { name: "debug", status: "verified" }
+      - { name: "complete", status: "verified" }
+      - { name: "catch", status: "verified" }
+      - { name: "status", status: "verified" }
+      - { name: "link in", status: "verified" }
+      - { name: "link call", status: "verified" }
+      - { name: "link out", status: "verified" }
+      - { name: "comment", status: "verified" }
+      - { name: "junction", status: "verified" }
+      - { name: "unknown", status: "verified" }
+      - { name: "global-config", status: "verified" }
+  - id: "function"
+    nodes:
+      - { name: "function", status: "progress" }
+      - { name: "switch", status: "verified" }
+      - { name: "change", status: "verified" }
+      - { name: "range", status: "verified" }
+      - { name: "template", status: "verified" }
+      - { name: "filter (rbe)", status: "verified" }
+      - { name: "delay", status: "progress" }
+      - { name: "trigger", status: "progress" }
+      - { name: "exec", status: "progress" }
+  - id: "network"
+    nodes:
+      - { name: "mqtt in", status: "progress" }
+      - { name: "mqtt out", status: "progress" }
+      - { name: "mqtt broker", status: "progress" }
+      - { name: "http in", status: "progress" }
+      - { name: "http out", status: "progress" }
+      - { name: "http request", status: "progress" }
+      - { name: "websocket listener", status: "progress" }
+      - { name: "websocket client", status: "progress" }
+      - { name: "websocket in", status: "progress" }
+      - { name: "websocket out", status: "progress" }
+      - { name: "tcp in", status: "progress" }
+      - { name: "tcp out", status: "progress" }
+      - { name: "tcp get", status: "progress" }
+      - { name: "udp in", status: "progress" }
+      - { name: "udp out", status: "verified" }
+      - { name: "tls", status: "progress" }
+      - { name: "http proxy", status: "progress" }
+  - id: "sequence"
+    nodes:
+      - { name: "split", status: "progress" }
+      - { name: "join", status: "progress" }
+      - { name: "sort", status: "progress" }
+      - { name: "batch", status: "progress" }
+  - id: "parser"
+    nodes:
+      - { name: "json", status: "verified" }
+      - { name: "xml", status: "verified" }
+      - { name: "csv", status: "verified" }
+      - { name: "html", status: "verified" }
+      - { name: "yaml", status: "verified" }
+  - id: "storage"
+    nodes:
+      - { name: "file", status: "verified" }
+      - { name: "file in", status: "progress" }
+      - { name: "watch", status: "progress" }

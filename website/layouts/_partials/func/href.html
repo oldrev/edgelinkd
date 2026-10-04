@@ -1,0 +1,17 @@
+{{- /*
+  Resolves a link written in a data file:
+    "#anchor"     → section on this language's home page
+    "https://..." → unchanged (external)
+    "docs/..."    → page in the current language
+  Usage: {{ partial "func/href.html" "docs/" }}
+*/ -}}
+{{- $h := . -}}
+{{- $out := $h -}}
+{{- if hasPrefix $h "#" -}}
+  {{- $out = printf "%s%s" site.Home.RelPermalink $h -}}
+{{- else if or (hasPrefix $h "http://") (hasPrefix $h "https://") (hasPrefix $h "mailto:") -}}
+  {{- $out = $h -}}
+{{- else -}}
+  {{- $out = relLangURL $h -}}
+{{- end -}}
+{{- return $out -}}

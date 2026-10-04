@@ -1,0 +1,46 @@
+<!doctype html>
+<!--
+  Site entry point (/). Hugo's own root redirect is disabled in hugo.yaml
+  (disableDefaultSiteRedirect), so this page picks the language:
+    1. the language the visitor chose before (localStorage "edgelinkd:lang"),
+    2. otherwise the first supported language in navigator.languages,
+    3. otherwise the default language.
+  Keep SUPPORTED in sync with the languages defined in hugo.yaml.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex">
+    <title>EdgeLinkd</title>
+    <link rel="alternate" hreflang="en-US" href="en/">
+    <link rel="alternate" hreflang="zh-CN" href="zh/">
+    <link rel="alternate" hreflang="x-default" href="en/">
+    <script>
+      (function () {
+        var SUPPORTED = ["en", "zh"];
+        var FALLBACK = "en";
+        var lang = null;
+        try { lang = localStorage.getItem("edgelinkd:lang"); } catch (e) {}
+        if (SUPPORTED.indexOf(lang) < 0) {
+          lang = FALLBACK;
+          var prefs = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || ""];
+          for (var i = 0; i < prefs.length; i++) {
+            var base = String(prefs[i]).toLowerCase().split("-")[0];
+            if (SUPPORTED.indexOf(base) >= 0) { lang = base; break; }
+          }
+        }
+        location.replace(lang + "/" + location.search + location.hash);
+      })();
+    </script>
+    <noscript><meta http-equiv="refresh" content="0; url=en/"></noscript>
+    <style>
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; font: 15px/1.6 system-ui, sans-serif; background: #fff; color: #0b0b0c; }
+      a { color: #d7141f; }
+      @media (prefers-color-scheme: dark) { body { background: #09090a; color: #f4f4f5; } a { color: #ff4450; } }
+    </style>
+  </head>
+  <body>
+    <p><a href="en/">English</a> · <a href="zh/">中文</a></p>
+  </body>
+</html>
