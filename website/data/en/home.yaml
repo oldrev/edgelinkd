@@ -11,15 +11,16 @@ hero:
   badge:
     tag: "Beta"
     text: "Latest Beta release on GitHub Releases"
-    href: "https://github.com/oldrev/edgelinkd/releases"
+    href: "https://github.com/oldrev/edgelinkd/releases/latest"
   title: "The Node-RED runtime, **reforged in Rust**."
   lead: "EdgeLinkd runs your existing `flows.json` as a single native binary — with the full Node-RED editor built in, runtime nodes implemented in Rust, and roughly a tenth of Node-RED's memory footprint."
   primary:
     label: "Get started"
     href: "docs/getting-started/"
   secondary:
-    label: "View on GitHub"
-    href: "https://github.com/oldrev/edgelinkd"
+    label: "Download"
+    href: "https://github.com/oldrev/edgelinkd/releases/latest"
+    icon: "download"
   meta:
     - "Apache-2.0"
     - "Rust 1.88+"

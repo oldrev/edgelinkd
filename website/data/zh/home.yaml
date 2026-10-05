@@ -9,15 +9,16 @@ hero:
   badge:
     tag: "Beta"
     text: "GitHub Releases 提供最新 Beta 版本下载"
-    href: "https://github.com/oldrev/edgelinkd/releases"
+    href: "https://github.com/oldrev/edgelinkd/releases/latest"
   title: "**Rust 重铸**的 Node-RED 运行时，为边缘而生。"
   lead: "EdgeLinkd 以单个原生二进制文件运行你现有的 `flows.json`：内置完整的 Node-RED 编辑器，运行时节点由 Rust 实现，内存占用约为 Node-RED 的十分之一。"
   primary:
     label: "快速开始"
     href: "docs/getting-started/"
   secondary:
-    label: "在 GitHub 查看"
-    href: "https://github.com/oldrev/edgelinkd"
+    label: "下载"
+    href: "https://github.com/oldrev/edgelinkd/releases/latest"
+    icon: "download"
   meta:
     - "Apache-2.0"
     - "Rust 1.88+"

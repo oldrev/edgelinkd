@@ -17,7 +17,7 @@
           <a class="btn btn--primary btn--lg" href="{{ partial "func/href.html" .href }}">{{ .label }}{{ partial "icon.html" "arrow-right" }}</a>
           {{- end }}
           {{- with $d.secondary }}
-          <a class="btn btn--secondary btn--lg" href="{{ partial "func/href.html" .href }}" target="_blank" rel="noopener">{{ partial "icon.html" "github" }}{{ .label }}</a>
+          <a class="btn btn--secondary btn--lg" href="{{ partial "func/href.html" .href }}" target="_blank" rel="noopener">{{ partial "icon.html" (.icon | default "github") }}{{ .label }}</a>
           {{- end }}
         </div>
         <ul class="hero-meta">
