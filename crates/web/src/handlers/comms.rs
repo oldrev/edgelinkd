@@ -551,7 +551,7 @@ async fn handle_websocket(socket: WebSocket, state: Arc<WebState>) {
     // Send initial connection confirmation (Node-RED auth format)
     let welcome_msg = serde_json::json!({
         "auth": "required",
-        "version": "4.0.9"
+        "version": env!("NODE_RED_VERSION")
     });
 
     if let Err(e) = tx.send(welcome_msg.to_string()) {
