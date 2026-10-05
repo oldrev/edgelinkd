@@ -452,7 +452,7 @@ jobs:
         run: cargo build --release --workspace --target x86_64-pc-windows-msvc
         env:
           GITHUB_RUN_NUMBER: ${{ github.run_number }}
-          EDGELINK_VERSION: 4.0.19-beta+${{ github.run_number }}
+          EDGELINK_VERSION: ${{ github.ref_name }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -478,11 +478,71 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Delete old nightly releases (keep 10 builds)
-        uses: dev-drprasad/delete-older-releases@v0.3.3
+  beta-linux-build-and-release:
+    name: Beta Build & Release (Linux ${{ matrix.target }})
+    needs: [fmt-and-check, clippy, build-and-test-linux]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - aarch64-unknown-linux-gnu
+          - armv7-unknown-linux-gnueabihf
+          - armv7-unknown-linux-gnueabi
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
-          keep_latest: 10
-          delete_tags: true
-          delete_prerelease_only: true
+          submodules: recursive
+
+      - name: Set up Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: ${{ matrix.target }}
+          override: true
+
+      - name: Install cross
+        if: matrix.target != 'x86_64-unknown-linux-gnu'
+        run: cargo install cross --git https://github.com/cross-rs/cross --locked
+
+      - name: Build native Linux release
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: cargo build --release --workspace --target ${{ matrix.target }} --features full
+        env:
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+          EDGELINK_VERSION: ${{ github.ref_name }}
+
+      - name: Build ARM Linux release
+        if: matrix.target != 'x86_64-unknown-linux-gnu'
+        run: cross build --release --workspace --target ${{ matrix.target }} --features full --exclude edgelink-pymod
+        env:
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+          EDGELINK_VERSION: 4.0.19-beta+${{ github.run_number }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install packaging dependencies
+        run: pip install tomlkit
+
+      - name: Package Linux beta build
+        run: python ./scripts/dist-pack.py --branch tag --version "${{ github.ref_name }}" --mode release --target ${{ matrix.target }}
+        env:
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+
+      - name: Upload Linux beta package
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: EdgeLinkd ${{ github.ref_name }}
+          body: |
+            EdgeLinkd beta release based on Node-RED 4.0.9.
+            Built from tag ${{ github.ref_name }} at ${{ github.sha }}.
+          files: build-out/edgelinkd-dist-${{ matrix.target }}-*.tar.gz
+          prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -8,8 +8,11 @@ fn main() {
     println!("cargo:rustc-env=EDGELINK_BUILD_TIME={build_time}");
     let build_number = env::var("GITHUB_RUN_NUMBER").unwrap_or_else(|_| "local".to_string());
     println!("cargo:rustc-env=EDGELINK_BUILD_NUMBER={build_number}");
-    let version =
-        env::var("EDGELINK_VERSION").unwrap_or_else(|_| format!("{}+{}", env!("CARGO_PKG_VERSION"), build_number));
+    let version = match env::var("EDGELINK_VERSION") {
+        Ok(value) if value.starts_with('v') => format!("{}+{}", value.trim_start_matches('v'), build_number),
+        Ok(value) => value,
+        Err(_) => format!("{}+{}", env!("CARGO_PKG_VERSION"), build_number),
+    };
     println!("cargo:rustc-env=EDGELINK_VERSION={version}");
 
     set_git_revision_hash();
