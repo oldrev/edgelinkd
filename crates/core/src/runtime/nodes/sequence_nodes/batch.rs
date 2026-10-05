@@ -190,10 +190,16 @@ impl BatchNode {
         pending.push(msg_handle);
 
         if self.max_kept_msgs > 0 && pending.len() > self.max_kept_msgs {
-            let dropped: Vec<MsgHandle> = pending.drain(..).collect();
+            let mut dropped: Vec<MsgHandle> = pending.drain(..).collect();
             drop(pending);
-            for dropped in dropped {
-                self.notify_uow_completed(dropped, CancellationToken::new()).await;
+            // Node-RED calls done("batch.too-many") for the message that caused the
+            // overflow. That is an error completion (catch), while the messages that
+            // were already buffered are completed normally.
+            if let Some(last) = dropped.pop() {
+                for buffered in dropped {
+                    self.notify_uow_completed(buffered, CancellationToken::new()).await;
+                }
+                self.report_error("batch.too-many".to_owned(), last, CancellationToken::new()).await;
             }
             return Ok(vec![]);
         }
@@ -277,10 +283,13 @@ impl BatchNode {
         let mut pending = self.interval_pending.lock().await;
         pending.push(msg_handle);
         if self.max_kept_msgs > 0 && pending.len() > self.max_kept_msgs {
-            let dropped: Vec<MsgHandle> = pending.drain(..).collect();
+            let mut dropped: Vec<MsgHandle> = pending.drain(..).collect();
             drop(pending);
-            for dropped in dropped {
-                self.notify_uow_completed(dropped, CancellationToken::new()).await;
+            if let Some(last) = dropped.pop() {
+                for buffered in dropped {
+                    self.notify_uow_completed(buffered, CancellationToken::new()).await;
+                }
+                self.report_error("batch.too-many".to_owned(), last, CancellationToken::new()).await;
             }
         }
         Ok(vec![])
@@ -401,9 +410,8 @@ impl BatchNode {
         }
 
         // Check for overflow
-        const MAX_PENDING: usize = 1000;
-        if *pending_count > MAX_PENDING {
-            let dropped: Vec<MsgHandle> = pending
+        if self.max_kept_msgs > 0 && *pending_count > self.max_kept_msgs {
+            let mut dropped: Vec<MsgHandle> = pending
                 .values()
                 .flat_map(|topic_groups| topic_groups.groups.values().flat_map(|group| group.messages.iter().cloned()))
                 .collect();
@@ -411,8 +419,11 @@ impl BatchNode {
             *pending_count = 0;
             drop(pending_count);
             drop(pending);
-            for msg in dropped {
-                self.notify_uow_completed(msg, CancellationToken::new()).await;
+            if let Some(last) = dropped.pop() {
+                for buffered in dropped {
+                    self.notify_uow_completed(buffered, CancellationToken::new()).await;
+                }
+                self.report_error("batch.too-many".to_owned(), last, CancellationToken::new()).await;
             }
         }
 

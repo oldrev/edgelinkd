@@ -40,12 +40,15 @@ async def _completion_messages(mode, inputs, expected, *, count=2, interval=2, m
     tab = red_id(f"batch-complete-{mode}-tab")
     batch = red_id(f"batch-complete-{mode}-node")
     complete = red_id(f"batch-complete-{mode}-complete")
+    catch = red_id(f"batch-complete-{mode}-catch")
     collector = red_id(f"batch-complete-{mode}-collector")
     flows = [
         {"id": tab, "type": "tab"},
         {"id": batch, "z": tab, "type": "batch", "mode": mode, "count": count,
          "interval": interval, "topics": [{"topic": "TA"}], "wires": [[]]},
         {"id": complete, "z": tab, "type": "complete", "scope": [batch], "uncaught": False,
+         "wires": [[collector]]},
+        {"id": catch, "z": tab, "type": "catch", "scope": [batch], "uncaught": False,
          "wires": [[collector]]},
         {"id": collector, "z": tab, "type": "test-once"},
     ]
