@@ -29,6 +29,12 @@ jobs:
           hugo-version: '0.158.0'
           extended: false
 
+      - name: Fetch latest beta release
+        run: python ../scripts/fetch-latest-release.py
+        working-directory: website
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build Hugo site
         run: hugo --minify --baseURL "https://oldrev.github.io/edgelinkd/"
         working-directory: website
@@ -54,6 +60,12 @@ jobs:
         with:
           hugo-version: '0.158.0'
           extended: false
+
+      - name: Fetch latest beta release
+        run: python ../scripts/fetch-latest-release.py
+        working-directory: website
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Hugo site
         run: hugo --minify --baseURL "https://oldrev.github.io/edgelinkd/"

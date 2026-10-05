@@ -1,6 +1,6 @@
 [package]
 name = "edgelink-macro"
-version = "0.1.99"
+version.workspace = true
 edition = "2024"
 
 [lib]

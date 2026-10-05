@@ -4,9 +4,9 @@ description: "Build EdgeLinkd from source, run your first flow with the built-in
 weight: 10
 ---
 
-This guide builds a release binary from source, runs it with the built-in Node-RED editor, and then shows the headless setup used in production. Prebuilt nightly packages are also available on [GitHub Releases](https://github.com/oldrev/edgelinkd/releases).
+This guide builds a release binary from source, runs it with the built-in Node-RED editor, and then shows the headless setup used in production. Prebuilt beta packages are also available on [GitHub Releases](https://github.com/oldrev/edgelinkd/releases).
 
-> **Project status:** EdgeLinkd is in **alpha**. Interfaces and behaviour may change between nightly builds.
+> **Project status:** EdgeLinkd is in **beta**. Interfaces and behaviour may change between beta releases.
 
 ## Prerequisites
 

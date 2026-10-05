@@ -1,6 +1,6 @@
 [package]
 name = "edgelink-web"
-version = "0.1.99"
+version.workspace = true
 edition = "2024"
 
 [dependencies]

@@ -12,7 +12,7 @@ For more information, visit the website: https://github.com/oldrev/edgelink
 
 #[derive(Parser, Debug, Clone)]
 #[command(
-    version = concat!(env!("CARGO_PKG_VERSION"), " • #", env!("EDGELINK_BUILD_GIT_HASH"), " • built at ", env!("EDGELINK_BUILD_TIME")), 
+    version = concat!(env!("EDGELINK_VERSION"), " • #", env!("EDGELINK_BUILD_GIT_HASH"), " • built at ", env!("EDGELINK_BUILD_TIME")),
     about,
     author,
     long_about=LONG_ABOUT,

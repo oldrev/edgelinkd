@@ -1,3 +1,4 @@
 /public/
 /resources/_gen/
 .hugo_build.lock
+/data/release.json

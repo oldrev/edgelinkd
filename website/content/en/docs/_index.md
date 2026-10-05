@@ -13,4 +13,4 @@ These pages cover what you need to evaluate and operate it:
 - **[Architecture](architecture/)** — how the crates fit together and how a message moves through the engine.
 - **[Compatibility](compatibility/)** — what "Node-RED compatible" means here, and what to check before migrating flows.
 
-> EdgeLinkd is in **alpha**. Behaviour can change between nightly builds. The project [README](https://github.com/oldrev/edgelinkd#readme) and the [spec coverage report](https://github.com/oldrev/edgelinkd/blob/master/tests/REDNODES-SPECS-DIFF.md) are the source of truth for current status.
+> EdgeLinkd is in **beta**. Behaviour can change between beta releases. The project [README](https://github.com/oldrev/edgelinkd#readme) and the [spec coverage report](https://github.com/oldrev/edgelinkd/blob/master/tests/REDNODES-SPECS-DIFF.md) are the source of truth for current status.

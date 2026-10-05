@@ -4,9 +4,9 @@ description: "从源码构建 EdgeLinkd，用内置编辑器运行第一个流�
 weight: 10
 ---
 
-本指南从源码构建发布版二进制，带内置的 Node-RED 编辑器运行，然后介绍生产环境使用的 headless 部署方式。[GitHub Releases](https://github.com/oldrev/edgelinkd/releases) 上也提供每日构建的预编译包。
+本指南从源码构建发布版二进制，带内置的 Node-RED 编辑器运行，然后介绍生产环境使用的 headless 部署方式。[GitHub Releases](https://github.com/oldrev/edgelinkd/releases) 上也提供 Beta 版本的预编译包。
 
-> **项目状态：** EdgeLinkd 目前处于 **alpha** 阶段，接口与行为可能在不同的每日构建之间发生变化。
+> **项目状态：** EdgeLinkd 目前处于 **beta** 阶段，接口与行为可能在不同的 Beta 版本之间发生变化。
 
 ## 前置条件
 

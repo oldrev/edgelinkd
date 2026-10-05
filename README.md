@@ -171,7 +171,7 @@ port = 1888
 
 ## Project Status
 
-**Alpha Stage**: The project is currently in the *alpha* stage and cannot guarantee stable operation.
+**Beta Stage**: The project is currently in the *beta* stage and cannot guarantee stable operation.
 
 **New: Integrated Web UI**: EdgeLinkd now includes a complete Node-RED web interface for flow design and management. The web UI is fully compatible with Node-RED's editor and provides the same user experience while running on the high-performance Rust runtime.
 

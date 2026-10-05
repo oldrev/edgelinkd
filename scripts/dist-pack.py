@@ -80,7 +80,8 @@ def main():
         ],
         help="Target triple: x86_64-pc-windows-msvc, x86_64-pc-windows-gnu, x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu, armv7-unknown-linux-gnueabihf, armv7-unknown-linux-gnueabi"
     )
-    parser.add_argument("--branch", default="master", choices=["dev", "master"], help="Branch to package")
+    parser.add_argument("--branch", default="master", choices=["dev", "master", "tag"], help="Packaging channel")
+    parser.add_argument("--version", default=None, help="Release version used in the package name")
     parser.add_argument("--mode", default="release", choices=["release", "debug"], help="Build mode")
     parser.add_argument(
         "--outdir",
@@ -91,12 +92,18 @@ def main():
 
     # 1. Get packaging time and branch
     dt_str = get_latest_commit_datetime()
+    build_number = os.environ.get("GITHUB_RUN_NUMBER", "local")
     is_nightly = args.branch == "dev"
+    is_beta = args.branch == "tag"
     # Determine archive format by target
     is_windows = args.target.startswith("x86_64-pc-windows") or args.target.startswith("x86_64-pc-windows-gnu")
     is_linux = "linux" in args.target
     if is_nightly:
         base_name = f"edgelinkd-dist-{args.target}-nightly-{dt_str}"
+    elif is_beta:
+        version = args.version or "v4.0.19-beta"
+        version = version.removeprefix("v") + "+" + build_number
+        base_name = f"edgelinkd-dist-{args.target}-{version}-{dt_str}"
     else:
         base_name = f"edgelinkd-dist-{args.target}-{dt_str}"
     if is_windows:

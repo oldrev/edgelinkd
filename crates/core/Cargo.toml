@@ -1,6 +1,6 @@
 [package]
 name = "edgelink-core"
-version = "0.1.99"
+version.workspace = true
 edition = "2024"
 readme = "README.md"
 authors = ["Li Wei <oldrev@gmail.com>"]

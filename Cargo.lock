@@ -737,7 +737,7 @@ checksum = "1c7a8fb8a9fbf66c1f703fe16184d10ca0ee9d23be5b4436400408ba54a95005"
 
 [[package]]
 name = "edgelink-app"
-version = "0.1.99"
+version = "4.0.19-beta"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -760,7 +760,7 @@ dependencies = [
 
 [[package]]
 name = "edgelink-core"
-version = "0.1.99"
+version = "4.0.19-beta"
 dependencies = [
  "anyhow",
  "arrayvec",
@@ -817,7 +817,7 @@ dependencies = [
 
 [[package]]
 name = "edgelink-macro"
-version = "0.1.99"
+version = "4.0.19-beta"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -826,7 +826,7 @@ dependencies = [
 
 [[package]]
 name = "edgelink-nodes-dummy"
-version = "0.1.99"
+version = "4.0.19-beta"
 dependencies = [
  "async-trait",
  "config",
@@ -839,7 +839,7 @@ dependencies = [
 
 [[package]]
 name = "edgelink-pymod"
-version = "0.1.99"
+version = "4.0.19-beta"
 dependencies = [
  "anyhow",
  "config",
@@ -856,7 +856,7 @@ dependencies = [
 
 [[package]]
 name = "edgelink-web"
-version = "0.1.99"
+version = "4.0.19-beta"
 dependencies = [
  "anyhow",
  "axum",

@@ -1,6 +1,6 @@
 [package]
 name = "edgelink-app"
-version = "0.1.99"
+version.workspace = true
 edition = "2021"
 rust-version = "1.88"
 readme = "README.md"
@@ -161,6 +161,10 @@ chrono = { workspace = true }
 
 [workspace]
 members = ["crates/*", "node-plugins/*"]
+resolver = "2"
+
+[workspace.package]
+version = "4.0.19-beta"
 
 [package.metadata.bundle]
 identifier = "com.github.oldrev.edgelink"

@@ -7,6 +7,8 @@ on:
       - master
       - dev
       - 'dev-*'
+    tags:
+      - 'v*'
     paths:
       - '.github/workflows/**'
       - 'src/**'
@@ -427,6 +429,53 @@ jobs:
             Automated nightly build for dev branch.
             Built on: ${{ steps.date.outputs.date }}
           files: build-out/edgelinkd-dist-x86_64-pc-windows-msvc-nightly-*.zip
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  beta-build-and-release:
+    name: Beta Build & Release (Windows)
+    needs: [fmt-and-check, clippy, build-and-test-linux]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: x86_64-pc-windows-msvc
+          override: true
+
+      - name: Build release binary
+        run: cargo build --release --workspace --target x86_64-pc-windows-msvc
+        env:
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+          EDGELINK_VERSION: 4.0.19-beta+${{ github.run_number }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install packaging dependencies
+        run: pip install tomlkit
+
+      - name: Package beta build
+        run: python ./scripts/dist-pack.py --branch tag --version "${{ github.ref_name }}" --mode release --target x86_64-pc-windows-msvc
+
+      - name: Create beta GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: EdgeLinkd ${{ github.ref_name }}
+          body: |
+            EdgeLinkd beta release based on Node-RED 4.0.9.
+            Built from tag ${{ github.ref_name }} at ${{ github.sha }}.
+          files: build-out/edgelinkd-dist-x86_64-pc-windows-msvc-*.zip
           prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

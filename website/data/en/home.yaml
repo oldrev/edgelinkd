@@ -9,8 +9,8 @@
 
 hero:
   badge:
-    tag: "Alpha"
-    text: "Nightly builds on GitHub Releases"
+    tag: "Beta"
+    text: "Latest Beta release on GitHub Releases"
     href: "https://github.com/oldrev/edgelinkd/releases"
   title: "The Node-RED runtime, **reforged in Rust**."
   lead: "EdgeLinkd runs your existing `flows.json` as a single native binary — with the full Node-RED editor built in, runtime nodes implemented in Rust, and roughly a tenth of Node-RED's memory footprint."
@@ -219,7 +219,7 @@ quickstart:
   num: "05"
   label: "Quick start"
   title: "From clone to running flows in three commands."
-  lead: "EdgeLinkd builds with stable Rust. Prebuilt nightly packages are also published on [GitHub Releases](https://github.com/oldrev/edgelinkd/releases)."
+  lead: "EdgeLinkd builds with stable Rust. Prebuilt beta packages are also published on [GitHub Releases](https://github.com/oldrev/edgelinkd/releases)."
   steps:
     - title: "Clone with submodules"
       body: "The pinned Node-RED checkout provides the editor assets and the behavioural reference."

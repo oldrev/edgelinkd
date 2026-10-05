@@ -7,8 +7,8 @@
 
 hero:
   badge:
-    tag: "Alpha"
-    text: "GitHub Releases 提供每日构建"
+    tag: "Beta"
+    text: "GitHub Releases 提供最新 Beta 版本下载"
     href: "https://github.com/oldrev/edgelinkd/releases"
   title: "**Rust 重铸**的 Node-RED 运行时，为边缘而生。"
   lead: "EdgeLinkd 以单个原生二进制文件运行你现有的 `flows.json`：内置完整的 Node-RED 编辑器，运行时节点由 Rust 实现，内存占用约为 Node-RED 的十分之一。"
@@ -217,7 +217,7 @@ quickstart:
   num: "05"
   label: "快速开始"
   title: "从克隆到运行流程，只需三条命令。"
-  lead: "EdgeLinkd 使用稳定版 Rust 构建，[GitHub Releases](https://github.com/oldrev/edgelinkd/releases) 上也提供每日构建的预编译包。"
+  lead: "EdgeLinkd 使用稳定版 Rust 构建，[GitHub Releases](https://github.com/oldrev/edgelinkd/releases) 上也提供 Beta 版本的预编译包。"
   steps:
     - title: "带子模块克隆"
       body: "固定版本的 Node-RED 子模块提供编辑器资源，同时也是行为对照基准。"
