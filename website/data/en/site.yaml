@@ -39,3 +39,4 @@ footer:
         - { label: "Sponsor on Ko-fi", href: "https://ko-fi.com/O5O2U4W4E" }
   legal: "© Li Wei and contributors · Apache License 2.0"
   trademark: "Node-RED is a trademark of the OpenJS Foundation. EdgeLinkd is an independent project and is not affiliated with or endorsed by the OpenJS Foundation."
+  ai_disclosure: "Development disclosure: the engine and runtime kernel were developed by the author; LLM tools assisted with implementation of peripheral nodes, which remain subject to human review and tests."

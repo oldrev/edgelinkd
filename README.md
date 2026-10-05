@@ -319,3 +319,7 @@ We welcome your feedback! If you encounter any issues or have suggestions, pleas
 This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENSE) file for more details.
 
 Copyright © Li Wei and other contributors. All rights reserved.
+
+## AI-assisted development disclosure
+
+The engine and runtime kernel were developed by the author. LLM tools assisted with the implementation of peripheral nodes; those changes remain subject to human review and tests.

@@ -2308,6 +2308,11 @@ html:not(.js-theme)[data-theme-pref="system"] .seg [data-theme-value="system"] {
   max-width: 62em;
 }
 
+.footer-disclosure {
+  flex-basis: 100%;
+  max-width: 90em;
+}
+
 /* ---------- 8. Docs ------------------------------------------------------ */
 
 .docs {

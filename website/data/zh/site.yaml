@@ -38,3 +38,4 @@ footer:
         - { label: "在 Ko-fi 赞助", href: "https://ko-fi.com/O5O2U4W4E" }
   legal: "© Li Wei 及全体贡献者 · Apache License 2.0"
   trademark: "Node-RED 是 OpenJS 基金会的商标。EdgeLinkd 是独立项目，与 OpenJS 基金会无隶属或背书关系。"
+  ai_disclosure: "开发声明：引擎与运行时内核由作者手工开发；外围节点的实现使用了 LLM 工具辅助，并经过人工审阅与测试。"
