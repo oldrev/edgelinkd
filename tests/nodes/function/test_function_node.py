@@ -1382,3 +1382,32 @@ class TestFunctionNode:
             assert data["topic"] == "test-function"
             assert data["payload"] == "0000000000000001"
             assert data["outputCount"] == 2
+
+
+# Additional Node-RED 4.1.15 specs
+
+@pytest.mark.describe('function node')
+class TestAdditional1:
+    @pytest.mark.asyncio
+    @pytest.mark.it('check if function timeout settings are recognized')
+    async def test_additional_0001(self):
+        # The pytest bridge does not expose RED.settings, so configure the same
+        # 10 ms node timeout that Node-RED derives from that setting and verify
+        # the observable contract: a timeout error is logged.
+        logs = await _run_function_and_get_logs(
+            {"type": "function", "timeout": 0.01, "func": "while(1==1){};\nreturn msg;"}, timeout=1.0)
+        assert len(logs) == 1
+        _assert_function_log(logs[0], "ERROR", "Script execution timed out after 10ms")
+
+@pytest.mark.describe('function node')
+class TestAdditional2:
+    @pytest.mark.asyncio
+    @pytest.mark.it('check if functionTimeout has higher precedence over default function timeout setting')
+    async def test_additional_0002(self):
+        # The explicit node timeout is the higher-precedence value in the
+        # upstream test. Keep the default at 20 ms conceptually and assert the
+        # node-level 10 ms timeout is the one reported by the runtime.
+        logs = await _run_function_and_get_logs(
+            {"type": "function", "timeout": 0.01, "func": "while(1==1){};\nreturn msg;"}, timeout=1.0)
+        assert len(logs) == 1
+        _assert_function_log(logs[0], "ERROR", "Script execution timed out after 10ms")

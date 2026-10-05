@@ -89,7 +89,7 @@ pub struct MetaNode {
     pub red_id: &'static str,   // Like "node-red/inject"
     pub red_name: &'static str, // Like "inject"
     pub module: &'static str,   // Like "node-red"
-    pub version: &'static str,  // Like"4.0.9"
+    pub version: &'static str,  // Like "4.1.15"
     pub local: bool,            // Default: false
     pub user: bool,             // Default: false
 }
@@ -97,6 +97,7 @@ pub struct MetaNode {
 #[derive(Debug)]
 pub struct BaseFlowNodeState {
     pub id: ElementId,
+    pub red_id: String,
     pub name: String,
     pub type_str: &'static str,
     pub ordering: usize,
@@ -638,6 +639,7 @@ mod tests {
 
         let base = BaseFlowNodeState {
             id: ElementId::new(),
+            red_id: String::new(),
             name: "fan-out-test".to_owned(),
             type_str: "fan-out-test",
             ordering: 0,

@@ -93,6 +93,9 @@ pub struct RedFlowNodeConfig {
     #[serde(deserialize_with = "deser::deser_red_id")]
     pub id: ElementId,
 
+    #[serde(skip, default)]
+    pub red_id: String,
+
     #[serde(alias = "type")]
     pub type_name: String,
 

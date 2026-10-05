@@ -13,6 +13,7 @@ import tempfile
 import pytest
 import io
 import contextlib
+import platform
 
 from colorama import init as colorama_init
 from colorama import Fore
@@ -56,17 +57,28 @@ def extract_it_strings_js(red_dir, file_path) -> list[str]:
     original_cwd = os.getcwd()
     os.chdir(red_dir)
     try:
+        # Pass argv directly. On Windows, ``shell=True`` with a list only executes the
+        # first item (``mocha``) and drops the test path/options, leaving an empty report.
+        local_mocha = os.path.join(red_dir, "node_modules", ".bin", "mocha.cmd" if platform.system() == "Windows" else "mocha")
+        mocha = local_mocha if os.path.exists(local_mocha) else "mocha"
         result = subprocess.run([
-            'mocha',
+            mocha,
             os.path.relpath(file_path, red_dir), "--dry-run", "--reporter=json", "--exit",
             "--reporter-options", f"output={report_file_path}"
-        ], shell=True)
+        ], cwd=red_dir, capture_output=True, text=True)
 
         # Read the report after mocha finishes
-        if os.path.exists(report_file_path):
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"mocha failed for {file_path} (exit {result.returncode}):\n"
+                f"{result.stdout}\n{result.stderr}"
+            )
+        if os.path.exists(report_file_path) and os.path.getsize(report_file_path) > 0:
             report = load_json(report_file_path)
             for test in report['tests']:
                 specs.append(test['fullTitle'].rstrip())
+        else:
+            raise RuntimeError(f"mocha produced no JSON report for {file_path}")
     finally:
         os.chdir(original_cwd)
         # Clean up the temporary file

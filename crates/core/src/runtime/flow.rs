@@ -732,6 +732,7 @@ impl Flow {
 
         Ok(BaseFlowNodeState {
             id: node_config.id,
+            red_id: if node_config.red_id.is_empty() { node_config.id.to_string() } else { node_config.red_id.clone() },
             name: node_config.name.clone(),
             type_str: meta_node.type_,
             ordering: node_config.ordering,

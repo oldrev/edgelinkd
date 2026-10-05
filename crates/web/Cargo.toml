@@ -2,6 +2,7 @@
 name = "edgelink-web"
 version.workspace = true
 edition = "2024"
+build = "build.rs"
 
 [dependencies]
 inventory.workspace = true

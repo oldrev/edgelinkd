@@ -497,7 +497,7 @@ impl FlowNodeBehavior for DebugNode {
                                 let msgid = msg.get("_msgid").and_then(|id| id.as_str());
 
                                 let debug_msg = create_debug_message(
-                                    &self.id().to_string(),
+                                    &self.base.red_id,
                                     if self.name().is_empty() { None } else { Some(self.name()) },
                                     value.as_ref(),
                                     property,
@@ -536,7 +536,8 @@ mod debug_web {
     use crate::web::StaticWebHandler;
     use crate::web::web_state_trait::WebStateCore;
     use axum::Extension;
-    use axum::extract::{Json, Path};
+    use axum::body::Bytes;
+    use axum::extract::Path;
     use axum::{http::StatusCode, response::IntoResponse};
     use std::sync::Arc;
 
@@ -592,15 +593,57 @@ mod debug_web {
         nodes: Vec<String>,
     }
 
+    fn decode_form_value(value: &str) -> Result<String, ()> {
+        let mut decoded = Vec::with_capacity(value.len());
+        let bytes = value.as_bytes();
+        let mut index = 0;
+        while index < bytes.len() {
+            match bytes[index] {
+                b'+' => decoded.push(b' '),
+                b'%' if index + 2 < bytes.len() => {
+                    let high = (bytes[index + 1] as char).to_digit(16).ok_or(())?;
+                    let low = (bytes[index + 2] as char).to_digit(16).ok_or(())?;
+                    decoded.push((high * 16 + low) as u8);
+                    index += 2;
+                }
+                b'%' => return Err(()),
+                byte => decoded.push(byte),
+            }
+            index += 1;
+        }
+        String::from_utf8(decoded).map_err(|_| ())
+    }
+
+    fn parse_bulk_request(body: &Bytes) -> Result<BulkDebugRequest, ()> {
+        if let Ok(request) = serde_json::from_slice(body) {
+            return Ok(request);
+        }
+
+        let body = std::str::from_utf8(body).map_err(|_| ())?;
+        let nodes = body
+            .split('&')
+            .filter_map(|pair| pair.split_once('='))
+            .filter_map(|(key, value)| {
+                let key = decode_form_value(key).ok()?;
+                (key == "nodes[]" || key == "nodes").then_some(value)
+            })
+            .map(decode_form_value)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(BulkDebugRequest { nodes })
+    }
+
     /// Handle Node-RED's bulk debug state endpoint (`POST /debug/{action}`).
     pub async fn debug_bulk_action_handler(
         Path(action): Path<String>,
         Extension(state): Extension<Arc<dyn WebStateCore + Send + Sync>>,
-        Json(request): Json<BulkDebugRequest>,
+        body: Bytes,
     ) -> axum::response::Response {
         if action != "enable" && action != "disable" {
             return StatusCode::NOT_FOUND.into_response();
         }
+        let Ok(request) = parse_bulk_request(&body) else {
+            return StatusCode::BAD_REQUEST.into_response();
+        };
         if request.nodes.is_empty() {
             return StatusCode::BAD_REQUEST.into_response();
         }

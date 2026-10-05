@@ -89,7 +89,7 @@ pub struct NodeInfo {
 /*
 {
     "httpNodeRoot": "/",
-    "version": "4.0.9",
+    "version": "4.1.15",
     "context": {
         "default": "memory0",
         "stores": [
@@ -281,7 +281,7 @@ pub struct ApiResponse<T> {
 impl Default for RedSystemSettings {
     fn default() -> Self {
         Self {
-            version: "3.1.0".to_string(),
+            version: "4.1.15".to_string(),
             http_node_root: "/".to_string(),
             http_admin_root: "/".to_string(),
             http_static: None,

@@ -116,3 +116,28 @@ class TestRangeNode:
     @pytest.mark.it('should load some defaults')
     async def test_should_load_some_defaults(self):
         pass
+
+# Node-RED 4.1.15 range edge cases
+@pytest.mark.describe('range Node')
+class TestRangeNodeAdditional:
+    @pytest.mark.asyncio
+    @pytest.mark.it('clamps numbers within a range - above max fp')
+    async def test_additional_0001(self):
+        await _generic_range_test("clamp", 0, 9.5, 0.5, 100.5, True, 13.1, 100)
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('clamps numbers within a range - below min fp')
+    async def test_additional_0002(self):
+        await _generic_range_test("clamp", 0, 9.5, 0.3, 100.5, True, -13.1, 1)
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('handles input range where max < min')
+    async def test_additional_0003(self):
+        await _generic_range_test("scale", 100, 0, 0, -100, False, 40, -60)
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('handles input range where max < min')
+    async def test_additional_0004(self):
+        await _generic_range_test("scale", 100, 0, -100, 0, False, 10, -10)
+
+

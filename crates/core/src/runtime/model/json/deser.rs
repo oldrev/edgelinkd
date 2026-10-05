@@ -150,6 +150,7 @@ pub fn load_flows_json_value(root_jv: JsonValue) -> crate::Result<ResolvedFlows>
 
         for (i, flow_node_jv) in owned_node_jvs.into_iter().enumerate() {
             let mut node_config: RedFlowNodeConfig = serde_json::from_value(flow_node_jv.clone())?;
+            node_config.red_id = flow_node_jv.get("id").and_then(JsonValue::as_str).unwrap_or_default().to_owned();
             node_config.ordering = i;
             flow_config.nodes.push(node_config);
         }

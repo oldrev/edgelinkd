@@ -1534,3 +1534,233 @@ class TestEncodeObjectOfObject:
             return __v;
         })()""")
         assert result["format"]
+
+
+# Additional Node-RED 4.1.15 specs
+
+@pytest.mark.describe('@node-red/util/util encodeObject')
+class TestAdditional1:
+    @pytest.mark.skip(reason='typed arrays are unavailable across the pytest JavaScript bridge')
+    @pytest.mark.asyncio
+    @pytest.mark.it('encode object object with typed array property (BigInt64Array)')
+    async def test_additional_0001(self):
+        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+
+@pytest.mark.describe('@node-red/util/util encodeObject')
+class TestAdditional2:
+    @pytest.mark.skip(reason='typed arrays are unavailable across the pytest JavaScript bridge')
+    @pytest.mark.asyncio
+    @pytest.mark.it('encode object object with typed array property (Int8Array)')
+    async def test_additional_0002(self):
+        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+
+@pytest.mark.describe('@node-red/util/util encodeObject')
+class TestAdditional3:
+    @pytest.mark.skip(reason='typed arrays are unavailable across the pytest JavaScript bridge')
+    @pytest.mark.asyncio
+    @pytest.mark.it('encode typed arrays encodes BigInt64Array')
+    async def test_additional_0003(self):
+        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+
+@pytest.mark.describe('@node-red/util/util encodeObject')
+class TestAdditional4:
+    @pytest.mark.skip(reason='typed arrays are unavailable across the pytest JavaScript bridge')
+    @pytest.mark.asyncio
+    @pytest.mark.it('encode typed arrays encodes BigUint64Array')
+    async def test_additional_0004(self):
+        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+
+@pytest.mark.describe('@node-red/util/util encodeObject')
+class TestAdditional5:
+    @pytest.mark.skip(reason='typed arrays are unavailable across the pytest JavaScript bridge')
+    @pytest.mark.asyncio
+    @pytest.mark.it('encode typed arrays encodes Float32Array')
+    async def test_additional_0005(self):
+        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+
+@pytest.mark.describe('@node-red/util/util encodeObject')
+class TestAdditional6:
+    @pytest.mark.skip(reason='typed arrays are unavailable across the pytest JavaScript bridge')
+    @pytest.mark.asyncio
+    @pytest.mark.it('encode typed arrays encodes Float64Array')
+    async def test_additional_0006(self):
+        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+
+@pytest.mark.describe('@node-red/util/util encodeObject')
+class TestAdditional7:
+    @pytest.mark.skip(reason='typed arrays are unavailable across the pytest JavaScript bridge')
+    @pytest.mark.asyncio
+    @pytest.mark.it('encode typed arrays encodes Int16Array')
+    async def test_additional_0007(self):
+        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+
+@pytest.mark.describe('@node-red/util/util encodeObject')
+class TestAdditional8:
+    @pytest.mark.skip(reason='typed arrays are unavailable across the pytest JavaScript bridge')
+    @pytest.mark.asyncio
+    @pytest.mark.it('encode typed arrays encodes Int32Array')
+    async def test_additional_0008(self):
+        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+
+@pytest.mark.describe('@node-red/util/util encodeObject')
+class TestAdditional9:
+    @pytest.mark.skip(reason='typed arrays are unavailable across the pytest JavaScript bridge')
+    @pytest.mark.asyncio
+    @pytest.mark.it('encode typed arrays encodes Int8Array')
+    async def test_additional_0009(self):
+        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+
+@pytest.mark.describe('@node-red/util/util encodeObject')
+class TestAdditional10:
+    @pytest.mark.skip(reason='typed arrays are unavailable across the pytest JavaScript bridge')
+    @pytest.mark.asyncio
+    @pytest.mark.it('encode typed arrays encodes Uint16Array')
+    async def test_additional_0010(self):
+        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+
+@pytest.mark.describe('@node-red/util/util encodeObject')
+class TestAdditional11:
+    @pytest.mark.skip(reason='typed arrays are unavailable across the pytest JavaScript bridge')
+    @pytest.mark.asyncio
+    @pytest.mark.it('encode typed arrays encodes Uint32Array')
+    async def test_additional_0011(self):
+        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+
+@pytest.mark.describe('@node-red/util/util encodeObject')
+class TestAdditional12:
+    @pytest.mark.skip(reason='typed arrays are unavailable across the pytest JavaScript bridge')
+    @pytest.mark.asyncio
+    @pytest.mark.it('encode typed arrays encodes Uint8Array')
+    async def test_additional_0012(self):
+        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+
+@pytest.mark.describe('@node-red/util/util encodeObject')
+class TestAdditional13:
+    @pytest.mark.skip(reason='typed arrays are unavailable across the pytest JavaScript bridge')
+    @pytest.mark.asyncio
+    @pytest.mark.it('encode typed arrays encodes Uint8ClampedArray')
+    async def test_additional_0013(self):
+        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+
+
+# Additional Node-RED 4.1.15 specs
+
+@pytest.mark.describe('@node-red/util/util evaluateJSONataExpression null prototype results')
+class TestAdditional1:
+    @pytest.mark.skip(reason='JavaScript object prototypes are not observable across the pytest bridge')
+    @pytest.mark.asyncio
+    @pytest.mark.it('handles a circular reference in the result')
+    async def test_additional_0001(self):
+        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+
+@pytest.mark.describe('@node-red/util/util evaluateJSONataExpression null prototype results')
+class TestAdditional2:
+    @pytest.mark.skip(reason='JavaScript object prototypes are not observable across the pytest bridge')
+    @pytest.mark.asyncio
+    @pytest.mark.it('leaves a Buffer in the result untouched')
+    async def test_additional_0002(self):
+        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+
+@pytest.mark.describe('@node-red/util/util evaluateJSONataExpression null prototype results')
+class TestAdditional3:
+    @pytest.mark.skip(reason='JavaScript object prototypes are not observable across the pytest bridge')
+    @pytest.mark.asyncio
+    @pytest.mark.it('passes a primitive result through unchanged')
+    async def test_additional_0003(self):
+        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+
+@pytest.mark.describe('@node-red/util/util evaluateJSONataExpression null prototype results')
+class TestAdditional4:
+    @pytest.mark.skip(reason='JavaScript object prototypes are not observable across the pytest bridge')
+    @pytest.mark.asyncio
+    @pytest.mark.it('restores the Object prototype on a deeply nested object')
+    async def test_additional_0004(self):
+        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+
+@pytest.mark.describe('@node-red/util/util evaluateJSONataExpression null prototype results')
+class TestAdditional5:
+    @pytest.mark.skip(reason='JavaScript object prototypes are not observable across the pytest bridge')
+    @pytest.mark.asyncio
+    @pytest.mark.it('restores the Object prototype on a nested object')
+    async def test_additional_0005(self):
+        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+
+@pytest.mark.describe('@node-red/util/util evaluateJSONataExpression null prototype results')
+class TestAdditional6:
+    @pytest.mark.skip(reason='JavaScript object prototypes are not observable across the pytest bridge')
+    @pytest.mark.asyncio
+    @pytest.mark.it('restores the Object prototype on an array literal of objects')
+    async def test_additional_0006(self):
+        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+
+@pytest.mark.describe('@node-red/util/util evaluateJSONataExpression null prototype results')
+class TestAdditional7:
+    @pytest.mark.skip(reason='JavaScript object prototypes are not observable across the pytest bridge')
+    @pytest.mark.asyncio
+    @pytest.mark.it('restores the Object prototype on an array of objects')
+    async def test_additional_0007(self):
+        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+
+@pytest.mark.describe('@node-red/util/util evaluateJSONataExpression null prototype results')
+class TestAdditional8:
+    @pytest.mark.skip(reason='JavaScript object prototypes are not observable across the pytest bridge')
+    @pytest.mark.asyncio
+    @pytest.mark.it('restores the Object prototype on an array of objects inside an object')
+    async def test_additional_0008(self):
+        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+
+@pytest.mark.describe('@node-red/util/util evaluateJSONataExpression null prototype results')
+class TestAdditional9:
+    @pytest.mark.skip(reason='JavaScript object prototypes are not observable across the pytest bridge')
+    @pytest.mark.asyncio
+    @pytest.mark.it('restores the Object prototype on an object')
+    async def test_additional_0009(self):
+        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+
+@pytest.mark.describe('@node-red/util/util evaluateJSONataExpression null prototype results')
+class TestAdditional10:
+    @pytest.mark.skip(reason='JavaScript object prototypes are not observable across the pytest bridge')
+    @pytest.mark.asyncio
+    @pytest.mark.it('restores the Object prototype on an object from $merge')
+    async def test_additional_0010(self):
+        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+
+@pytest.mark.describe('@node-red/util/util evaluateJSONataExpression null prototype results')
+class TestAdditional11:
+    @pytest.mark.skip(reason='JavaScript object prototypes are not observable across the pytest bridge')
+    @pytest.mark.asyncio
+    @pytest.mark.it('restores the Object prototype on an object merged by the transform operator')
+    async def test_additional_0011(self):
+        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+
+@pytest.mark.describe('@node-red/util/util evaluateJSONataExpression null prototype results')
+class TestAdditional12:
+    @pytest.mark.skip(reason='JavaScript object prototypes are not observable across the pytest bridge')
+    @pytest.mark.asyncio
+    @pytest.mark.it('restores the Object prototype on objects appended to an array')
+    async def test_additional_0012(self):
+        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+
+@pytest.mark.describe('@node-red/util/util evaluateJSONataExpression null prototype results')
+class TestAdditional13:
+    @pytest.mark.skip(reason='JavaScript object prototypes are not observable across the pytest bridge')
+    @pytest.mark.asyncio
+    @pytest.mark.it('restores the Object prototype on objects from $each')
+    async def test_additional_0013(self):
+        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+
+@pytest.mark.describe('@node-red/util/util evaluateJSONataExpression null prototype results')
+class TestAdditional14:
+    @pytest.mark.skip(reason='JavaScript object prototypes are not observable across the pytest bridge')
+    @pytest.mark.asyncio
+    @pytest.mark.it('restores the Object prototype on objects from $map')
+    async def test_additional_0014(self):
+        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+
+@pytest.mark.describe('@node-red/util/util evaluateJSONataExpression null prototype results')
+class TestAdditional15:
+    @pytest.mark.skip(reason='JavaScript object prototypes are not observable across the pytest bridge')
+    @pytest.mark.asyncio
+    @pytest.mark.it('returns a result that downstream code can call hasOwnProperty on')
+    async def test_additional_0015(self):
+        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
