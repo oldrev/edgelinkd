@@ -293,10 +293,8 @@ jobs:
           key: ${{ runner.os }}-node-modules-${{ hashFiles('3rd-party/node-red/package-lock.json') }}
           restore-keys: |
             ${{ runner.os }}-node-modules-
-
-
-      # - name: Install dependencies
-      #   run: sudo apt-get -y install qemu-user qemu-user-static
+      - name: Install QEMU user emulators
+        run: sudo apt-get update && sudo apt-get install -y qemu-user-static
 
       - name: Setup cross-compilation tools for ARM 64
         if: matrix.target == 'aarch64-unknown-linux-gnu'
