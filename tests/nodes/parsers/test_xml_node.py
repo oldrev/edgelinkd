@@ -74,7 +74,7 @@ class TestXmlNode:
         assert '<firstName>John</firstName>' in xml_out
         assert '<lastName>Smith</lastName>' in xml_out
 
-    @pytest.mark.skip
+    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should log an error if asked to parse an invalid xml string')
     async def test_invalid_xml_string(self):
@@ -83,7 +83,7 @@ class TestXmlNode:
         with pytest.raises(Exception):
             await run_single_node_with_msgs_ntimes(node, injections, 1)
 
-    @pytest.mark.skip
+    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should log an error if asked to parse something thats not xml or js')
     async def test_not_xml_or_js(self):

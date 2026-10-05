@@ -129,7 +129,7 @@ class TestFunctionNode:
         assert msgs[0]["topic"] == "bar"
         assert msgs[0]["payload"] == "foo"
 
-    @pytest.mark.skip
+    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should clone single message sent using send()')
     async def test_it_should_clone_single_message_sent_using_send_2(self):
@@ -137,7 +137,7 @@ class TestFunctionNode:
 
     # Not supported, yet
 
-    @pytest.mark.skip
+    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should not clone single message sent using send(,false)')
     async def test_it_should_not_clone_single_message_sent_using_send_false(self):
@@ -225,7 +225,7 @@ class TestFunctionNode:
 
     # TODO the testing frame has no way to handle time-out for now
 
-    @pytest.mark.skip
+    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should allow input to be discarded by returning null')
     async def test_it_should_allow_input_to_be_discarded_by_returning_null(self):
@@ -289,31 +289,31 @@ class TestFunctionNode:
         # assert msgs[0]["type"] == 'function'
         # assert msgs[0]["msg"] == 'function.error.non-message-returned'
 
-    @pytest.mark.skip
+    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should drop and log non-object message types - string')
     async def test_it_should_drop_and_log_non_object_message_types_string(self):
         await self._test_non_object_message('return "foo"')
 
-    @pytest.mark.skip
+    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should drop and log non-object message types - buffer')
     async def test_it_should_drop_and_log_non_object_message_types_buffer(self):
         await self._test_non_object_message('return Buffer.from("hello")')
 
-    @pytest.mark.skip
+    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should drop and log non-object message types - array')
     async def test_it_should_drop_and_log_non_object_message_types_array(self):
         await self._test_non_object_message('return [[[1,2,3]]]')
 
-    @pytest.mark.skip
+    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should drop and log non-object message types - boolean')
     async def test_it_should_drop_and_log_non_object_message_types_boolean(self):
         await self._test_non_object_message('return true')
 
-    @pytest.mark.skip
+    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should drop and log non-object message types - number')
     async def test_it_should_drop_and_log_non_object_message_types_number(self):
@@ -937,7 +937,7 @@ class TestFunctionNode:
         assert msgs[0]["payload"] == "0"
 
     # Not finished, yet
-    @pytest.mark.skip
+    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should handle setTimeout()')
     async def test_it_should_handle_settimeout(self):
@@ -954,7 +954,7 @@ class TestFunctionNode:
         assert msgs[0]["topic"] == "bar"
         assert msgs[0]["payload"] == "foo"
 
-    @pytest.mark.skip
+    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should handle setInterval()')
     async def test_it_should_handle_setinterval(self):
@@ -971,7 +971,7 @@ class TestFunctionNode:
         assert msgs[0]["topic"] == "bar"
         assert msgs[0]["payload"] == "foo"
 
-    @pytest.mark.skip
+    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should handle clearInterval()')
     async def test_it_should_handle_clearinterval(self):

@@ -77,7 +77,7 @@ class TestJsonNode:
         msgs = await run_single_node_with_msgs_ntimes(node, injections, 1)
         assert msgs[0]["payload"] == 1962
 
-    @pytest.mark.skip
+    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should log an error if asked to parse an invalid json string')
     async def test_invalid_json_string(self):
@@ -189,7 +189,7 @@ class TestJsonNode:
         msgs = await run_single_node_with_msgs_ntimes(node, injections, 1)
         assert msgs[0]["payload"] == '{"number":3,"string":"allo"}'
 
-    @pytest.mark.skip
+    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should log an error if passed an invalid object and valid schema')
     async def test_invalid_object_with_schema(self):
@@ -200,7 +200,7 @@ class TestJsonNode:
         with pytest.raises(Exception):
             await run_single_node_with_msgs_ntimes(node, injections, 1)
 
-    @pytest.mark.skip
+    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should log an error if passed an invalid object and valid schema and action is object')
     async def test_invalid_object_with_schema_action_obj(self):
@@ -211,7 +211,7 @@ class TestJsonNode:
         with pytest.raises(Exception):
             await run_single_node_with_msgs_ntimes(node, injections, 1)
 
-    @pytest.mark.skip
+    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should log an error if passed an invalid JSON string and valid schema')
     async def test_invalid_json_string_with_schema(self):
@@ -222,7 +222,7 @@ class TestJsonNode:
         with pytest.raises(Exception):
             await run_single_node_with_msgs_ntimes(node, injections, 1)
 
-    @pytest.mark.skip
+    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should log an error if passed an invalid JSON string and valid schema and action is string')
     async def test_invalid_json_string_with_schema_action_str(self):
@@ -233,7 +233,7 @@ class TestJsonNode:
         with pytest.raises(Exception):
             await run_single_node_with_msgs_ntimes(node, injections, 1)
 
-    @pytest.mark.skip
+    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should log an error if passed a valid object and invalid schema')
     async def test_valid_object_with_invalid_schema(self):
