@@ -27,7 +27,7 @@ module:
 
 params:
   repo: "https://github.com/oldrev/edgelinkd"
-  version: "4.0.19-beta"
+  version: "4.1.15-beta"
 
 languages:
   en:
