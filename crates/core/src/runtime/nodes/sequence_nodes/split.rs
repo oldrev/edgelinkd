@@ -1,569 +1,406 @@
-use std::collections::BTreeMap;
-use std::sync::Arc;
-
-use rand;
-use serde::Deserialize;
-use serde_json::Number;
-use tokio::sync::Mutex;
-
+// Licensed under the Apache License, Version 2.0
+// Based on Node-RED 4.0.9's 17-split.js.
 use crate::runtime::flow::Flow;
 use crate::runtime::nodes::*;
 use edgelink_macro::*;
+use serde::Deserialize;
+use std::collections::BTreeMap;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
-enum SplitType {
-    #[serde(rename = "str")]
-    #[default]
-    String,
-    #[serde(rename = "bin")]
-    Binary,
-    #[serde(rename = "len")]
-    Length,
-}
-
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Deserialize)]
 struct SplitNodeConfig {
-    /// Whether to split streaming data
     #[serde(default)]
     stream: bool,
-    /// Type of split operation (string, binary, or length)
-    #[serde(rename = "spltType", default)]
-    split_type: SplitType,
-    /// Split delimiter (string, binary array, or length)
-    #[serde(rename = "splt", default = "split_default_delimiter", deserialize_with = "deserialize_split_value")]
-    split: String,
-    /// Array split length
-    #[serde(rename = "arraySplt", default = "array_split_default")]
-    array_split: usize,
-    /// Property to split (default: payload)
-    #[serde(default = "property_default")]
+    #[serde(rename = "spltType", default = "str_type")]
+    split_type: String,
+    #[serde(rename = "splt", default = "delimiter")]
+    split: serde_json::Value,
+    #[serde(rename = "arraySplt", default = "one")]
+    array_split: serde_json::Value,
+    #[serde(default = "payload")]
     property: String,
-    /// Property name to add for object keys
     #[serde(rename = "addname", default)]
     add_name: String,
-
-    #[allow(dead_code)]
-    #[serde(default)]
-    outputs: usize,
 }
-
-fn split_default_delimiter() -> String {
-    "\\n".to_string()
+fn str_type() -> String {
+    "str".into()
 }
-
-fn deserialize_split_value<'de, D>(deserializer: D) -> Result<String, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let value = serde_json::Value::deserialize(deserializer)?;
-    Ok(match value {
-        serde_json::Value::String(value) => value,
-        serde_json::Value::Number(value) => value.to_string(),
-        serde_json::Value::Null => String::new(),
-        other => other.to_string(),
-    })
+fn delimiter() -> serde_json::Value {
+    serde_json::json!("\\n")
 }
-
-fn array_split_default() -> usize {
-    1
+fn one() -> serde_json::Value {
+    serde_json::json!(1)
 }
-
-fn property_default() -> String {
-    "payload".to_string()
-}
-
-#[derive(Debug, Default)]
-struct SplitNodeState {
-    /// Counter for parts
-    counter: u64,
-    /// Buffer for streaming data
-    buffer: Vec<u8>,
-    /// String remainder for streaming text
-    remainder: String,
-    /// Track if we have pending operations for streaming mode
-    has_pending: bool,
+fn payload() -> String {
+    "payload".into()
 }
 
 #[derive(Debug)]
-#[flow_node("split", red_name = "split")]
-struct SplitNode {
-    base: BaseFlowNodeState,
-    config: SplitNodeConfig,
-    /// Processed split delimiter
-    split_delimiter: Option<SplitDelimiter>,
-    state: Mutex<SplitNodeState>,
-}
-
-#[derive(Debug, Clone)]
 enum SplitDelimiter {
     String(String),
     Binary(Vec<u8>),
     Length(usize),
 }
-
+#[derive(Debug, Default)]
+struct SplitNodeState {
+    counter: u64,
+    buffer: Vec<u8>,
+    remainder: String,
+    pending: Vec<MsgHandle>,
+}
+type SplitResult = (Vec<Msg>, Vec<MsgHandle>, bool);
+#[derive(Debug)]
+#[flow_node("split", red_name = "split")]
+struct SplitNode {
+    base: BaseFlowNodeState,
+    config: SplitNodeConfig,
+    delimiter: SplitDelimiter,
+    array_length: usize,
+    state: Mutex<SplitNodeState>,
+}
+// Node-RED uses parseInt(), accepting numeric editor strings and truncating decimals.
+fn parse_length(value: &serde_json::Value) -> crate::Result<usize> {
+    let text = value.as_str().map(str::to_owned).unwrap_or_else(|| value.to_string());
+    let text = text.trim_start().trim_start_matches('+');
+    let digits: String = text.chars().take_while(char::is_ascii_digit).collect();
+    digits
+        .parse::<usize>()
+        .ok()
+        .filter(|n| *n > 0)
+        .ok_or_else(|| EdgelinkError::invalid_operation("Invalid split property: length must be positive"))
+}
 impl SplitNode {
     fn build(
         _flow: &Flow,
-        base_node: BaseFlowNodeState,
+        base: BaseFlowNodeState,
         config: &RedFlowNodeConfig,
         _options: Option<&config::Config>,
     ) -> crate::Result<Box<dyn FlowNodeBehavior>> {
-        let split_config = SplitNodeConfig::deserialize(&config.rest)?;
-
-        // Process the split delimiter based on type
-        let split_delimiter = match split_config.split_type {
-            SplitType::String => {
-                let processed = split_config
-                    .split
-                    .replace("\\n", "\n")
-                    .replace("\\r", "\r")
-                    .replace("\\t", "\t")
-                    .replace("\\e", "\x1b")
-                    .replace("\\f", "\x0c")
-                    .replace("\\0", "\0");
-                Some(SplitDelimiter::String(processed))
-            }
-            SplitType::Binary => {
-                let array: Option<Vec<u8>> = serde_json::from_str(&split_config.split).ok();
-                array.map(SplitDelimiter::Binary)
-            }
-            SplitType::Length => {
-                split_config.split.parse::<usize>().ok().filter(|len| *len >= 1).map(SplitDelimiter::Length)
-            }
-        };
-
-        let split_delimiter = if split_config.array_split < 1 { None } else { split_delimiter };
-
-        let node = SplitNode {
-            base: base_node,
-            config: split_config,
-            split_delimiter,
-            state: Mutex::new(SplitNodeState::default()),
-        };
-
-        Ok(Box::new(node))
-    }
-
-    /// Generate a random ID for parts (matches Node-RED's format)
-    fn generate_id(&self) -> String {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let random_part: u64 = rand::random();
-        format!("{:x}.{:x}", timestamp as u64, random_part)
-    }
-
-    /// Split string value
-    async fn split_string(&self, msg: &mut Msg, value: String) -> crate::Result<Vec<Msg>> {
-        let mut results = Vec::new();
-        let mut state = self.state.lock().await;
-
-        // Combine with remainder for streaming
-        let full_value = if self.config.stream { format!("{}{}", state.remainder, value) } else { value };
-
-        // Generate a single ID for all parts of this split operation
-        let parts_id = self.generate_id();
-
-        match self.split_delimiter.as_ref() {
-            Some(SplitDelimiter::String(delimiter)) => {
-                let parts: Vec<&str> = full_value.split(delimiter).collect();
-                let parts_count = parts.len();
-
-                for (i, part) in parts.iter().enumerate() {
-                    // For streaming, don't send the last part unless we're not streaming
-                    if self.config.stream && i == parts_count - 1 {
-                        state.remainder = part.to_string();
-                        break;
-                    }
-
-                    let mut new_msg = msg.clone();
-                    new_msg.set_nav(&self.config.property, Variant::String(part.to_string()), true)?;
-
-                    // Set parts information
-                    let mut parts_map = BTreeMap::new();
-                    parts_map.insert("index".to_string(), Variant::Number(Number::from(state.counter)));
-                    if !self.config.stream {
-                        parts_map.insert("count".to_string(), Variant::Number(Number::from(parts_count)));
-                    }
-                    parts_map.insert("type".to_string(), Variant::String("string".to_string()));
-                    parts_map.insert("ch".to_string(), Variant::String(delimiter.clone()));
-                    parts_map.insert("id".to_string(), Variant::String(parts_id.clone()));
-
-                    if self.config.property != "payload" {
-                        parts_map.insert("property".to_string(), Variant::String(self.config.property.clone()));
-                    }
-
-                    new_msg.set("parts".to_string(), Variant::Object(parts_map));
-                    new_msg.remove("_msgid");
-
-                    state.counter += 1;
-                    results.push(new_msg);
-                }
-
-                if !self.config.stream {
-                    state.counter = 0;
-                    state.remainder.clear();
-                }
-            }
-            Some(SplitDelimiter::Length(len)) => {
-                let char_len = full_value.chars().count();
-                let count = char_len.div_ceil(*len); // Ceiling division
-
-                if !self.config.stream {
-                    state.counter = 0;
-                }
-
-                let chars: Vec<char> = full_value.chars().collect();
-                for i in 0..count {
-                    let start = i * len;
-                    let end = std::cmp::min(start + len, chars.len());
-
-                    // For streaming, don't send the last part unless it's complete
-                    if self.config.stream && i == count - 1 && end - start < *len {
-                        state.remainder = chars[start..end].iter().collect();
-                        break;
-                    }
-
-                    let part: String = chars[start..end].iter().collect();
-                    let mut new_msg = msg.clone();
-                    new_msg.set_nav(&self.config.property, Variant::String(part), true)?;
-
-                    // Set parts information
-                    let mut parts_map = BTreeMap::new();
-                    parts_map.insert("index".to_string(), Variant::Number(Number::from(state.counter)));
-                    if !self.config.stream {
-                        parts_map.insert("count".to_string(), Variant::Number(Number::from(count)));
-                    }
-                    parts_map.insert("type".to_string(), Variant::String("string".to_string()));
-                    parts_map.insert("len".to_string(), Variant::Number(Number::from(*len)));
-                    parts_map.insert("ch".to_string(), Variant::String("".to_string()));
-                    parts_map.insert("id".to_string(), Variant::String(parts_id.clone()));
-
-                    if self.config.property != "payload" {
-                        parts_map.insert("property".to_string(), Variant::String(self.config.property.clone()));
-                    }
-
-                    new_msg.set("parts".to_string(), Variant::Object(parts_map));
-                    new_msg.remove("_msgid");
-
-                    state.counter += 1;
-                    results.push(new_msg);
-                }
-
-                if !self.config.stream {
-                    state.remainder.clear();
-                }
-            }
-            _ => {
-                return Err(crate::EdgelinkError::invalid_operation("Invalid delimiter type for string"));
-            }
+        let mut config = SplitNodeConfig::deserialize(&config.rest)?;
+        if config.property.is_empty() {
+            config.property = payload();
         }
-
-        Ok(results)
-    }
-
-    /// Split array value
-    async fn split_array(&self, msg: &mut Msg, value: Vec<Variant>) -> crate::Result<Vec<Msg>> {
-        let mut results = Vec::new();
-        let array_len = value.len();
-        let chunk_size = self.config.array_split;
-        let count = array_len.div_ceil(chunk_size); // Ceiling division
-
-        // Generate a single ID for all parts of this split operation
-        let parts_id = self.generate_id();
-
-        for i in 0..count {
-            let start = i * chunk_size;
-            let end = std::cmp::min(start + chunk_size, array_len);
-            let chunk = &value[start..end];
-
-            let chunk_value =
-                if chunk_size == 1 && !chunk.is_empty() { chunk[0].clone() } else { Variant::Array(chunk.to_vec()) };
-
-            let mut new_msg = msg.clone();
-            new_msg.set_nav(&self.config.property, chunk_value, true)?;
-
-            // Set parts information
-            let mut parts_map = BTreeMap::new();
-            parts_map.insert("index".to_string(), Variant::Number(Number::from(i)));
-            parts_map.insert("count".to_string(), Variant::Number(Number::from(count)));
-            parts_map.insert("type".to_string(), Variant::String("array".to_string()));
-            parts_map.insert("len".to_string(), Variant::Number(Number::from(chunk_size)));
-            parts_map.insert("id".to_string(), Variant::String(parts_id.clone()));
-
-            if self.config.property != "payload" {
-                parts_map.insert("property".to_string(), Variant::String(self.config.property.clone()));
-            }
-
-            new_msg.set("parts".to_string(), Variant::Object(parts_map));
-            new_msg.remove("_msgid");
-
-            results.push(new_msg);
+        if config.split_type.is_empty() {
+            config.split_type = str_type();
         }
-
-        Ok(results)
-    }
-
-    /// Split object value
-    async fn split_object(&self, msg: &mut Msg, value: BTreeMap<String, Variant>) -> crate::Result<Vec<Msg>> {
-        let mut results = Vec::new();
-        let keys: Vec<String> = value.keys().cloned().collect();
-        let count = keys.len();
-
-        for (index, key) in keys.iter().enumerate() {
-            if let Some(val) = value.get(key) {
-                let mut new_msg = msg.clone();
-                new_msg.set_nav(&self.config.property, val.clone(), true)?;
-
-                // Add key property if specified
-                if !self.config.add_name.is_empty() {
-                    new_msg.set_nav(&self.config.add_name, Variant::String(key.clone()), true)?;
-                }
-
-                // Set parts information
-                let mut parts_map = BTreeMap::new();
-                parts_map.insert("index".to_string(), Variant::Number(Number::from(index)));
-                parts_map.insert("count".to_string(), Variant::Number(Number::from(count)));
-                parts_map.insert("type".to_string(), Variant::String("object".to_string()));
-                parts_map.insert("key".to_string(), Variant::String(key.clone()));
-                parts_map.insert("id".to_string(), Variant::String(self.generate_id()));
-
-                if self.config.property != "payload" {
-                    parts_map.insert("property".to_string(), Variant::String(self.config.property.clone()));
-                }
-
-                new_msg.set("parts".to_string(), Variant::Object(parts_map));
-                new_msg.remove("_msgid");
-
-                results.push(new_msg);
-            }
-        }
-
-        Ok(results)
-    }
-
-    /// Split binary buffer value
-    async fn split_buffer(&self, msg: &mut Msg, value: Vec<u8>) -> crate::Result<Vec<Msg>> {
-        let mut results = Vec::new();
-        let mut state = self.state.lock().await;
-
-        // Combine with existing buffer for streaming
-        let mut full_buffer = state.buffer.clone();
-        full_buffer.extend_from_slice(&value);
-
-        match self.split_delimiter.as_ref() {
-            Some(SplitDelimiter::Binary(delimiter)) => {
-                // Find all occurrences of delimiter
-                let mut parts = Vec::new();
-                let mut start = 0;
-
-                while let Some(pos) =
-                    full_buffer[start..].windows(delimiter.len()).position(|window| window == delimiter)
-                {
-                    let actual_pos = start + pos;
-                    parts.push(full_buffer[start..actual_pos].to_vec());
-                    start = actual_pos + delimiter.len();
-                }
-
-                // Process all complete parts
-                for part in parts {
-                    let mut new_msg = msg.clone();
-                    new_msg.set_nav(&self.config.property, Variant::Bytes(part), true)?;
-
-                    // Set parts information
-                    let mut parts_map = BTreeMap::new();
-                    parts_map.insert("index".to_string(), Variant::Number(Number::from(state.counter)));
-                    if !self.config.stream {
-                        // For non-streaming, we don't know count yet
-                    }
-                    parts_map.insert("type".to_string(), Variant::String("buffer".to_string()));
-                    parts_map.insert(
-                        "ch".to_string(),
-                        Variant::Array(delimiter.iter().map(|&b| Variant::Number(Number::from(b))).collect()),
+        let delimiter = match config.split_type.as_str() {
+            "len" => SplitDelimiter::Length(parse_length(&config.split)?),
+            "bin" => {
+                let parsed: serde_json::Value = serde_json::from_str(config.split.as_str().ok_or_else(|| {
+                    EdgelinkError::invalid_operation("Invalid split property: expected a binary array")
+                })?)?;
+                let array = parsed
+                    .as_array()
+                    .ok_or_else(|| EdgelinkError::invalid_operation("Invalid split property: not an array"))?;
+                let bytes = array
+                    .iter()
+                    .map(|v| {
+                        let number = v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok())).unwrap_or(0.0);
+                        number.trunc().rem_euclid(256.0) as u8
+                    })
+                    .collect::<Vec<_>>();
+                if bytes.is_empty() {
+                    return Err(
+                        EdgelinkError::NotSupported("Empty binary split delimiters are not supported".into()).into()
                     );
-                    parts_map.insert("id".to_string(), Variant::String(self.generate_id()));
-
-                    if self.config.property != "payload" {
-                        parts_map.insert("property".to_string(), Variant::String(self.config.property.clone()));
-                    }
-
-                    new_msg.set("parts".to_string(), Variant::Object(parts_map));
-                    new_msg.remove("_msgid");
-
-                    state.counter += 1;
-                    results.push(new_msg);
                 }
-
-                // Update buffer with remainder
-                state.buffer = full_buffer[start..].to_vec();
-
-                // For non-streaming, send the last part if there's data
-                if !self.config.stream && !state.buffer.is_empty() {
-                    let mut new_msg = msg.clone();
-                    new_msg.set_nav(&self.config.property, Variant::Bytes(state.buffer.clone()), true)?;
-
-                    let mut parts_map = BTreeMap::new();
-                    parts_map.insert("index".to_string(), Variant::Number(Number::from(state.counter)));
-                    parts_map.insert("type".to_string(), Variant::String("buffer".to_string()));
-                    parts_map.insert(
-                        "ch".to_string(),
-                        Variant::Array(delimiter.iter().map(|&b| Variant::Number(Number::from(b))).collect()),
-                    );
-                    parts_map.insert("id".to_string(), Variant::String(self.generate_id()));
-
-                    if self.config.property != "payload" {
-                        parts_map.insert("property".to_string(), Variant::String(self.config.property.clone()));
-                    }
-
-                    new_msg.set("parts".to_string(), Variant::Object(parts_map));
-                    new_msg.remove("_msgid");
-
-                    results.push(new_msg);
-                    state.buffer.clear();
-                    state.counter = 0;
-                }
+                SplitDelimiter::Binary(bytes)
             }
-            Some(SplitDelimiter::Length(len)) => {
-                let count = full_buffer.len().div_ceil(*len);
-                if !self.config.stream {
-                    state.counter = 0;
-                }
-
-                for i in 0..count {
-                    let start = i * len;
-                    let end = std::cmp::min(start + len, full_buffer.len());
-
-                    // For streaming, don't send the last part unless it's complete
-                    if self.config.stream && i == count - 1 && end - start < *len {
-                        state.buffer = full_buffer[start..end].to_vec();
-                        break;
-                    }
-
-                    let part = full_buffer[start..end].to_vec();
-                    let mut new_msg = msg.clone();
-                    new_msg.set_nav(&self.config.property, Variant::Bytes(part), true)?;
-
-                    // Set parts information
-                    let mut parts_map = BTreeMap::new();
-                    parts_map.insert("index".to_string(), Variant::Number(Number::from(state.counter)));
-                    if !self.config.stream {
-                        parts_map.insert("count".to_string(), Variant::Number(Number::from(count)));
-                    }
-                    parts_map.insert("type".to_string(), Variant::String("buffer".to_string()));
-                    parts_map.insert("len".to_string(), Variant::Number(Number::from(*len)));
-                    parts_map.insert("id".to_string(), Variant::String(self.generate_id()));
-
-                    if self.config.property != "payload" {
-                        parts_map.insert("property".to_string(), Variant::String(self.config.property.clone()));
-                    }
-
-                    new_msg.set("parts".to_string(), Variant::Object(parts_map));
-                    new_msg.remove("_msgid");
-
-                    state.counter += 1;
-                    results.push(new_msg);
-                }
-
-                if !self.config.stream {
-                    state.buffer.clear();
-                }
+            "str" => {
+                let value = config.split.as_str().filter(|s| !s.is_empty()).unwrap_or("\\n");
+                SplitDelimiter::String(
+                    value
+                        .replace("\\n", "\n")
+                        .replace("\\r", "\r")
+                        .replace("\\t", "\t")
+                        .replace("\\e", "e")
+                        .replace("\\f", "\x0c")
+                        .replace("\\0", "\0"),
+                )
             }
-            _ => {
-                return Err(crate::EdgelinkError::invalid_operation("Invalid delimiter type for buffer"));
-            }
-        }
-
-        Ok(results)
+            _ => return Err(EdgelinkError::NotSupported("Unsupported split delimiter type".into()).into()),
+        };
+        let array_length = parse_length(&config.array_split)?;
+        Ok(Box::new(Self { base, config, delimiter, array_length, state: Mutex::new(SplitNodeState::default()) }))
     }
 
-    /// Process incoming message
-    async fn process_message(&self, msg: &mut Msg) -> crate::Result<Vec<Msg>> {
-        if self.split_delimiter.is_none() {
-            return Ok(vec![]);
+    fn prepare_parts(&self, msg: &mut Msg, kind: &str) {
+        let mut parts = BTreeMap::new();
+        if let Some(previous) = msg.get("parts").cloned() {
+            parts.insert("parts".into(), previous);
         }
-        // Get the value to split
-        let value = msg.get_nav(&self.config.property);
-
-        if value.is_none() {
-            log::warn!("Property '{}' not found in message", self.config.property);
-            return Ok(vec![]);
+        parts.insert("id".into(), Msg::generate_id_variant());
+        parts.insert("type".into(), Variant::from(kind));
+        if self.config.property != "payload" {
+            parts.insert("property".into(), Variant::from(self.config.property.clone()));
         }
-
-        let value = value.unwrap().clone(); // Clone to avoid borrow issues
-
-        // Handle existing parts - push to stack (matches Node-RED behavior)
-        if let Some(existing_parts) = msg.get("parts").cloned() {
-            let mut parts_stack = BTreeMap::new();
-            parts_stack.insert("parts".to_string(), existing_parts);
-            msg.set("parts".to_string(), Variant::Object(parts_stack));
-        } else {
-            // Initialize new parts object
-            msg.set("parts".to_string(), Variant::Object(BTreeMap::new()));
-        }
-
+        msg.set("parts".into(), Variant::Object(parts));
+        msg.remove("_msgid");
+    }
+    fn metadata(msg: &mut Msg, key: &str, value: Variant) -> crate::Result<()> {
+        msg.set_nav(&format!("parts.{key}"), value, true)
+    }
+    fn emit(&self, msg: &mut Msg, value: Variant, index: u64) -> crate::Result<Msg> {
+        msg.set_nav(&self.config.property, value, true)?;
+        Self::metadata(msg, "index", Variant::from(index))?;
+        Ok(msg.clone())
+    }
+    // Returns outgoing messages, completions released by this input, and whether this input
+    // has to wait for another chunk. Processing happens before sending, so no locks span fan-out.
+    fn split(&self, msg: &mut Msg, state: &mut SplitNodeState) -> crate::Result<SplitResult> {
+        let Some(value) = msg.get_nav(&self.config.property).cloned() else {
+            return Ok((vec![], vec![], true));
+        };
+        let mut out = Vec::new();
+        let mut released = Vec::new();
+        let mut defer = false;
         match value {
-            Variant::String(s) => self.split_string(msg, s).await,
-            Variant::Array(arr) => self.split_array(msg, arr).await,
-            Variant::Object(obj) => self.split_object(msg, obj).await,
-            Variant::Bytes(buf) => {
-                // Use proper binary splitting logic
-                if matches!(self.split_delimiter, Some(SplitDelimiter::Binary(_)) | Some(SplitDelimiter::Length(_))) {
-                    self.split_buffer(msg, buf).await
-                } else {
-                    // For string delimiters, convert to string
-                    let s = String::from_utf8_lossy(&buf);
-                    self.split_string(msg, s.to_string()).await
+            Variant::Array(values) => {
+                self.prepare_parts(msg, "array");
+                Self::metadata(msg, "count", Variant::from(values.len().div_ceil(self.array_length) as u64))?;
+                Self::metadata(msg, "len", Variant::from(self.array_length as u64))?;
+                // Unlike strings/objects, upstream does not replace the array in its input message.
+                let mut template = msg.clone();
+                for (index, chunk) in values.chunks(self.array_length).enumerate() {
+                    let value = if self.array_length == 1 { chunk[0].clone() } else { Variant::Array(chunk.to_vec()) };
+                    out.push(self.emit(&mut template, value, index as u64)?);
                 }
             }
-            _ => {
-                log::warn!("Cannot split value of type {value:?}");
-                Ok(vec![])
+            Variant::Object(values) => {
+                self.prepare_parts(msg, "object");
+                Self::metadata(msg, "count", Variant::from(values.len() as u64))?;
+                // JS enumerates canonical array-index keys numerically before other keys.
+                let mut entries: Vec<_> = values.into_iter().collect();
+                entries.sort_by_key(|(key, _)| {
+                    key.parse::<u32>()
+                        .ok()
+                        .filter(|n| *n != u32::MAX && n.to_string() == *key)
+                        .map_or((1, 0), |n| (0, n))
+                });
+                for (index, (key, value)) in entries.into_iter().enumerate() {
+                    if !self.config.add_name.is_empty() {
+                        msg.set_nav(&self.config.add_name, Variant::from(key.clone()), true)?;
+                    }
+                    Self::metadata(msg, "key", Variant::from(key))?;
+                    out.push(self.emit(msg, value, index as u64)?);
+                }
             }
+            Variant::String(value) => {
+                self.prepare_parts(msg, "string");
+                let full = format!("{}{}", std::mem::take(&mut state.remainder), value);
+                let mut values: Vec<String>;
+                match &self.delimiter {
+                    SplitDelimiter::Length(len) => {
+                        let units: Vec<u16> = full.encode_utf16().collect();
+                        let count = units.len().div_ceil(*len);
+                        Self::metadata(msg, "ch", Variant::from(""))?;
+                        Self::metadata(msg, "len", Variant::from(*len as u64))?;
+                        if !self.config.stream {
+                            state.counter = 0;
+                            Self::metadata(msg, "count", Variant::from(count as u64))?;
+                        }
+                        values = units
+                            .chunks(*len)
+                            .map(|chunk| {
+                                String::from_utf16(chunk).map_err(|_| {
+                                    EdgelinkError::NotSupported(
+                                        "Splitting a UTF-16 surrogate pair is not supported by UTF-8 messages".into(),
+                                    )
+                                    .into()
+                                })
+                            })
+                            .collect::<crate::Result<Vec<_>>>()?;
+                        if values.is_empty() {
+                            values.push(String::new());
+                        }
+                        if self.config.stream && (!units.len().is_multiple_of(*len) || units.is_empty()) {
+                            state.remainder = values.pop().unwrap();
+                            defer = true;
+                        }
+                        if count > 1 || !defer {
+                            released.append(&mut state.pending);
+                        }
+                    }
+                    other => {
+                        let (delimiter, ch) = match other {
+                            SplitDelimiter::String(s) => (s.clone(), Variant::from(s.clone())),
+                            SplitDelimiter::Binary(b) => (
+                                String::from_utf8_lossy(b).to_string(),
+                                Variant::Array(b.iter().map(|n| Variant::from(*n as u64)).collect()),
+                            ),
+                            _ => unreachable!(),
+                        };
+                        Self::metadata(msg, "ch", ch)?;
+                        values = full.split(&delimiter).map(str::to_owned).collect();
+                        if !self.config.stream {
+                            Self::metadata(msg, "count", Variant::from(values.len() as u64))?;
+                        } else {
+                            state.remainder = values.pop().unwrap_or_default();
+                        }
+                    }
+                }
+                for value in values {
+                    out.push(self.emit(msg, Variant::from(value), state.counter)?);
+                    state.counter += 1;
+                }
+                if !self.config.stream && !matches!(self.delimiter, SplitDelimiter::Length(_)) {
+                    state.counter = 0;
+                }
+            }
+            Variant::Bytes(value) => {
+                self.prepare_parts(msg, "buffer");
+                let mut full = std::mem::take(&mut state.buffer);
+                full.extend(value);
+                let mut values = Vec::new();
+                match &self.delimiter {
+                    SplitDelimiter::Length(len) => {
+                        let count = full.len().div_ceil(*len);
+                        Self::metadata(msg, "len", Variant::from(*len as u64))?;
+                        if !self.config.stream {
+                            state.counter = 0;
+                            Self::metadata(msg, "count", Variant::from(count as u64))?;
+                        }
+                        values.extend(full.chunks(*len).map(|v| v.to_vec()));
+                        if values.is_empty() {
+                            values.push(vec![]);
+                        }
+                        if self.config.stream && (!full.len().is_multiple_of(*len) || full.is_empty()) {
+                            state.buffer = values.pop().unwrap();
+                            defer = true;
+                        }
+                        if count > 1 || !defer {
+                            released.append(&mut state.pending);
+                        }
+                    }
+                    other => {
+                        let (delimiter, ch) = match other {
+                            SplitDelimiter::String(s) => (s.as_bytes().to_vec(), Variant::from(s.clone())),
+                            SplitDelimiter::Binary(b) => {
+                                (b.clone(), Variant::Array(b.iter().map(|n| Variant::from(*n as u64)).collect()))
+                            }
+                            _ => unreachable!(),
+                        };
+                        Self::metadata(msg, "ch", ch)?;
+                        let mut start = 0;
+                        while let Some(pos) = full[start..].windows(delimiter.len()).position(|w| w == delimiter) {
+                            let end = start + pos;
+                            values.push(full[start..end].to_vec());
+                            start = end + delimiter.len();
+                        }
+                        if !self.config.stream {
+                            state.counter = 0;
+                            Self::metadata(msg, "count", Variant::from((values.len() + 1) as u64))?;
+                        }
+                        if !values.is_empty() {
+                            released.append(&mut state.pending);
+                        }
+                        if !self.config.stream && start < full.len() {
+                            values.push(full[start..].to_vec());
+                        } else {
+                            state.buffer = full[start..].to_vec();
+                            defer = !state.buffer.is_empty();
+                        }
+                    }
+                }
+                for value in values {
+                    out.push(self.emit(msg, Variant::Bytes(value), state.counter)?);
+                    state.counter += 1;
+                }
+            }
+            Variant::Null => return Err(EdgelinkError::invalid_operation("Cannot split null as an object")),
+            _ => {} // Node-RED drops scalar inputs and completes their unit of work.
         }
+        Ok((out, released, defer))
     }
 }
-
 #[async_trait]
 impl FlowNodeBehavior for SplitNode {
     fn get_base(&self) -> &BaseFlowNodeState {
         &self.base
     }
-
     async fn run(self: Arc<Self>, stop_token: CancellationToken) {
-        while !stop_token.is_cancelled() {
-            let cancel = stop_token.clone();
-            with_uow(self.as_ref(), cancel.child_token(), |node, msg| async move {
-                let mut msg_guard = msg.write().await;
-
-                // Handle reset message
-                if msg_guard.get("reset").is_some() {
-                    let mut state = node.state.lock().await;
-                    state.buffer.clear();
-                    state.remainder.clear();
-                    state.counter = 0;
-                    state.has_pending = false;
-                    log::debug!("Split node state reset");
-                    return Ok(());
+        while let Ok(msg) = self.recv_msg(stop_token.clone()).await {
+            // Upstream returns without done() for a missing property; do not retain that message.
+            if msg.read().await.get_nav(&self.config.property).is_none() {
+                continue;
+            }
+            let result = {
+                let mut state = self.state.lock().await;
+                let mut guard = msg.write().await;
+                let result = self.split(&mut guard, &mut state);
+                if let Ok((_, _, true)) = &result {
+                    state.pending.push(msg.clone());
                 }
-
-                match node.process_message(&mut msg_guard).await {
-                    Ok(results) => {
-                        drop(msg_guard); // Release the lock before sending
-
-                        for result_msg in results.into_iter() {
-                            let envelope = Envelope { port: 0, msg: MsgHandle::new(result_msg) };
-                            node.fan_out_one(envelope, cancel.child_token()).await?;
+                result
+            };
+            match result {
+                Ok((out, released, defer)) => {
+                    let mut failed = None;
+                    for output in out {
+                        if let Err(err) = self
+                            .fan_out_one(Envelope { port: 0, msg: MsgHandle::new(output) }, stop_token.clone())
+                            .await
+                        {
+                            failed = Some(err);
+                            break;
                         }
                     }
-                    Err(e) => {
-                        log::error!("Error processing split message: {e}");
+                    for pending in released {
+                        self.notify_uow_completed(pending, stop_token.clone()).await;
+                    }
+                    if let Some(err) = failed {
+                        self.report_error(err.to_string(), msg, stop_token.clone()).await;
+                    } else if !defer {
+                        self.notify_uow_completed(msg, stop_token.clone()).await;
                     }
                 }
-
-                Ok(())
-            })
-            .await;
+                Err(err) => self.report_error(err.to_string(), msg, stop_token.clone()).await,
+            }
         }
+        *self.state.lock().await = SplitNodeState::default();
+    }
+}
 
-        log::debug!("SplitNode process() task has been terminated.");
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::runtime::engine::build_test_engine;
+    use serde_json::json;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn binary_parts_keep_bytes_nested_metadata_and_shared_id() {
+        let engine = build_test_engine(json!([
+            {"id":"100", "type":"tab"},
+            {"id":"1", "z":"100", "type":"split", "splt":"[0]", "spltType":"bin", "wires":[["2"]]},
+            {"id":"2", "z":"100", "type":"test-once"}
+        ]))
+        .unwrap();
+        let mut msg: Msg = serde_json::from_value(json!({"parts":{"id":"outer","index":7}})).unwrap();
+        msg.set("payload".into(), Variant::Bytes(vec![255, 0, 128]));
+        let out =
+            engine.run_once_with_inject(2, Duration::from_secs(1), vec![("1".parse().unwrap(), msg)]).await.unwrap();
+        assert!(matches!(out[0].get("payload"), Some(Variant::Bytes(b)) if b == &[255]));
+        assert!(matches!(out[1].get("payload"), Some(Variant::Bytes(b)) if b == &[128]));
+        assert_eq!(out[0].get_nav("parts.id"), out[1].get_nav("parts.id"));
+        assert_eq!(out[0].get_nav("parts.parts.id").and_then(Variant::as_str), Some("outer"));
+        assert_eq!(out[0].get_nav("parts.count").and_then(Variant::as_u64), Some(2));
+    }
+
+    #[test]
+    fn invalid_split_configuration_fails_deploy() {
+        for extra in [
+            json!({"splt":0,"spltType":"len"}),
+            json!({"arraySplt":0}),
+            json!({"splt":"1","spltType":"bin"}),
+            json!({"splt":"[]","spltType":"bin"}),
+            json!({"spltType":"jsonata"}),
+        ] {
+            let mut node = json!({"id":"1","z":"100","type":"split"});
+            node.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            assert!(build_test_engine(json!([{"id":"100","type":"tab"},node])).is_err());
+        }
+        assert_eq!(parse_length(&json!("  +3.5")).unwrap(), 3);
     }
 }

@@ -87,8 +87,20 @@ impl JsonataExpression {
     /// Returns `Ok(None)` for JSONata's `undefined` (an unmatched path, or a context variable
     /// that does not exist), because plain `Variant` has no undefined counterpart.
     pub fn evaluate(&self, msg: Option<&Msg>, host: &JsonataHost) -> crate::Result<Option<Variant>> {
-        let msg_json = match msg {
-            Some(msg) => serde_json::to_value(msg.as_variant())?,
+        self.evaluate_variant(msg.map(Msg::as_variant), host)
+    }
+
+    /// Evaluate against an arbitrary JSON root, including a sort node's scalar array element.
+    pub fn evaluate_variant(&self, value: Option<&Variant>, host: &JsonataHost) -> crate::Result<Option<Variant>> {
+        // A direct variable reference preserves the runtime value's type, including binary
+        // accumulators in join/reduce. JSON conversion would turn a Buffer into an array.
+        if let Some(name) = self.source.trim().strip_prefix('$')
+            && let Some((_, value)) = host.bindings.iter().rev().find(|(binding, _)| binding == name)
+        {
+            return Ok(Some(value.clone()));
+        }
+        let msg_json = match value {
+            Some(value) => serde_json::to_value(value)?,
             None => serde_json::Value::Object(serde_json::Map::new()),
         };
 

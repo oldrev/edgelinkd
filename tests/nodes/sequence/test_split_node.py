@@ -1,14 +1,25 @@
 import pytest
 from tests import *
 
+
+
+async def _split_buffers(node, payloads, count):
+    # Build actual Variant::Bytes inside the flow; the JSON bridge only carries integer arrays.
+    flows = [{"id": "0", "type": "tab"},
+             {"id": "1", "z": "0", "type": "function",
+              "func": "msg.payload = new Uint8Array(msg.payload).buffer; return msg;", "wires": [["2"]]},
+             {"id": "2", "z": "0", **node, "wires": [["3"]]},
+             {"id": "3", "z": "0", "type": "test-once"}]
+    return await run_flow_with_msgs_ntimes(flows, [{"payload": list(value)} for value in payloads], count)
+
+
 @pytest.mark.describe('SPLIT node')
 class TestSplitNode:
     @pytest.mark.asyncio
     @pytest.mark.it('should be loaded')
     async def test_0001(self):
-        # Upstream only asserts that the node registers and its defaults exist;
-        # the pytest harness does not expose node internals, so keep the title only.
-        pass
+        msgs = await run_single_node_with_msgs_ntimes({"type": "split", "name": "splitNode"}, [{"payload": [1]}], 1)
+        assert msgs[0]["payload"] == 1
 
     @pytest.mark.asyncio
     @pytest.mark.it('should split an array into multiple messages')
@@ -155,58 +166,54 @@ class TestSplitNode:
             assert m["payload"] == vals[i]
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason='no bytes type in the pytest JSON bridge: a Python bytes payload arrives as null and a byte response comes back as a list of ints, so this spec needs an agreed bytes convention in the harness')
     @pytest.mark.it('should split a buffer into lengths')
     async def test_0012(self):
         node = {"type": "split", "splt": "2", "spltType": "len"}
         b = b"12345678"
-        injections = [{"payload": b}]
-        msgs = await run_single_node_with_msgs_ntimes(node, injections, 4)
+        msgs = await _split_buffers(node, [b], 4)
         vals = [b"12", b"34", b"56", b"78"]
         for i, m in enumerate(msgs):
             assert m["parts"]["count"] == 4
             assert m["parts"]["index"] == i
             assert m["parts"]["type"] == "buffer"
-            assert m["payload"] == vals[i]
+            assert m["payload"] == list(vals[i])
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason='no bytes type in the pytest JSON bridge: a Python bytes payload arrives as null and a byte response comes back as a list of ints, so this spec needs an agreed bytes convention in the harness')
     @pytest.mark.it('should split a buffer on another buffer (streaming)')
     async def test_0013(self):
-        node = {"type": "split", "splt": b"4", "spltType": "bin", "stream": True}
+        node = {"type": "split", "splt": "[52]", "spltType": "bin", "stream": True}
         b1 = b"123412"
         b2 = b"341234"
-        injections = [{"payload": b1}, {"payload": b2}]
-        msgs = await run_single_node_with_msgs_ntimes(node, injections, 3)
+        msgs = await _split_buffers(node, [b1, b2], 3)
         vals = [b"123", b"123", b"123"]
         for i, m in enumerate(msgs):
             assert m["parts"]["type"] == "buffer"
             assert m["parts"]["index"] == i
-            assert m["payload"] == vals[i]
+            assert m["payload"] == list(vals[i])
 
     @pytest.mark.asyncio
     @pytest.mark.it('should handle invalid spltType (not an array)')
     async def test_0014(self):
         node = {"type": "split", "splt": "1", "spltType": "bin"}
         injections = [{"payload": "123"}]
-        msgs = await run_single_node_with_msgs_ntimes(node, injections, 0)
-        assert msgs == []
+        with pytest.raises(RuntimeError):
+            await run_single_node_with_msgs_ntimes(node, injections, 1)
 
     @pytest.mark.asyncio
     @pytest.mark.it('should handle invalid splt length')
     async def test_0015(self):
         node = {"type": "split", "splt": 0, "spltType": "len"}
         injections = [{"payload": "123"}]
-        msgs = await run_single_node_with_msgs_ntimes(node, injections, 0)
-        assert msgs == []
+        with pytest.raises(RuntimeError):
+            await run_single_node_with_msgs_ntimes(node, injections, 1)
 
     @pytest.mark.asyncio
     @pytest.mark.it('should handle invalid array splt length')
     async def test_0016(self):
         node = {"type": "split", "arraySplt": 0, "arraySpltType": "len"}
         injections = [{"payload": "123"}]
-        msgs = await run_single_node_with_msgs_ntimes(node, injections, 0)
-        assert msgs == []
+        with pytest.raises(RuntimeError):
+            await run_single_node_with_msgs_ntimes(node, injections, 1)
 
     @pytest.mark.asyncio
     @pytest.mark.it('should ceil count value when msg.payload type is string')
@@ -219,41 +226,35 @@ class TestSplitNode:
         assert len(msgs[1]["payload"]) == 1
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason='no bytes type in the pytest JSON bridge: a Python bytes payload arrives as null and a byte response comes back as a list of ints, so this spec needs an agreed bytes convention in the harness')
     @pytest.mark.it('should handle spltBufferString value of undefined')
     async def test_0018(self):
-        node = {"type": "split", "splt": b"4", "spltType": "bin"}
-        injections = [{"payload": b"123"}]
-        msgs = await run_single_node_with_msgs_ntimes(node, injections, 1)
+        node = {"type": "split", "splt": "[52]", "spltType": "bin"}
+        msgs = await run_single_node_with_msgs_ntimes(node, [{"payload": "123"}], 1)
         assert msgs[0]["parts"]["index"] == 0
-        assert msgs[0]["payload"] == b"123"
+        assert msgs[0]["parts"]["ch"] == [52]
+        assert msgs[0]["payload"] == "123"
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason='no bytes type in the pytest JSON bridge: a Python bytes payload arrives as null and a byte response comes back as a list of ints, so this spec needs an agreed bytes convention in the harness')
     @pytest.mark.it('should ceil count value when msg.payload type is Buffer')
     async def test_0019(self):
         node = {"type": "split", "splt": "2", "spltType": "len"}
         b = b"123"
-        injections = [{"payload": b}]
-        msgs = await run_single_node_with_msgs_ntimes(node, injections, 2)
+        msgs = await _split_buffers(node, [b], 2)
         assert msgs[0]["parts"]["count"] == 2
-        assert len(msgs[0]["payload"]) == 2
-        assert len(msgs[1]["payload"]) == 1
+        assert msgs[0]["payload"] == list(b"12")
+        assert msgs[1]["payload"] == list(b"3")
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason='no bytes type in the pytest JSON bridge: a Python bytes payload arrives as null and a byte response comes back as a list of ints, so this spec needs an agreed bytes convention in the harness')
     @pytest.mark.it('should set msg.parts.ch when node.spltType is str')
     async def test_0020(self):
         node = {"type": "split", "splt": "2", "spltType": "str", "stream": False}
         b = b"123"
-        injections = [{"payload": b}]
-        msgs = await run_single_node_with_msgs_ntimes(node, injections, 2)
+        msgs = await _split_buffers(node, [b], 2)
         assert msgs[0]["parts"]["count"] == 2
-        assert len(msgs[0]["payload"]) == 2
-        assert len(msgs[1]["payload"]) == 1
+        assert msgs[0]["parts"]["ch"] == "2"
+        assert msgs[0]["payload"] == list(b"1")
+        assert msgs[1]["payload"] == list(b"3")
 
-    # `should split using JSONata expression` has no upstream counterpart; the split node's
-    # JSONata handling is covered by the reduce/fixup specs further down this file.
 
 
 def _mapi_flow(node_json):
@@ -280,15 +281,74 @@ def _mapi_flow(node_json):
     ]
 
 
+
+
+async def _join_buffers(node, inputs):
+    flows = [{"id": "0", "type": "tab"},
+             {"id": "1", "z": "0", "type": "function", "wires": [["5"]],
+              "func": """msg.payload = new Uint8Array(msg.payload).buffer;
+                         if (msg.parts && Array.isArray(msg.parts.ch)) {
+                             msg.parts.ch = new Uint8Array(msg.parts.ch).buffer;
+                         }
+                         return msg;"""},
+             {"id": "5", "z": "0", **node, "wires": [["3"]]},
+             {"id": "3", "z": "0", "type": "test-once"}]
+    return await run_flow_with_msgs_ntimes(flows, inputs, 1)
+
+
+def _reduce_inputs(count=4, count_on_last=False, strings=False):
+    result = []
+    for i, (value, index) in enumerate(zip([3, 2, 4, 1], [2, 1, 3, 0])):
+        parts = {"index": index, "id": 222}
+        if not count_on_last or i == 2:
+            parts["count"] = count
+        result.append({"payload": str(value) if strings else value, "parts": parts})
+    return result
+
+
+async def _join_reduce(inputs=None, expected=1, seed=None, **settings):
+    node = {"type": "join", "mode": "reduce", "reduceExp": "$A+payload",
+            "reduceInit": "0", "reduceInitType": "num", **settings}
+    inputs = _reduce_inputs() if inputs is None else inputs
+    if seed:
+        flows = [{"id": "0", "type": "tab"},
+                 {"id": "1", "z": "0", "type": "function", "func": seed + "return msg;", "wires": [["5"]]},
+                 {"id": "5", "z": "0", **node, "wires": [["3"]]},
+                 {"id": "3", "z": "0", "type": "test-once"}]
+        return await run_flow_with_msgs_ntimes(flows, inputs, expected)
+    return await run_single_node_with_msgs_ntimes(node, inputs, expected)
+
+
+async def _join_reduce_context(scope, store=False):
+    suffix = ',"memory"' if store else ""
+    seed = ";".join(f'{scope}.set("{name}",{value}{suffix})' for name, value in
+                    zip(["one", "two", "three"], [1, 2, 3])) + ";"
+    context = f'${scope}Context'
+    operation = "*" if scope == "flow" else "/"
+    return await _join_reduce(seed=seed,
+        reduceExp=f'$A+(payload{operation}{context}("two"{suffix}))',
+        reduceInit=f'{context}("one"{suffix})', reduceInitType="jsonata",
+        reduceFixup=f'$A*{context}("three"{suffix})')
+
+
+async def _join_reduce_error(**settings):
+    node = {"id": "1", "z": "0", "type": "join", "mode": "reduce", "reduceExp": "$A",
+            "reduceInit": "0", "reduceInitType": "num", "wires": [[]], **settings}
+    inputs = [{"payload": "A", "parts": {"id": 1, "type": "string", "ch": ",", "index": 0, "count": 1}}]
+    msgs = await run_flow_for_seconds(_mapi_flow(node), inputs, 0.05)
+    assert len(msgs) == 1
+    assert "Invalid JSONata expression" in msgs[0]["error"]["message"]
+
+
 @pytest.mark.describe('JOIN node')
 class TestJoinNode:
     @pytest.mark.asyncio
     @pytest.mark.it('should be loaded')
     async def test_0001(self):
-        # Node-RED: var flow = [{id:"joinNode1", type:"join", name:"joinNode" }];
-        # upstream asserts the node properties name/count/timer/build, which the
-        # pytest harness does not expose - keep the title only.
-        pass
+        msgs = await run_single_node_with_msgs_ntimes(
+            {"type": "join", "name": "joinNode", "mode": "custom", "count": 1},
+            [{"payload": "loaded"}], 1)
+        assert msgs[0]["payload"] == ["loaded"]
 
     @pytest.mark.asyncio
     @pytest.mark.it('should join bits of string back together automatically')
@@ -318,22 +378,14 @@ class TestJoinNode:
         assert "payload" in msgs[0]
         assert msgs[0]["payload"] == "A,B,C,D"
 
-    @pytest.mark.skip(
-        reason="Buffer payloads cannot cross the pytest JSON bridge yet (Variant::Bytes has no JSON representation)"
-    )
     @pytest.mark.asyncio
     @pytest.mark.it('should join bits of buffer back together automatically')
     async def test_0004(self):
-        node = {"type": "join", "joiner": ",", "build": "buffer", "mode": "auto"}
-        injections = [
-            {"payload": b"A", "parts": {"id": 1, "type": "buffer", "ch": b"-", "index": 0, "count": 4}},
-            {"payload": b"B", "parts": {"id": 1, "type": "buffer", "ch": b"-", "index": 1, "count": 4}},
-            {"payload": b"C", "parts": {"id": 1, "type": "buffer", "ch": b"-", "index": 2, "count": 4}},
-            {"payload": b"D", "parts": {"id": 1, "type": "buffer", "ch": b"-", "index": 3, "count": 4}},
-        ]
-        msgs = await run_single_node_with_msgs_ntimes(node, injections, 1)
-        assert isinstance(msgs[0]["payload"], bytes)
-        assert msgs[0]["payload"] == b"A-B-C-D"
+        node = {"type": "join", "mode": "auto", "joiner": ",", "build": "buffer"}
+        inputs = [{"payload": [ord(value)], "parts": {"id": 1, "type": "buffer", "ch": [45], "index": i, "count": 4}}
+                  for i, value in enumerate("ABCD")]
+        msgs = await _join_buffers(node, inputs)
+        assert msgs[0]["payload"] == list(b"A-B-C-D")
 
     @pytest.mark.asyncio
     @pytest.mark.it('should join things into an array after a count')
@@ -393,18 +445,13 @@ class TestJoinNode:
         assert msgs[0]["foo"]["bar"][0] == "A"
         assert msgs[0]["foo"]["bar"][1] == "B"
 
-    @pytest.mark.skip(
-        reason="Buffer payloads cannot cross the pytest JSON bridge yet (Variant::Bytes has no JSON representation)"
-    )
     @pytest.mark.asyncio
     @pytest.mark.it('should join strings into a buffer after a count')
     async def test_0009(self):
-        node = {"type": "join", "count": 2, "build": "buffer", "joinerType": "bin", "joiner": "", "mode": "custom"}
-        injections = [{"payload": "hello"}, {"payload": "world"}]
-        msgs = await run_single_node_with_msgs_ntimes(node, injections, 1)
-        assert "payload" in msgs[0]
-        assert len(msgs[0]["payload"]) == 10
-        assert msgs[0]["payload"] == b"helloworld"
+        msgs = await run_single_node_with_msgs_ntimes(
+            {"type": "join", "mode": "custom", "count": 2, "build": "buffer", "joinerType": "bin", "joiner": ""},
+            [{"payload": "hello"}, {"payload": "world"}], 1)
+        assert msgs[0]["payload"] == list(b"helloworld")
 
     @pytest.mark.asyncio
     @pytest.mark.it('should join things into an object after a count')
@@ -427,7 +474,6 @@ class TestJoinNode:
         assert msgs[0]["payload"]["d"]["e"] == 7
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason="Rust gap: build:'merged' keys by msg.topic instead of merging the property object's keys")
     @pytest.mark.it('should merge objects')
     async def test_0011(self):
         node = {"type": "join", "count": 5, "build": "merged", "mode": "custom"}
@@ -440,10 +486,6 @@ class TestJoinNode:
             {"payload": {"d": 4}, "topic": "d"},
             {"payload": {"e": 5}, "topic": "e"},
         ]
-        # Still failing (see the skip reason): "merged" is handled like "object", so the
-        # keys come from msg.topic and the output is
-        # {"a":{"a":1},"b":{"b":2},"c":{"c":3},"d":{"d":4},"f":{"a":9}} instead of the
-        # payload keys merged into {a:1,b:2,c:3,d:4,e:5}.
         msgs = await run_single_node_with_msgs_ntimes(node, injections, 1)
         assert "payload" in msgs[0]
         assert msgs[0]["payload"]["a"] == 1
@@ -453,7 +495,6 @@ class TestJoinNode:
         assert msgs[0]["payload"]["e"] == 5
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason="Rust gap: build:'merged' keys by msg.topic instead of merging the property object's keys")
     @pytest.mark.it('should merge sub property objects')
     async def test_0012(self):
         node = {"type": "join", "count": 5, "property": "foo.bar", "build": "merged", "mode": "custom"}
@@ -466,9 +507,6 @@ class TestJoinNode:
             {"foo": {"bar": {"d": 4}, "topic": "d"}},
             {"foo": {"bar": {"e": 5}, "topic": "e"}},
         ]
-        # Still failing (see the skip reason): no message is emitted because the merged
-        # build takes its key from msg.topic, which is absent here (the test nests topic
-        # inside foo), so the group never reaches its count.
         msgs = await run_single_node_with_msgs_ntimes(node, injections, 1)
         assert "foo" in msgs[0]
         assert "bar" in msgs[0]["foo"]
@@ -479,7 +517,6 @@ class TestJoinNode:
         assert msgs[0]["foo"]["bar"]["e"] == 5
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason="Rust gap: propertyType:'full' is not implemented")
     @pytest.mark.it('should merge full msg objects')
     async def test_0013(self):
         node = {"type": "join", "count": 6, "build": "merged", "mode": "custom", "propertyType": "full", "property": ""}
@@ -492,10 +529,6 @@ class TestJoinNode:
             {"payload": 6, "foo": "d"},
             {"payload": 7, "bingo": "e"},
         ]
-        # Still failing (see the skip reason): propertyType is not a config field at all
-        # (JoinNodeConfig has no propertyType), so "full" is ignored and no message is
-        # emitted where upstream merges the complete msg objects into
-        # payload == {payload:7, topic:"a", foo:"d", bar:"b", aha:"c", bingo:"e"}.
         msgs = await run_single_node_with_msgs_ntimes(node, injections, 1)
         assert msgs[0]["payload"]["payload"] == 7
         assert msgs[0]["payload"]["aha"] == "c"
@@ -507,25 +540,13 @@ class TestJoinNode:
     @pytest.mark.asyncio
     @pytest.mark.it('should accumulate a merged object')
     async def test_0014(self):
-        # Node-RED flow:
-        #   [{id:"n1", type:"join", wires:[["n2"]], build:"merged", mode:"custom",
-        #     accumulate:true, count:3},
-        #    {id:"n2", type:"helper"}]
-        # n1.receive({payload:{a:1}, topic:"a"});
-        # n1.receive({payload:{b:2}, topic:"b"});
-        # n1.receive({payload:{c:3}, topic:"c"});
-        # n1.receive({payload:{a:3}, topic:"d"});
-        # n1.receive({payload:{b:2}, topic:"e"});
-        # n1.receive({payload:{c:1}, topic:"f"});
-        # Expects the 4th message that reaches n2 (c === 3) to have
-        # msg.payload == {a:3, b:2, c:1} (the accumulation is never cleared between
-        # groups because accumulate:true).
         node = {"type": "join", "mode": "custom", "build": "merged", "accumulate": True, "count": 3}
         msgs = await run_single_node_with_msgs_ntimes(node, [
             {"payload": {"a": 1}, "topic": "a"}, {"payload": {"b": 2}, "topic": "b"},
             {"payload": {"c": 3}, "topic": "c"}, {"payload": {"a": 3}, "topic": "d"},
             {"payload": {"b": 2}, "topic": "e"}, {"payload": {"c": 1}, "topic": "f"},
-        ], 2)
+        ], 4)
+        assert len(msgs) == 4
         assert msgs[-1]["payload"] == {"a": 3, "b": 2, "c": 1}
 
     @pytest.mark.asyncio
@@ -583,36 +604,23 @@ class TestJoinNode:
         ], 1)
         assert msgs[0]["payload"] == {"a": 1, "b": 2, "c": 3, "d": 4}
 
-    @pytest.mark.skip(reason="join node timeout mode is not implemented")
     @pytest.mark.asyncio
     @pytest.mark.it('should join strings with a specifed character after a timeout')
     async def test_0017(self):
-        # Node-RED flow:
-        #   [{id:"n1", type:"join", wires:[["n2"]], build:"string", timeout:0.05,
-        #     count:"", joiner:",", mode:"custom"},
-        #    {id:"n2", type:"helper"}]
-        # n1.receive({payload:"a"});
-        # n1.receive({payload:"b"});
-        # n1.receive({payload:"c"});
-        # Expects msg.payload == "a,b,c" once the 0.05 s timeout expires.
-        pass
+        msgs = await run_single_node_with_msgs_ntimes(
+            {"type": "join", "mode": "custom", "build": "string", "timeout": 0.05, "count": "", "joiner": ","},
+            [{"payload": value} for value in ["a", "b", "c"]], 1)
+        assert msgs[0]["payload"] == "a,b,c"
 
-    @pytest.mark.skip(reason="join node timeout mode is not implemented")
     @pytest.mark.asyncio
     @pytest.mark.it('should allow the timeout to be restarted')
     async def test_0018(self):
-        # Node-RED flow:
-        #   [{id:"n1", type:"join", wires:[["n2"]], build:"string", timeout:0.5,
-        #     count:"", joiner:",", mode:"custom"},
-        #    {id:"n2", type:"helper"}]
-        # n1.receive({payload:"a"});
-        # setTimeout(function() {
-        #     n1.receive({payload:"b", restartTimeout: true});
-        #     n1.receive({payload:"c"});
-        # }, 400);
-        # Expects msg.payload == "a,b,c" and the elapsed time to be approximately 0.9 s
-        # (the 0.5 s timer restarted 0.4 s in).
-        pass
+        msgs = await run_single_node_for_seconds_scheduled(
+            {"type": "join", "mode": "custom", "build": "string", "timeout": 0.5, "count": "", "joiner": ","},
+            [{"payload": "a", "delay_ms": 0}, {"payload": "b", "restartTimeout": True, "delay_ms": 400},
+             {"payload": "c", "delay_ms": 400}], 0.15)
+        assert len(msgs) == 1 and msgs[0]["payload"] == "a,b,c"
+        assert abs(msgs[0]["_since_start_ms"] - 900) < 150
 
     @pytest.mark.asyncio
     @pytest.mark.it('should join strings with a specifed character and complete when told to')
@@ -626,9 +634,7 @@ class TestJoinNode:
         # n1.receive({payload:"World"});
         # n1.receive({payload:'', complete:true});
         # Expects msg.payload == "Hello\nNodeRED\nWorld\n".
-        # `mode:"custom"` is rewritten to "string" (see the notes at the top of the file);
-        # "string" selects the same non-auto code path and `build` is upstream's.
-        node = {"type": "join", "build": "string", "timeout": 5, "count": 0, "joiner": "\n", "mode": "string"}
+        node = {"type": "join", "build": "string", "timeout": 5, "count": 0, "joiner": "\n", "mode": "custom"}
         msgs = await run_single_node_with_msgs_ntimes(
             node,
             [{"payload": "Hello"}, {"payload": "NodeRED"}, {"payload": "World"}, {"payload": "", "complete": True}],
@@ -640,32 +646,12 @@ class TestJoinNode:
         assert msgs[0]["payload"] == "Hello\nNodeRED\nWorld\n"
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason="Rust gap: propertyType:'full' is not implemented")
     @pytest.mark.it('should join complete message objects into an array after a count')
     async def test_0020(self):
-        # Node-RED flow:
-        #   [{id:"n1", type:"join", wires:[["n2"]], build:"array", timeout:0, count:3,
-        #     propertyType:"full", mode:"custom"},
-        #    {id:"n2", type:"helper"}]
-        # n1.receive({payload:"a"});
-        # n1.receive({payload:"b"});
-        # n1.receive({payload:"c"});
-        # Expects msg.payload to be an Array of the three complete message objects, so
-        # msg.payload[0].payload == "a", msg.payload[1].payload == "b",
-        # msg.payload[2].payload == "c".
-        # `mode:"custom"` is rewritten to "array" (see the notes at the top of the file);
-        # "array" selects the same non-auto code path and `build` is upstream's.
-        node = {"type": "join", "build": "array", "timeout": 0, "count": 3, "propertyType": "full", "mode": "array"}
-        msgs = await run_single_node_with_msgs_ntimes(node, [{"payload": "a"}, {"payload": "b"}, {"payload": "c"}], 1)
-        assert isinstance(msgs[0]["payload"], list)
-        # RUST-GAP: upstream expects the full message objects (propertyType:"full"), got the
-        # collected payload values instead: ["a", "b", "c"].
-        assert isinstance(msgs[0]["payload"][0], dict)
-        assert msgs[0]["payload"][0]["payload"] == "a"
-        assert isinstance(msgs[0]["payload"][1], dict)
-        assert msgs[0]["payload"][1]["payload"] == "b"
-        assert isinstance(msgs[0]["payload"][2], dict)
-        assert msgs[0]["payload"][2]["payload"] == "c"
+        msgs = await run_single_node_with_msgs_ntimes(
+            {"type": "join", "build": "array", "count": 3, "propertyType": "full", "mode": "custom"},
+            [{"payload": "a"}, {"payload": "b"}, {"payload": "c"}], 1)
+        assert [msg["payload"] for msg in msgs[0]["payload"]] == ["a", "b", "c"]
 
     @pytest.mark.asyncio
     @pytest.mark.it('should join split things back into an array')
@@ -765,9 +751,7 @@ class TestJoinNode:
         # n1.receive({complete:true});
         # Expects msg.payload == [1,2,3] (length 3 - the trailing {complete:true} message
         # carries no payload and is not collected).
-        # `mode:"custom"` is rewritten to "array" (see the notes at the top of the file);
-        # "array" selects the same non-auto code path and `build` is upstream's.
-        node = {"type": "join", "timeout": 1, "mode": "array", "build": "array"}
+        node = {"type": "join", "timeout": 1, "mode": "custom", "build": "array"}
         msgs = await run_single_node_with_msgs_ntimes(
             node,
             [{"payload": 1, "topic": "A"}, {"payload": 2, "topic": "B"}, {"payload": 3, "topic": "C"}, {"complete": True}],
@@ -791,9 +775,7 @@ class TestJoinNode:
         # n1.receive({payload:3, topic:"C"});
         # n1.receive({complete:true});
         # Expects msg.payload == {A:1, B:2, C:3} (Object.keys(msg.payload).length == 3).
-        # `mode:"custom"` is rewritten to "object" (see the notes at the top of the file);
-        # "object" selects the same non-auto code path and `build` is upstream's.
-        node = {"type": "join", "timeout": 1, "mode": "object", "build": "object"}
+        node = {"type": "join", "timeout": 1, "mode": "custom", "build": "object"}
         msgs = await run_single_node_with_msgs_ntimes(
             node,
             [{"payload": 1, "topic": "A"}, {"payload": 2, "topic": "B"}, {"payload": 3, "topic": "C"}, {"complete": True}],
@@ -831,7 +813,6 @@ class TestJoinNode:
         assert msgs[0]["payload"] == "abcd"
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason='Rust gap: chained split-split-join-join flows lose the outer sequence metadata')
     @pytest.mark.it('should allow chained split-split-join-join sequences')
     async def test_0027(self):
         # Node-RED flow:
@@ -875,74 +856,31 @@ class TestJoinNode:
         assert msgs[0]["payload"][1] == "cd"
         assert msgs[0]["payload"][2] == "ef"
 
-    @pytest.mark.skip(
-        reason="Buffer payloads cannot cross the pytest JSON bridge yet (Variant::Bytes has no JSON representation)"
-    )
     @pytest.mark.asyncio
     @pytest.mark.it('should concat payload when group.type is buffer and group.joinChar is undefined')
     async def test_0029(self):
-        # Node-RED:
-        #   var flow = [{ id: "n1", type: "join", wires: [["n2"]], joiner: ",", build: "buffer", mode: "auto" },
-        #               { id: "n2", type: "helper" }];
-        #   n1.receive({ payload: Buffer.from("A"), parts: { id: 1, type: "buffer", index: 0, count: 3 } });
-        #   n1.receive({ payload: Buffer.from("B"), parts: { id: 1, type: "buffer", index: 1, count: 3 } });
-        #   n1.receive({ payload: Buffer.from("C"), parts: { id: 1, type: "buffer", index: 2, count: 3 } });
-        #   helper.on("input", function (msg) {
-        #       msg.should.have.property("payload");
-        #       Buffer.isBuffer(msg.payload).should.be.true();
-        #       msg.payload.toString().should.equal("ABC");
-        #   });
-        pass
+        msgs = await _join_buffers({"type": "join", "mode": "auto", "build": "buffer", "joiner": ","},
+            [{"payload": [ord(value)], "parts": {"id": 1, "type": "buffer", "index": i, "count": 3}}
+             for i, value in enumerate("ABC")])
+        assert msgs[0]["payload"] == list(b"ABC")
 
     @pytest.mark.asyncio
     @pytest.mark.it('should concat payload when group.type is string and group.joinChar is not string')
     async def test_0030(self):
-        # Node-RED: var flow = [{ id: "n1", type: "join", wires: [["n2"]], joiner: ",", build: "buffer", mode: "auto" },
-        #                     { id: "n2", type: "helper" }];
-        #   n1.receive({ payload: Buffer.from("A"), parts: { id: 1, type: "string", ch: Buffer.from("0"), index: 0, count: 3 } });
-        #   n1.receive({ payload: Buffer.from("B"), parts: { id: 1, type: "string", ch: Buffer.from("0"), index: 1, count: 3 } });
-        #   n1.receive({ payload: Buffer.from("C"), parts: { id: 1, type: "string", ch: Buffer.from("0"), index: 2, count: 3 } });
-        #   msg.payload.toString().should.equal("A0B0C");
-        # The subject of this test is the non-string group.joinChar, which Node-RED
-        # stringifies with `group.joinChar.toString()`. Buffers do not cross the pytest
-        # JSON bridge, so the Buffer payloads are injected as the strings the upstream
-        # assertion compares against, and the join char is the one non-string value the
-        # bridge does carry (0, which stringifies to the same "0").
-        node = {"type": "join", "wires": [["2"]], "joiner": ",", "build": "buffer", "mode": "auto"}
-        injections = [
-            {"payload": "A", "parts": {"id": 1, "type": "string", "ch": 0, "index": 0, "count": 3}},
-            {"payload": "B", "parts": {"id": 1, "type": "string", "ch": 0, "index": 1, "count": 3}},
-            {"payload": "C", "parts": {"id": 1, "type": "string", "ch": 0, "index": 2, "count": 3}},
-        ]
-        msgs = await run_single_node_with_msgs_ntimes(node, injections, 1)
-        assert "payload" in msgs[0]
-        # reads msg.parts.ch only when it already is a string and therefore joins with "".
+        msgs = await _join_buffers({"type": "join", "mode": "auto", "build": "buffer", "joiner": ","},
+            [{"payload": [ord(value)], "parts": {"id": 1, "type": "string", "ch": [48], "index": i, "count": 3}}
+             for i, value in enumerate("ABC")])
         assert msgs[0]["payload"] == "A0B0C"
 
     @pytest.mark.asyncio
     @pytest.mark.it('should handle msg.parts property when mode is auto and parts or id are missing')
     async def test_0031(self):
-        # Node-RED: var flow = [{ id: "n1", type: "join", wires: [["n2"]], joiner: "[44]", joinerType: "bin", build: "string", mode: "auto" },
-        #                     { id: "n2", type: "helper" }];
-        # n2.on("input", function (msg) { done(new Error("This path does not go through.")); });
-        # n1.receive({ payload: "A", parts: { type: "string", ch: ",", index: 0, count: 2 } });
-        # n1.receive({ payload: "B", parts: { type: "string", ch: ",", index: 1, count: 2 } });
-        # setTimeout(function () { done(); }, TimeoutForErrorCase);
-        node = {"type": "join", "wires": [["2"]], "joiner": "[44]", "joinerType": "bin", "build": "string", "mode": "auto"}
-        injections = [
-            {"payload": "A", "parts": {"type": "string", "ch": ",", "index": 0, "count": 2}},
-            {"payload": "B", "parts": {"type": "string", "ch": ",", "index": 1, "count": 2}},
-        ]
-        # Nothing may reach the helper node: Node-RED bails out of "auto" mode when
-        # msg.parts has no id and calls done() without joining anything. The harness
-        # expresses "no output" as nexpected=0 (it stops the run as soon as it has
-        # collected the expected count), the same idiom the existing split spec port
-        # uses for its "cannot split" cases.
-        # NOTE: this engine instead groups such messages under the fallback id "_" and
-        # does emit a joined "A,B" (verified out of band), so this port cannot observe
-        # that difference.
-        msgs = await run_single_node_with_msgs_ntimes(node, injections, 0)
-        assert msgs == []
+        node = {"id": "1", "z": "0", "type": "join", "mode": "auto", "wires": [[]]}
+        inputs = [{"payload": "A", "parts": {"type": "string", "ch": ",", "index": 0, "count": 2}},
+                  {"payload": "B", "parts": {"type": "string", "ch": ",", "index": 1, "count": 2}}]
+        msgs = await run_flow_for_seconds(_mapi_flow(node), inputs, 0.05)
+        assert len(msgs) == 2 and [msg["payload"] for msg in msgs] == ["A", "B"]
+        assert all(msg["type"] == "join" and msg["level"] == "WARN" for msg in edgelink.take_node_logs())
 
     @pytest.mark.asyncio
     @pytest.mark.it('should handle join an array when mode is auto and duplicate indexed parts arrive')
@@ -979,155 +917,170 @@ class TestJoinNode:
         assert msgs[0]["payload"][0] == "D"
         assert msgs[0]["payload"][1] == "C"
 
-    @pytest.mark.skip(reason='join node reduce mode is not implemented')
     @pytest.mark.asyncio
     @pytest.mark.it('should reduce messages')
     async def test_0034(self):
-        pass
+        msgs = await _join_reduce()
+        assert msgs[0]["payload"] == 10
 
-    @pytest.mark.skip(reason='join node reduce mode is not implemented')
     @pytest.mark.asyncio
     @pytest.mark.it('should reduce messages - count only in last part')
     async def test_0035(self):
-        pass
+        msgs = await _join_reduce(inputs=_reduce_inputs(count_on_last=True))
+        assert msgs[0]["payload"] == 10
 
-    @pytest.mark.skip(reason='join node reduce mode is not implemented')
     @pytest.mark.asyncio
     @pytest.mark.it('should reduce messages with init types (str)')
     async def test_0036(self):
-        pass
+        msgs = await _join_reduce(reduceExp="$A", reduceInit="xyz", reduceInitType="str")
+        assert msgs[0]["payload"] == "xyz"
 
-    @pytest.mark.skip(reason='join node reduce mode is not implemented')
     @pytest.mark.asyncio
     @pytest.mark.it('should reduce messages with init types (num)')
     async def test_0037(self):
-        pass
+        msgs = await _join_reduce(reduceExp="$A", reduceInit=10, reduceInitType="num")
+        assert msgs[0]["payload"] == 10
 
-    @pytest.mark.skip(reason='join node reduce mode is not implemented')
     @pytest.mark.asyncio
     @pytest.mark.it('should reduce messages with init types (bool)')
     async def test_0038(self):
-        pass
+        msgs = await _join_reduce(reduceExp="$A", reduceInit=True, reduceInitType="bool")
+        assert msgs[0]["payload"] is True
 
-    @pytest.mark.skip(reason='join node reduce mode is not implemented')
     @pytest.mark.asyncio
     @pytest.mark.it('should reduce messages with init types (json)')
     async def test_0039(self):
-        pass
+        msgs = await _join_reduce(reduceExp="$A", reduceInit='{"x":"vx","y":"vy","z":"vz"}', reduceInitType="json")
+        assert msgs[0]["payload"] == {"x": "vx", "y": "vy", "z": "vz"}
 
-    @pytest.mark.skip(reason='join node reduce mode is not implemented')
     @pytest.mark.asyncio
     @pytest.mark.it('should reduce messages with init types (bin)')
     async def test_0040(self):
-        pass
+        msgs = await _join_reduce(reduceExp="$A", reduceInit="[1,2,3]", reduceInitType="bin")
+        assert msgs[0]["payload"] == [1, 2, 3]
 
-    @pytest.mark.skip(reason='join node reduce mode is not implemented')
     @pytest.mark.asyncio
     @pytest.mark.it('should reduce messages with init types (JSONata)')
     async def test_0041(self):
-        pass
+        msgs = await _join_reduce(reduceExp="$A", reduceInit="1+2+3", reduceInitType="jsonata")
+        assert msgs[0]["payload"] == 6
 
-    @pytest.mark.skip(reason='join node reduce mode is not implemented')
     @pytest.mark.asyncio
     @pytest.mark.it('should reduce messages with init types (env)')
     async def test_0042(self):
-        pass
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setenv("NR_XYZ", "nr_xyz")
+            msgs = await _join_reduce(reduceExp="$A", reduceInit="NR_XYZ", reduceInitType="env")
+        assert msgs[0]["payload"] == "nr_xyz"
 
-    @pytest.mark.skip(reason='join node reduce mode is not implemented')
     @pytest.mark.asyncio
     @pytest.mark.it('should reduce messages with init types (flow.name)')
     async def test_0043(self):
-        pass
+        msgs = await _join_reduce(seed='flow.set("foo","bar");', reduceExp="$A", reduceInit="foo", reduceInitType="flow")
+        assert msgs[0]["payload"] == "bar"
 
-    @pytest.mark.skip(reason='join node reduce mode is not implemented')
     @pytest.mark.asyncio
     @pytest.mark.it('should reduce messages with init types (global.name)')
     async def test_0044(self):
-        pass
+        msgs = await _join_reduce(seed='global.set("foo","bar");', reduceExp="$A", reduceInit="foo", reduceInitType="global")
+        assert msgs[0]["payload"] == "bar"
 
-    @pytest.mark.skip(reason='join node reduce mode is not implemented')
     @pytest.mark.asyncio
     @pytest.mark.it('should reduce messages using $I')
     async def test_0045(self):
-        pass
+        msgs = await _join_reduce(reduceExp="$A+$I")
+        assert msgs[0]["payload"] == 6
 
-    @pytest.mark.skip(reason='join node reduce mode is not implemented')
     @pytest.mark.asyncio
     @pytest.mark.it('should reduce messages with fixup')
     async def test_0046(self):
-        pass
+        inputs = _reduce_inputs(count=5) + [{"payload": 0, "parts": {"index": 4, "count": 5, "id": 222}}]
+        msgs = await _join_reduce(inputs=inputs, reduceFixup="$A/$N")
+        assert msgs[0]["payload"] == 2
 
-    @pytest.mark.skip(reason='join node reduce mode is not implemented')
     @pytest.mark.asyncio
     @pytest.mark.it('should reduce messages (left)')
     async def test_0047(self):
-        pass
+        msgs = await _join_reduce(inputs=_reduce_inputs(strings=True),
+            reduceExp="'(' & $A & '+' & payload & ')'", reduceInit="0", reduceInitType="str")
+        assert msgs[0]["payload"] == "((((0+1)+2)+3)+4)"
+        assert msgs[0]["parts"]["index"] == 3
 
-    @pytest.mark.skip(reason='join node reduce mode is not implemented')
     @pytest.mark.asyncio
     @pytest.mark.it('should reduce messages (right)')
     async def test_0048(self):
-        pass
+        msgs = await _join_reduce(inputs=_reduce_inputs(strings=True), reduceRight=True,
+            reduceExp="'(' & $A & '+' & payload & ')'", reduceInit="0", reduceInitType="str")
+        assert msgs[0]["payload"] == "((((0+4)+3)+2)+1)"
+        assert msgs[0]["parts"]["index"] == 0
 
-    @pytest.mark.skip(reason='join node reduce mode is not implemented')
     @pytest.mark.asyncio
     @pytest.mark.it('should reduce messages with array result')
     async def test_0049(self):
-        pass
+        inputs = [{"payload": value, "parts": {"index": i, "count": 2, "id": 222 if i < 2 else 333}}
+                  for i, value in enumerate([1, 2, 3, 4])]
+        msgs = await _join_reduce(inputs=inputs, expected=2, reduceExp="$append($A,[payload])", reduceInit="[]", reduceInitType="json")
+        assert [msg["payload"] for msg in msgs] == [[1, 2], [3, 4]]
 
-    @pytest.mark.skip(reason='join node reduce mode is not implemented')
     @pytest.mark.asyncio
     @pytest.mark.it('should handle too many pending messages for reduce mode')
     async def test_0050(self):
-        pass
+        config = copy.deepcopy(TEST_EDGELINLKD_CONFIG)
+        config["runtime"]["flow"] = {"node_message_buffer_max_length": 2}
+        node = {"id": "1", "z": "0", "type": "join", "mode": "reduce", "reduceExp": "$A+payload",
+                "reduceInit": "0", "reduceInitType": "num", "wires": [[]]}
+        msgs = await edgelink.run_flows_for_once(0.05, _mapi_flow(node),
+            [("1", msg, 0) for msg in _reduce_inputs()], config)
+        assert len(msgs) == 3
+        assert [msg["payload"] for msg in msgs if "error" in msg] == [4]
+        assert any(msg["type"] == "join" and msg["msg"] == "Too many pending messages in join node"
+                   for msg in edgelink.take_node_logs())
 
-    @pytest.mark.skip(reason='join node reduce mode is not implemented')
     @pytest.mark.asyncio
     @pytest.mark.it('should reduce messages with flow context')
     async def test_0051(self):
-        pass
+        msgs = await _join_reduce_context("flow")
+        assert msgs[0]["payload"] == 63
 
-    @pytest.mark.skip(reason='join node reduce mode is not implemented')
     @pytest.mark.asyncio
     @pytest.mark.it('should reduce messages with global context')
     async def test_0052(self):
-        pass
+        msgs = await _join_reduce_context("global")
+        assert msgs[0]["payload"] == 18
 
-    @pytest.mark.skip(reason='join node reduce mode is not implemented')
     @pytest.mark.asyncio
     @pytest.mark.it('should reduce messages with persistable flow context')
     async def test_0053(self):
-        pass
+        msgs = await _join_reduce_context("flow", True)
+        assert msgs[0]["payload"] == 63
 
-    @pytest.mark.skip(reason='join node reduce mode is not implemented')
     @pytest.mark.asyncio
     @pytest.mark.it('should reduce messages with persistable global context')
     async def test_0054(self):
-        pass
+        msgs = await _join_reduce_context("global", True)
+        assert msgs[0]["payload"] == 18
 
-    @pytest.mark.skip(reason='join node reduce mode is not implemented')
     @pytest.mark.asyncio
     @pytest.mark.it('''should handle invalid JSONata reduce expression - syntax error"''')
     async def test_0055(self):
-        pass
+        with pytest.raises(RuntimeError, match="Invalid JSONata expression"):
+            await _join_reduce(reduceExp="invalid expr")
 
-    @pytest.mark.skip(reason='join node reduce mode is not implemented')
     @pytest.mark.asyncio
     @pytest.mark.it('''should handle invalid JSONata reduce expression - runtime error"''')
     async def test_0056(self):
-        pass
+        await _join_reduce_error(reduceExp="$uknown()")
 
-    @pytest.mark.skip(reason='join node reduce mode is not implemented')
     @pytest.mark.asyncio
     @pytest.mark.it('''should handle invalid JSONata fixup expression - syntax err"''')
     async def test_0057(self):
-        pass
+        with pytest.raises(RuntimeError, match="Invalid JSONata expression"):
+            await _join_reduce(reduceExp="$A", reduceFixup="invalid expr")
 
-    @pytest.mark.skip(reason='join node reduce mode is not implemented')
     @pytest.mark.asyncio
     @pytest.mark.it('''should handle invalid JSONata fixup expression - runtime err"''')
     async def test_0058(self):
-        pass
+        await _join_reduce_error(reduceExp="$A", reduceFixup="$unknown()")
 
     # This is the last `it()` of describe('JOIN node') upstream: it sits after the nested
     # 'messaging API' block, so its fullTitle carries no 'messaging API' segment.
@@ -1161,6 +1114,21 @@ class TestJoinNode:
 
 
 
+
+
+async def _join_done(settings, entries, timings):
+    config = copy.deepcopy(TEST_EDGELINLKD_CONFIG)
+    config["runtime"]["flow"] = {"node_message_buffer_max_length": 3}
+    node = {"id": "1", "z": "0", "type": "join", "wires": [[]], **settings}
+    msgs = await edgelink.run_flows_for_once(0.15, _mapi_flow(node),
+        [("1", msg, delay) for msg, delay in entries], config)
+    assert len(msgs) == len(entries)
+    assert sorted(msg["seq"] for msg in msgs) == list(range(len(entries)))
+    for msg in msgs:
+        assert abs(msg["_since_start_ms"] - timings[msg["seq"]]) < 100
+    return msgs
+
+
 # Upstream nests this block inside describe('JOIN node'), so mocha's fullTitle is
 # "JOIN node messaging API <it>"; the stacked describe markers reproduce that.
 @pytest.mark.describe('JOIN node')
@@ -1172,14 +1140,13 @@ class TestMessagingApi:
         # Node-RED: mapiDoneSplitTestHelper(done, 2, "len", false, [
         #     { msg: { seq: 0, payload: "12345" }, delay: 0, avr: 0, var: 100 },
         # ]);
-        # Node._complete(arg) passes the *input* message to the complete node, so the
-        # single message the helper counts is the injected one.
+        # The completion carries the input after split has written the final string chunk.
         node = {"id": "1", "z": "0", "type": "split", "splt": "2", "spltType": "len", "stream": False,
                 "wires": [[]]}
         msgs = await run_flow_with_msgs_ntimes(_mapi_flow(node), [{"seq": 0, "payload": "12345"}], 1)
         assert len(msgs) == 1
         assert "payload" in msgs[0]
-        assert msgs[0]["payload"] == "12345"
+        assert msgs[0]["payload"] == "5"
 
     @pytest.mark.asyncio
     @pytest.mark.it('should call done() when message is sent (array)')
@@ -1205,140 +1172,86 @@ class TestMessagingApi:
         msgs = await run_flow_with_msgs_ntimes(_mapi_flow(node), [{"seq": 0, "payload": {"a": 1, "b": 2}}], 1)
         assert len(msgs) == 1
         assert "payload" in msgs[0]
-        assert msgs[0]["payload"] == {"a": 1, "b": 2}
+        assert msgs[0]["payload"] == 2
 
-    @pytest.mark.skip(
-        reason="upstream asserts emission timing between individually delayed injections; the pytest harness injects every message up front"
-    )
+    async def _consolidated(self, binary=False, split_type="len"):
+        node = {"id": "5" if binary else "1", "z": "0", "type": "split",
+                "splt": "[53]" if split_type == "bin" else "5", "spltType": split_type,
+                "stream": True, "wires": [[]]}
+        flows = _mapi_flow({**node, "id": "1"})
+        if binary:
+            flows[1]["id"] = "5"
+            flows[2]["scope"] = ["5"]
+            flows[3]["scope"] = ["5"]
+            flows.append({"id": "1", "z": "0", "type": "function", "wires": [["5"]],
+                          "func": "msg.payload = new Uint8Array(msg.payload).buffer; return msg;"})
+        payloads = [list(b"12"), list(b"34"), list(b"5")] if binary else ["12", "34", "5"]
+        injections = [{"nid": "1", "msg": {"seq": i, "payload": value}, "delay_ms": delay}
+                      for i, (value, delay) in enumerate(zip(payloads, [0, 200, 500]))]
+        msgs = await run_flow_for_seconds_scheduled(flows, injections, 0.2)
+        assert len(msgs) == 3
+        assert sorted(msg["seq"] for msg in msgs) == [0, 1, 2]
+        assert all(abs(msg["_since_start_ms"] - 500) < 100 for msg in msgs)
+
     @pytest.mark.asyncio
     @pytest.mark.it('should call done() when consolidated message is emitted (string, len)')
     async def test_0004(self):
-        # Node-RED: mapiDoneSplitTestHelper(done, 5, "len", true, [
-        #     { msg: { seq: 0, payload: "12"}, delay: 0,   avr: 500, var: 100 },
-        #     { msg: { seq: 1, payload: "34"}, delay: 200, avr: 500, var: 100 },
-        #     { msg: { seq: 2, payload: "5"},  delay: 500, avr: 500, var: 100 }
-        # ]);
-        # The helper asserts (Date.now() - t).should.be.approximately(msgAndTimings[msg.seq].avr, var),
-        # i.e. it only checks *when* the consolidated message is emitted.
-        pass
+        await self._consolidated()
 
-    @pytest.mark.skip(
-        reason="upstream asserts emission timing between individually delayed injections; the pytest harness injects every message up front"
-    )
     @pytest.mark.asyncio
     @pytest.mark.it('should call done() when consolidated message is emitted (Buffer, len)')
     async def test_0005(self):
-        # Node-RED: mapiDoneSplitTestHelper(done, 5, "len", true, [
-        #     { msg: { seq: 0, payload: Buffer.from("12")}, delay: 0,   avr: 500, var: 100 },
-        #     { msg: { seq: 1, payload: Buffer.from("34")}, delay: 200, avr: 500, var: 100 },
-        #     { msg: { seq: 2, payload: Buffer.from("5")},  delay: 500, avr: 500, var: 100 }
-        # ]);
-        pass
+        await self._consolidated(True)
 
-    @pytest.mark.skip(
-        reason="upstream asserts emission timing between individually delayed injections; the pytest harness injects every message up front"
-    )
     @pytest.mark.asyncio
     @pytest.mark.it('should call done() when consolidated message is emitted (Buffer, str)')
     async def test_0006(self):
-        # Node-RED: mapiDoneSplitTestHelper(done, "5", "str", true, [
-        #     { msg: { seq: 0, payload: Buffer.from("12")}, delay: 0,   avr: 500, var: 100 },
-        #     { msg: { seq: 1, payload: Buffer.from("34")}, delay: 200, avr: 500, var: 100 },
-        #     { msg: { seq: 2, payload: Buffer.from("5")},  delay: 500, avr: 500, var: 100 }
-        # ]);
-        pass
+        await self._consolidated(True, "str")
 
-    @pytest.mark.skip(
-        reason="upstream asserts emission timing between individually delayed injections; the pytest harness injects every message up front"
-    )
     @pytest.mark.asyncio
     @pytest.mark.it('should call done() when consolidated message is emitted (Buffer, bin)')
     async def test_0007(self):
-        # Node-RED: mapiDoneSplitTestHelper(done, "[53]", "bin", true, [
-        #     { msg: { seq: 0, payload: Buffer.from("12")}, delay: 0,   avr: 500, var: 100 },
-        #     { msg: { seq: 1, payload: Buffer.from("34")}, delay: 200, avr: 500, var: 100 },
-        #     { msg: { seq: 2, payload: Buffer.from("5")},  delay: 500, avr: 500, var: 100 }
-        # ]);
-        pass
+        await self._consolidated(True, "bin")
 
     @pytest.mark.asyncio
     @pytest.mark.it('should call done() when all messages are joined')
     async def test_0008(self):
-        # Node-RED: mapiDoneJoinTestHelper(done, {mode:"auto", timeout:1}, [
-        #     { msg: {seq:0, payload:"A", parts:{id:1, type:"string", ch:",", index:0, count:3}}, delay:0,   avr:500, var:100},
-        #     { msg: {seq:1, payload:"B", parts:{id:1, type:"string", ch:",", index:1, count:3}}, delay:200, avr:500, var:100},
-        #     { msg: {seq:2, payload:"C", parts:{id:1, type:"string", ch:",", index:2, count:3}}, delay:500, avr:500, var:100}
-        # ]);
-        node = {"id": "1", "z": "0", "type": "join", "mode": "auto", "timeout": 1, "wires": [[]]}
-        injections = [
-            {"seq": 0, "payload": "A", "parts": {"id": 1, "type": "string", "ch": ",", "index": 0, "count": 3}},
-            {"seq": 1, "payload": "B", "parts": {"id": 1, "type": "string", "ch": ",", "index": 1, "count": 3}},
-            {"seq": 2, "payload": "C", "parts": {"id": 1, "type": "string", "ch": ",", "index": 2, "count": 3}},
+        inputs = [
+            ({"seq": 0, "payload": "A", "parts": {"id": 1, "type": "string", "ch": ",", "index": 0, "count": 3}}, 0),
+            ({"seq": 1, "payload": "B", "parts": {"id": 1, "type": "string", "ch": ",", "index": 1, "count": 3}}, 200),
+            ({"seq": 2, "payload": "C", "parts": {"id": 1, "type": "string", "ch": ",", "index": 2, "count": 3}}, 500),
         ]
-        msgs = await run_flow_with_msgs_ntimes(_mapi_flow(node), injections, 3)
-        # Node._complete(arg) hands the *input* message of every done() call to the
-        # complete node, so the three messages the helper counts are the three injected
-        # parts (the join node sends the joined message to its own output, which upstream
-        # wires to nothing). The msg.seq the helper indexes its timing table with is the
-        # payload order asserted here.
-        assert len(msgs) == 3
-        for msg in msgs:
-            assert "payload" in msg
-        assert [msg["payload"] for msg in msgs] == ["A", "B", "C"]
+        await _join_done({"mode": "auto", "timeout": 1}, inputs, [500, 500, 500])
 
     @pytest.mark.asyncio
     @pytest.mark.it('should call done() when the node is reset')
     async def test_0009(self):
-        # Node-RED: mapiDoneJoinTestHelper(done, {mode:"auto", timeout:1}, [
-        #     { msg: {seq:0, payload:"A", parts:{id:1, type:"string", ch:",", index:0, count:3}}, delay:0,   avr:500, var:100},
-        #     { msg: {seq:1, payload:"B", parts:{id:1, type:"string", ch:",", index:1, count:3}}, delay:200, avr:500, var:100},
-        #     { msg: {seq:2, payload:"dummy", reset: true, parts:{id:1}}, delay:500, avr:500, var:100}
-        # ]);
-        node = {"id": "1", "z": "0", "type": "join", "mode": "auto", "timeout": 1, "wires": [[]]}
-        injections = [
-            {"seq": 0, "payload": "A", "parts": {"id": 1, "type": "string", "ch": ",", "index": 0, "count": 3}},
-            {"seq": 1, "payload": "B", "parts": {"id": 1, "type": "string", "ch": ",", "index": 1, "count": 3}},
-            {"seq": 2, "payload": "dummy", "reset": True, "parts": {"id": 1}},
+        inputs = [
+            ({"seq": 0, "payload": "A", "parts": {"id": 1, "type": "string", "ch": ",", "index": 0, "count": 3}}, 0),
+            ({"seq": 1, "payload": "B", "parts": {"id": 1, "type": "string", "ch": ",", "index": 1, "count": 3}}, 200),
+            ({"seq": 2, "payload": "dummy", "reset": True, "parts": {"id": 1}}, 500),
         ]
-        msgs = await run_flow_with_msgs_ntimes(_mapi_flow(node), injections, 3)
-        # The reset message is dropped by the join node and never completes a group, but
-        # its done() still reaches the complete node with the reset payload.
-        assert len(msgs) == 3
-        for msg in msgs:
-            assert "payload" in msg
-        assert [msg["payload"] for msg in msgs] == ["A", "B", "dummy"]
+        await _join_done({"mode": "auto", "timeout": 1}, inputs, [500, 500, 500])
 
-    @pytest.mark.skip(reason="join node timeout mode is not implemented")
     @pytest.mark.asyncio
     @pytest.mark.it('should call done() when timed out')
     async def test_0010(self):
-        # Node-RED: mapiDoneJoinTestHelper(done, {mode:"custom", joiner:",", build:"string", timeout:0.5}, [
-        #     { msg: {seq:0, payload:"A"}, delay:0,   avr:500, var:100},
-        #     { msg: {seq:1, payload:"B"}, delay:200, avr:500, var:100},
-        # ]);
-        pass
+        inputs = [({"seq": 0, "payload": "A"}, 0), ({"seq": 1, "payload": "B"}, 200)]
+        await _join_done({"mode": "custom", "joiner": ",", "build": "string", "timeout": 0.5}, inputs, [500, 500])
 
-    @pytest.mark.skip(reason="join node reduce mode is not implemented")
     @pytest.mark.asyncio
     @pytest.mark.it('should call done() when all messages are reduced')
     async def test_0011(self):
-        # Node-RED: mapiDoneJoinTestHelper(done, {mode:"reduce", reduceRight:false, reduceExp:"$A+payload", reduceInit:"0",
-        #                                         reduceInitType:"num", reduceFixup:undefined}, [
-        #     { msg: {seq:0, payload:3, parts: {index:2, count:3, id:222}}, delay:0,   avr:500, var:100},
-        #     { msg: {seq:1, payload:2, parts: {index:1, count:3, id:222}}, delay:200, avr:500, var:100},
-        #     { msg: {seq:2, payload:4, parts: {index:0, count:3, id:222}}, delay:500, avr:500, var:100}
-        # ]);
-        pass
+        inputs = [({"seq": i, "payload": value, "parts": {"index": index, "count": 3, "id": 222}}, delay)
+                  for i, (value, index, delay) in enumerate([(3, 2, 0), (2, 1, 200), (4, 0, 500)])]
+        await _join_done({"mode": "reduce", "reduceExp": "$A+payload", "reduceInit": "0", "reduceInitType": "num"},
+                        inputs, [500, 500, 500])
 
-    @pytest.mark.skip(reason="the join node does not implement the nodeMessageBufferMaxLength overflow semantics the setting is now available for (see the sort node)")
     @pytest.mark.asyncio
     @pytest.mark.it('should call done() regardless of buffer overflow')
     async def test_0012(self):
-        # Node-RED: mapiDoneJoinTestHelper(done, {mode:"reduce", reduceRight:false, reduceExp:"$A+payload", reduceInit:"0",
-        #                                         reduceInitType:"num", reduceFixup:undefined}, [
-        #     { msg: {seq:0, payload:3, parts: {index:2, count:5, id:222}}, delay:0,   avr:600, var:100},
-        #     { msg: {seq:1, payload:2, parts: {index:1, count:5, id:222}}, delay:200, avr:600, var:100},
-        #     { msg: {seq:2, payload:4, parts: {index:0, count:5, id:222}}, delay:400, avr:600, var:100},
-        #     { msg: {seq:3, payload:1, parts: {index:3, count:5, id:222}}, delay:600, avr:600, var:100},
-        # ]);
-        pass
+        inputs = [({"seq": i, "payload": value, "parts": {"index": index, "count": 5, "id": 222}}, delay)
+                  for i, (value, index, delay) in enumerate([(3, 2, 0), (2, 1, 200), (4, 0, 400), (1, 3, 600)])]
+        msgs = await _join_done({"mode": "reduce", "reduceExp": "$A+payload", "reduceInit": "0", "reduceInitType": "num"},
+                               inputs, [600, 600, 600, 600])
+        assert [msg["seq"] for msg in msgs if "error" in msg] == [3]

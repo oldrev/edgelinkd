@@ -98,7 +98,7 @@
         "category": "sequence nodes",
         "nodes": [
             [
-                "spilt node",
+                "split / join nodes",
                 "nodes/sequence/test_split_node.py",
                 "test/nodes/core/sequence/17-split_spec.js"
             ],
