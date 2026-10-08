@@ -7,7 +7,7 @@
 [Build Status]: https://img.shields.io/github/actions/workflow/status/oldrev/edgelinkd/CICD.yml?branch=master
 [actions]: https://github.com/oldrev/edgelinkd/actions?query=branch%3Amaster
 
-![Node-RED Rust Backend](assets/banner.jpg)
+![Node-RED Rust Backend](assets/banner.png)
 
 [English](README.md) | 简中
 

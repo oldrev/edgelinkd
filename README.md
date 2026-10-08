@@ -9,7 +9,7 @@
 [GitHub Release]: https://img.shields.io/github/v/release/oldrev/edgelinkd?include_prereleases
 [releases]: https://github.com/oldrev/edgelinkd/releases
 [GitHub Downloads]: https://img.shields.io/github/downloads/oldrev/edgelinkd/total
-![Node-RED Rust Backend](assets/banner.jpg)
+![Node-RED Rust Backend](assets/banner.png)
 
 English | [简中](README.zh-cn.md)
 
