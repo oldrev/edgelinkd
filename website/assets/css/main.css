@@ -510,6 +510,7 @@ pre code {
   border-radius: 7px;
   color: var(--text-2);
   font-size: 14px;
+  text-decoration: none;
   white-space: nowrap;
   transition: color 0.15s, background-color 0.15s;
 }
@@ -704,6 +705,7 @@ html:not(.js-theme)[data-theme-pref="system"] .seg [data-theme-value="system"] {
   border-bottom: 1px solid var(--line);
   font-size: 16px;
   font-weight: 500;
+  text-decoration: none;
 }
 
 .mobile-menu-row {
