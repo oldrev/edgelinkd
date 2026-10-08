@@ -17,7 +17,7 @@ EdgeLinkd is a single native process. The same binary hosts the flow engine and 
 | `crates/pymod/` | `edgelink_pymod` — the Python extension driven by the test suite |
 | `node-plugins/` | Statically linked node plug-ins |
 | `tests/` | pytest port of Node-RED's mocha specification suite |
-| `3rd-party/node-red/` | Pinned Node-RED checkout (v4.0.9): editor assets and behavioural reference |
+| `3rd-party/node-red/` | Pinned Node-RED checkout (v4.1.15): editor assets and behavioural reference |
 
 ## Runtime model
 
