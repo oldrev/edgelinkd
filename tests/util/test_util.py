@@ -1538,109 +1538,128 @@ class TestEncodeObjectOfObject:
 
 # Additional Node-RED 4.1.15 specs
 
+async def _assert_typed_array(expr, expected_format, expected_data):
+    result = await _encode(expr)
+    assert result["format"] == expected_format
+    encoded = json.loads(result["msg"])
+    assert encoded == {"__enc__": True, "type": "array", "data": expected_data, "length": len(expected_data)}
+
+
 @pytest.mark.describe('@node-red/util/util encodeObject')
-class TestAdditional1:
-    @pytest.mark.skip(reason='typed arrays are unavailable across the pytest JavaScript bridge')
+class TestEncodeTypedArrayObjectBigInt64:
     @pytest.mark.asyncio
     @pytest.mark.it('encode object object with typed array property (BigInt64Array)')
     async def test_additional_0001(self):
-        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+        result = await _encode("({anArray: new BigInt64Array([10n, 20n, 30n])})")
+        assert result["format"] == "Object"
+        assert json.loads(result["msg"])["anArray"] == {
+            "__enc__": True, "type": "array", "data": [
+                {"__enc__": True, "data": "10", "type": "bigint"},
+                {"__enc__": True, "data": "20", "type": "bigint"},
+                {"__enc__": True, "data": "30", "type": "bigint"},
+            ], "length": 3,
+        }
 
 @pytest.mark.describe('@node-red/util/util encodeObject')
-class TestAdditional2:
-    @pytest.mark.skip(reason='typed arrays are unavailable across the pytest JavaScript bridge')
+class TestEncodeTypedArrayObjectInt8:
     @pytest.mark.asyncio
     @pytest.mark.it('encode object object with typed array property (Int8Array)')
     async def test_additional_0002(self):
-        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+        result = await _encode("({anArray: new Int8Array([1, 2, 3])})")
+        assert result["format"] == "Object"
+        assert json.loads(result["msg"])["anArray"] == {
+            "__enc__": True, "type": "array", "data": [1, 2, 3], "length": 3,
+        }
 
 @pytest.mark.describe('@node-red/util/util encodeObject')
-class TestAdditional3:
-    @pytest.mark.skip(reason='typed arrays are unavailable across the pytest JavaScript bridge')
+class TestEncodeTypedArrayBigInt64:
     @pytest.mark.asyncio
     @pytest.mark.it('encode typed arrays encodes BigInt64Array')
     async def test_additional_0003(self):
-        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+        await _assert_typed_array("new BigInt64Array([28n, 29n, 30n])", "BigInt64Array[3]", [
+            {"__enc__": True, "data": "28", "type": "bigint"},
+            {"__enc__": True, "data": "29", "type": "bigint"},
+            {"__enc__": True, "data": "30", "type": "bigint"},
+        ])
 
 @pytest.mark.describe('@node-red/util/util encodeObject')
-class TestAdditional4:
-    @pytest.mark.skip(reason='typed arrays are unavailable across the pytest JavaScript bridge')
+class TestEncodeTypedArrayBigUint64:
     @pytest.mark.asyncio
     @pytest.mark.it('encode typed arrays encodes BigUint64Array')
     async def test_additional_0004(self):
-        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+        await _assert_typed_array("new BigUint64Array([31n, 32n, 33n])", "BigUint64Array[3]", [
+            {"__enc__": True, "data": "31", "type": "bigint"},
+            {"__enc__": True, "data": "32", "type": "bigint"},
+            {"__enc__": True, "data": "33", "type": "bigint"},
+        ])
 
 @pytest.mark.describe('@node-red/util/util encodeObject')
-class TestAdditional5:
-    @pytest.mark.skip(reason='typed arrays are unavailable across the pytest JavaScript bridge')
+class TestEncodeTypedArrayFloat32:
     @pytest.mark.asyncio
     @pytest.mark.it('encode typed arrays encodes Float32Array')
     async def test_additional_0005(self):
-        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+        result = await _encode("new Float32Array([22.1, 23.2, 24.3])")
+        assert result["format"] == "Float32Array[3]"
+        encoded = json.loads(result["msg"])
+        assert encoded["__enc__"] is True and encoded["type"] == "array" and encoded["length"] == 3
+        assert encoded["data"] == pytest.approx([22.1, 23.2, 24.3], abs=0.00001)
 
 @pytest.mark.describe('@node-red/util/util encodeObject')
-class TestAdditional6:
-    @pytest.mark.skip(reason='typed arrays are unavailable across the pytest JavaScript bridge')
+class TestEncodeTypedArrayFloat64:
     @pytest.mark.asyncio
     @pytest.mark.it('encode typed arrays encodes Float64Array')
     async def test_additional_0006(self):
-        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+        await _assert_typed_array("new Float64Array([25.4, 26.5, 27.6])", "Float64Array[3]", [25.4, 26.5, 27.6])
 
 @pytest.mark.describe('@node-red/util/util encodeObject')
-class TestAdditional7:
-    @pytest.mark.skip(reason='typed arrays are unavailable across the pytest JavaScript bridge')
+class TestEncodeTypedArrayInt16:
     @pytest.mark.asyncio
     @pytest.mark.it('encode typed arrays encodes Int16Array')
     async def test_additional_0007(self):
-        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+        await _assert_typed_array("new Int16Array([7, 8, 9])", "Int16Array[3]", [7, 8, 9])
 
 @pytest.mark.describe('@node-red/util/util encodeObject')
-class TestAdditional8:
-    @pytest.mark.skip(reason='typed arrays are unavailable across the pytest JavaScript bridge')
+class TestEncodeTypedArrayInt32:
     @pytest.mark.asyncio
     @pytest.mark.it('encode typed arrays encodes Int32Array')
     async def test_additional_0008(self):
-        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+        await _assert_typed_array("new Int32Array([16, 17, 18])", "Int32Array[3]", [16, 17, 18])
 
 @pytest.mark.describe('@node-red/util/util encodeObject')
-class TestAdditional9:
-    @pytest.mark.skip(reason='typed arrays are unavailable across the pytest JavaScript bridge')
+class TestEncodeTypedArrayInt8:
     @pytest.mark.asyncio
     @pytest.mark.it('encode typed arrays encodes Int8Array')
     async def test_additional_0009(self):
-        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+        await _assert_typed_array("new Int8Array([1, 2, 3])", "Int8Array[3]", [1, 2, 3])
 
 @pytest.mark.describe('@node-red/util/util encodeObject')
-class TestAdditional10:
-    @pytest.mark.skip(reason='typed arrays are unavailable across the pytest JavaScript bridge')
+class TestEncodeTypedArrayUint16:
     @pytest.mark.asyncio
     @pytest.mark.it('encode typed arrays encodes Uint16Array')
     async def test_additional_0010(self):
-        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+        await _assert_typed_array("new Uint16Array([13, 14, 15])", "Uint16Array[3]", [13, 14, 15])
 
 @pytest.mark.describe('@node-red/util/util encodeObject')
-class TestAdditional11:
-    @pytest.mark.skip(reason='typed arrays are unavailable across the pytest JavaScript bridge')
+class TestEncodeTypedArrayUint32:
     @pytest.mark.asyncio
     @pytest.mark.it('encode typed arrays encodes Uint32Array')
     async def test_additional_0011(self):
-        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+        await _assert_typed_array("new Uint32Array([19, 20, 21])", "Uint32Array[3]", [19, 20, 21])
 
 @pytest.mark.describe('@node-red/util/util encodeObject')
-class TestAdditional12:
-    @pytest.mark.skip(reason='typed arrays are unavailable across the pytest JavaScript bridge')
+class TestEncodeTypedArrayUint8:
     @pytest.mark.asyncio
     @pytest.mark.it('encode typed arrays encodes Uint8Array')
     async def test_additional_0012(self):
-        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+        result = await _encode("new Uint8Array([1, 2, 3])")
+        assert result == {"format": "buffer[3]", "msg": "010203"}
 
 @pytest.mark.describe('@node-red/util/util encodeObject')
-class TestAdditional13:
-    @pytest.mark.skip(reason='typed arrays are unavailable across the pytest JavaScript bridge')
+class TestEncodeTypedArrayUint8Clamped:
     @pytest.mark.asyncio
     @pytest.mark.it('encode typed arrays encodes Uint8ClampedArray')
     async def test_additional_0013(self):
-        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+        await _assert_typed_array("new Uint8ClampedArray([34, 35, 36])", "Uint8ClampedArray[3]", [34, 35, 36])
 
 
 # Additional Node-RED 4.1.15 specs

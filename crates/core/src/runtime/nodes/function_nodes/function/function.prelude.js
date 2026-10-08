@@ -36,6 +36,12 @@ const RED = (function () {
         return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
     }
 
+    /// Typed arrays other than Uint8Array, which is the sandbox's binary type.
+    function isNonByteTypedArray(value) {
+        return value && ArrayBuffer.isView(value) && !(value instanceof Uint8Array) &&
+            Object.prototype.toString.call(value) !== '[object DataView]';
+    }
+
     /// `Buffer#toString()`: decode UTF-8, replacing malformed sequences with U+FFFD.
     function utf8Decode(bytes) {
         var out = '';
@@ -927,6 +933,29 @@ const RED = (function () {
                     errorMsg.message = msg.msg.toString();
                 }
                 msg.msg = JSON.stringify(errorMsg);
+            } else if (isNonByteTypedArray(msg.msg)) {
+                var typedArrayLength = msg.msg.length;
+                msg.format = constructorName(msg.msg) + "[" + typedArrayLength + "]";
+                var typedArrayData = Array.from(msg.msg);
+                if (typedArrayLength > debuglength) {
+                    typedArrayData = typedArrayData.slice(0, debuglength);
+                }
+                msg.msg = {
+                    __enc__: true,
+                    type: "array",
+                    data: typedArrayData,
+                    length: typedArrayLength
+                };
+                msg.msg = safeJSONStringify(msg.msg, function (key, value) {
+                    if (typeof value === 'bigint') {
+                        return {
+                            __enc__: true,
+                            type: 'bigint',
+                            data: value.toString()
+                        };
+                    }
+                    return value;
+                });
             } else if (isBytes(msg.msg)) {
                 var rawBytes = toU8(msg.msg);
                 msg.format = "buffer[" + rawBytes.length + "]";
@@ -1022,6 +1051,18 @@ const RED = (function () {
                                     __enc__: true,
                                     type: 'bigint',
                                     data: value.toString()
+                                };
+                            } else if (isNonByteTypedArray(value)) {
+                                var typedArrayData = Array.from(value);
+                                var typedArrayLength = value.length;
+                                if (typedArrayLength > debuglength) {
+                                    typedArrayData = typedArrayData.slice(0, debuglength);
+                                }
+                                value = {
+                                    __enc__: true,
+                                    type: "array",
+                                    data: typedArrayData,
+                                    length: typedArrayLength
                                 };
                             } else if (isBytes(value)) {
                                 // Node reaches this shape through `Buffer#toJSON()`, which emits

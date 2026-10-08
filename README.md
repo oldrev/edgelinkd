@@ -187,95 +187,20 @@ port = 1888
 
 The heavy check mark ( :heavy_check_mark: ) below indicates that the supported behavior has passed the ported Node-RED integration tests. A checked node can still have deliberately scoped gaps; the detailed covered and skipped cases are listed in [REDNODES-SPECS-DIFF.md](tests/REDNODES-SPECS-DIFF.md).
 
-### Node-RED Features Roadmap:
+### Node-RED test status
 
-- [x] :heavy_check_mark: Flow
-- [x] :heavy_check_mark: Sub-flow
-- [x] Group
-- [x] :heavy_check_mark: Environment Variables
-- [x] Context
-    - [x] Memory storage
-    - [x] Local file-system storage
-- [x] :heavy_check_mark: RED.util
-    - [x] The whole `@node-red/util` surface on the function node sandbox object
-      (`getMessageProperty`/`setMessageProperty`, `evaluateNodeProperty`,
-      `normalisePropertyExpression`, `normaliseNodeTypeName`, `compareObjects`,
-      `ensureString`/`ensureBuffer`, `parseContextStore`, `getSetting`, `encodeObject`, ...),
-      covered by the ported upstream spec in `tests/util/test_util.py`
-    - [ ] `ensureBuffer()` returns a `Uint8Array`: the sandbox has no Node.js `Buffer`
-    - [ ] `prepareJSONataExpression()` / `evaluateJSONataExpression()` fail with `NOT_SUPPORTED`:
-      JSONata is implemented by the Rust runtime and is not exposed to JavaScript
-    - [ ] `evaluateNodeProperty(v, "date")` with a format string fails with `NOT_SUPPORTED`:
-      the sandbox has no `moment` to format with
-- [x] Plug-in subsystem[^1]
-- [x] JSONata (via the pure-Rust `jsonata-core` engine)
-    - [x] `$flowContext()`, `$globalContext()`, `$env()`, `$clone()`, `$I`/`$N` bindings
-    - [x] `change` / `switch` / `inject` properties, and environment variables
-    - [ ] `$moment()` — an expression calling it fails with an error instead of a value
+The node list below is derived from the registered spec comparisons. The detailed per-`it()` results and the nested-squares visualization are in [REDNODES-SPECS-DIFF.md](tests/REDNODES-SPECS-DIFF.md) and [REDNODES-SPECS-DIFF.svg](tests/REDNODES-SPECS-DIFF.svg). A skipped test is counted in the upstream total and shown as a gray square; it is not counted as executed coverage.
 
-[^1]: Rust's Tokio async functions cannot call into dynamic libraries, so currently, we can only use statically linked plugins. I will evaluate the possibility of adding plugins based on WebAssembly (WASM) or JavaScript (JS) in the future.
+![REDNODES-SPECS-DIFF.svg](tests/REDNODES-SPECS-DIFF.svg)
 
-### The Current Status of Nodes:
+Regenerate the report and chart with:
 
-Refer [REDNODES-SPECS-DIFF.md](tests/REDNODES-SPECS-DIFF.md) to view the details of the currently implemented nodes that comply with the Node-RED specification tests.
+```console
+python scripts/specs_diff.py 3rd-party/node-red \
+  -o tests/REDNODES-SPECS-DIFF.md \
+  --svg-output tests/REDNODES-SPECS-DIFF.svg
+```
 
-- Core nodes:
-    - Common nodes:
-        - [x] :heavy_check_mark: Inject
-        - [x] :heavy_check_mark: Debug
-        - [x] :heavy_check_mark: Complete
-        - [x] :heavy_check_mark: Catch
-        - [x] :heavy_check_mark: Status
-        - [x] :heavy_check_mark: Link In
-        - [x] :heavy_check_mark: Link Call
-        - [x] :heavy_check_mark: Link Out
-        - [x] :heavy_check_mark: Comment (ignored automatically)
-        - [x] :heavy_check_mark: GlobalConfig
-        - [x] :heavy_check_mark: Unknown
-        - [x] :heavy_check_mark: Junction
-    - Function nodes:
-        - [x] Function (WIP)
-        - [x] :heavy_check_mark: Switch
-        - [x] :heavy_check_mark: Change
-        - [x] :heavy_check_mark: Range
-        - [x] :heavy_check_mark: Template
-        - [x] :heavy_check_mark: Delay
-        - [x] :heavy_check_mark: Trigger
-        - [x] :heavy_check_mark: Exec
-        - [x] :heavy_check_mark: Filter (RBE)
-    - Network nodes:
-        - [x] MQTT In (WIP)
-        - [x] MQTT Out (WIP)
-        - [x] MQTT Broker (WIP)
-        - [x] HTTP In (WIP)
-        - [x] HTTP Out (WIP)
-        - [x] HTTP Request (WIP)
-        - [x] WebSocket Listener (WIP)
-        - [x] WebSocket Client (WIP)
-        - [x] WebSocket In (WIP)
-        - [x] WebSocket Out (WIP)
-        - [x] TCP In (WIP)
-        - [x] TCP Out (WIP)
-        - [x] TCP Get (WIP)
-        - [x] UDP In (WIP)
-        - [x] :heavy_check_mark: UDP Out
-        - [x] TLS (WIP)
-        - [x] HTTP Proxy (WIP)
-    - Sequence nodes:
-        - [x] Split (WIP)
-        - [x] Join (WIP)
-        - [x] Sort (WIP)
-        - [x] Batch (WIP)
-    - Parser nodes:
-        - [x] :heavy_check_mark: CSV
-        - [x] :heavy_check_mark: HTML
-        - [x] :heavy_check_mark: JSON
-        - [x] :heavy_check_mark: XML
-        - [x] :heavy_check_mark: YAML
-    - Storage nodes:
-        - [x] :heavy_check_mark: File
-        - [x] File In (WIP)
-        - [x] Watch (WIP)
 ## Roadmap
 
 Check out our [milestones](https://github.com/oldrev/edgelinkd/milestones) to get a glimpse of the upcoming features and milestones.
