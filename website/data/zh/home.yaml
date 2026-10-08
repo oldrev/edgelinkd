@@ -10,7 +10,7 @@ hero:
     tag: "Beta"
     text: "GitHub Releases 提供最新 Beta 版本下载"
     href: "https://github.com/oldrev/edgelinkd/releases/latest"
-  title: "**Rust 重铸**的 Node-RED 运行时，为边缘而生。"
+  title: "**Rust 重铸**的 Node-RED 运行时"
   lead: "EdgeLinkd 以单个原生二进制文件运行你现有的 `flows.json`：内置完整的 Node-RED 编辑器，运行时节点由 Rust 实现，内存占用约为 Node-RED 的十分之一。"
   primary:
     label: "快速开始"
