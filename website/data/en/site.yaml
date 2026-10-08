@@ -15,6 +15,8 @@ nav:
     href: "#quickstart"
   - label: "Docs"
     href: "docs/"
+  - label: "Spec coverage"
+    href: "specs/"
 
 footer:
   about: "A Node-RED compatible flow runtime written in Rust, with the Node-RED editor built in — designed for resource-constrained edge devices."
@@ -30,7 +32,7 @@ footer:
         - { label: "Getting started", href: "docs/getting-started/" }
         - { label: "Architecture", href: "docs/architecture/" }
         - { label: "Compatibility", href: "docs/compatibility/" }
-        - { label: "Spec coverage report", href: "https://github.com/oldrev/edgelinkd/blob/master/tests/REDNODES-SPECS-DIFF.md" }
+        - { label: "Spec coverage report", href: "specs/" }
     - title: "Community"
       links:
         - { label: "Discord", href: "https://discord.gg/XJstgANe26" }

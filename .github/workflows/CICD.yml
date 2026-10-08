@@ -15,6 +15,7 @@ on:
       - 'tests/**'
       - 'crates/**'
       - 'node-plugins/**'
+      - 'scripts/**'
       - '3rd-party/node-red/**'
       - '*.rs'
       - '*.toml'
@@ -29,6 +30,7 @@ on:
       - 'tests/**'
       - 'crates/**'
       - 'node-plugins/**'
+      - 'scripts/**'
       - '3rd-party/node-red/**'
       - '*.rs'
       - '*.toml'
@@ -235,6 +237,90 @@ jobs:
           EDGELINK_BUILD_TARGET: ${{ matrix.target }}
           EDGELINK_BUILD_PROFILE: ci
         run: pytest ./tests -v
+
+      - name: Generate Node-RED spec coverage JSON
+        if: github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v')
+        run: |
+          python ./scripts/specs_diff.py 3rd-party/node-red \
+            --json-output ./specs-report.json \
+            --label "${{ github.ref_name }}" \
+            --commit "${{ github.sha }}" \
+            --no-fail
+
+      - name: Upload Node-RED spec coverage report
+        if: github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-red-spec-report
+          path: specs-report.json
+          if-no-files-found: error
+
+  publish-spec-coverage:
+    name: Publish Node-RED spec coverage
+    needs: build-and-test-linux
+    if: github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    concurrency:
+      group: specs-data-publish
+      cancel-in-progress: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download coverage report
+        uses: actions/download-artifact@v4
+        with:
+          name: node-red-spec-report
+          path: report
+
+      - name: Publish report to specs-data branch
+        env:
+          REPORT_NAME: ${{ github.ref == 'refs/heads/master' && 'master' || github.ref_name }}
+          REPORT_REF: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin specs-data || true
+          if git show-ref --verify --quiet refs/remotes/origin/specs-data; then
+            git checkout -B specs-data origin/specs-data
+          else
+            git checkout --orphan specs-data
+            git rm -rf .
+          fi
+          mkdir -p reports
+          cp report/specs-report.json "reports/${REPORT_NAME}.json"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          report_name = os.environ["REPORT_NAME"]
+          report = json.loads(Path(f"reports/{report_name}.json").read_text(encoding="utf-8"))
+          index_path = Path("index.json")
+          entries = {}
+          if index_path.exists():
+              for item in json.loads(index_path.read_text(encoding="utf-8")).get("reports", []):
+                  entries[item["name"]] = item
+          entries[report_name] = {
+              "name": report_name,
+              "ref": report.get("ref"),
+              "commit": report.get("commit"),
+              "generated_at": report.get("generated_at"),
+              "url": f"reports/{report_name}.json",
+              "totals": report.get("totals", {}),
+          }
+          ordered = sorted(entries.values(), key=lambda item: item.get("generated_at") or "", reverse=True)
+          index_path.write_text(json.dumps({"schema_version": 1, "reports": ordered}, indent=2) + "\n", encoding="utf-8")
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.json reports
+          git diff --cached --quiet && exit 0
+          git commit -m "Publish Node-RED spec coverage for ${REPORT_REF}"
+          git push origin specs-data
 
   build-and-test-on-arm-linux:
     name: Build and Test on ARM Linux

@@ -93,4 +93,4 @@ The release profile optimises for size (`opt-level = "z"`, LTO, one codegen unit
 
 ## Verification
 
-Compatibility is tested, not assumed. Node-RED's mocha specs are ported to pytest with **identical `describe()` and `it()` titles** and run against the real engine through the `edgelink_pymod` PyO3 extension. A script diffs the ported titles against upstream and generates [`tests/REDNODES-SPECS-DIFF.md`](https://github.com/oldrev/edgelinkd/blob/master/tests/REDNODES-SPECS-DIFF.md).
+Compatibility is tested, not assumed. Node-RED's mocha specs are ported to pytest with **identical `describe()` and `it()` titles** and run against the real engine through the `edgelink_pymod` PyO3 extension. The [live coverage page](../../en/specs/) shows the generated comparison by version and node.

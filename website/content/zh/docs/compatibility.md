@@ -17,7 +17,7 @@ EdgeLinkd 是**兼容** Node-RED 的运行时，而不是 Node-RED 的克隆。�
 ## 如何解读状态
 
 - 项目 [README](https://github.com/oldrev/edgelinkd#readme) 记录了功能级别的状态。勾选标记表示该功能已通过从 Node-RED 移植来的集成测试。
-- [`tests/REDNODES-SPECS-DIFF.md`](https://github.com/oldrev/edgelinkd/blob/master/tests/REDNODES-SPECS-DIFF.md) 按节点自动生成，比对移植测试与上游的 `describe()` 与 `it()` 标题。
+- [在线规范覆盖率页面](../../zh/specs/) 按版本、节点和单条测试比对移植测试与上游的 `describe()` 与 `it()` 标题。
 - 标记为 `@pytest.mark.skip(reason=...)` 的上游测试代表一项有意的范围决策，其 reason 会写明不支持的功能。
 
 ## 迁移流程之前

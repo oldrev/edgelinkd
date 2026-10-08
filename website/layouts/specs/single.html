@@ -1,0 +1,42 @@
+{{ define "main" }}
+<div class="container docs specs-page" data-specs-index-url="{{ site.Params.specsDataURL }}">
+  {{ partial "docs-sidebar.html" . }}
+  <article class="docs-article">
+    <header class="docs-head">
+      <span class="eyebrow">{{ T "docs" }}</span>
+      <h1 class="docs-title">{{ .Title }}</h1>
+      {{ with .Description }}<p class="docs-desc">{{ . }}</p>{{ end }}
+    </header>
+    <div class="prose">{{ .Content }}</div>
+    <section class="specs-controls" aria-label="Report controls">
+      <label for="spec-version">Version</label>
+      <select id="spec-version" disabled><option>Loading reports...</option></select>
+      <span id="spec-meta" class="specs-meta"></span>
+    </section>
+    <div id="spec-error" class="specs-message" hidden></div>
+    <section id="spec-dashboard" hidden>
+      <div id="spec-summary" class="spec-summary-grid"></div>
+      <div class="specs-chart-panel">
+        <div class="specs-panel-head"><h2>Coverage by category</h2><span id="spec-coverage-label"></span></div>
+        <div id="spec-category-chart" class="spec-category-chart"></div>
+      </div>
+      <div class="specs-filter-row">
+        <label for="spec-node-search">Filter nodes</label>
+        <input id="spec-node-search" type="search" placeholder="Search by node name">
+        <label for="spec-status-filter">Status</label>
+        <select id="spec-status-filter">
+          <option value="all">All tests</option><option value="covered">Covered</option>
+          <option value="skipped">Skipped</option><option value="missing">Missing</option><option value="extra">Extra</option>
+        </select>
+      </div>
+      <div id="spec-node-list" class="spec-node-list"></div>
+      <div class="specs-chart-panel">
+        <div class="specs-panel-head"><h2>Test search</h2><span id="spec-test-count"></span></div>
+        <input id="spec-test-search" class="spec-test-search" type="search" placeholder="Search test titles">
+        <div class="spec-table-wrap"><table class="spec-table"><thead><tr><th>Status</th><th>Category</th><th>Node</th><th>Test</th></tr></thead><tbody id="spec-test-table"></tbody></table></div>
+      </div>
+    </section>
+  </article>
+</div>
+{{ with resources.Get "js/specs.js" }}{{ $js := . | minify | fingerprint }}<script src="{{ $js.RelPermalink }}" defer></script>{{ end }}
+{{ end }}

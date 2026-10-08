@@ -185,7 +185,9 @@ port = 1888
 - ✅ Settings and configuration management
 - ✅ Import/Export flows functionality
 
-The heavy check mark ( :heavy_check_mark: ) below indicates that the supported behavior has passed the ported Node-RED integration tests. A checked node can still have deliberately scoped gaps; the detailed covered and skipped cases are listed in [REDNODES-SPECS-DIFF.md](tests/REDNODES-SPECS-DIFF.md).
+The heavy check mark ( :heavy_check_mark: ) below indicates that the supported behavior has passed the ported Node-RED integration tests. A checked node can still have deliberately scoped gaps; use the [live Node-RED spec coverage page](https://oldrev.github.io/edgelinkd/en/specs/) for detailed results.
+
+The [live Node-RED spec coverage page](https://oldrev.github.io/edgelinkd/en/specs/) lets you compare the latest `master` report with published releases and search individual tests.
 
 ### Node-RED test status
 
@@ -195,7 +197,6 @@ Regenerate the report and chart with:
 
 ```console
 python scripts/specs_diff.py 3rd-party/node-red \
-  -o tests/REDNODES-SPECS-DIFF.md \
   --svg-output tests/REDNODES-SPECS-DIFF.svg
 ```
 

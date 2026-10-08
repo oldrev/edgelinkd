@@ -49,6 +49,44 @@ async def _roundtrip(payload, datatype, expected, topic="edgelinkd/spec"):
         await asyncio.sleep(0.5)
 
 
+async def _buffer_roundtrip(payload, datatype, expected, topic="edgelinkd/buffer"):
+    async with mqtt_broker(port=0) as (host, port):
+        tab, broker = red_id("buffer.tab"), red_id("buffer.broker")
+        fn, out, incoming, collector = (red_id(name) for name in
+                                         ("buffer.fn", "buffer.out", "buffer.in", "buffer.collector"))
+        flows = [
+            {"id": broker, "type": "mqtt-broker", "broker": host, "port": port},
+            {"id": tab, "type": "tab"},
+            {"id": fn, "z": tab, "type": "function",
+             "func": "msg.payload = new Uint8Array(msg.payload).buffer; return msg;", "wires": [[out]]},
+            {"id": out, "z": tab, "type": "mqtt out", "broker": broker, "topic": topic, "wires": [[]]},
+            {"id": incoming, "z": tab, "type": "mqtt in", "broker": broker, "topic": topic,
+             "datatype": datatype, "wires": [[collector]]},
+            {"id": collector, "z": tab, "type": "test-once"},
+        ]
+        messages = await run_flow_for_seconds_scheduled(
+            flows, [{"nid": fn, "msg": {"payload": payload}, "delay_ms": 500}], 3)
+        assert len(messages) == 1
+        assert messages[0]["payload"] == expected
+
+
+async def _action_flow(host, port, dynamic=False):
+    tab, broker = red_id("action.tab"), red_id("action.broker")
+    incoming, outgoing, collector = (red_id(name) for name in
+                                      ("action.in", "action.out", "action.collector"))
+    flows = [
+        {"id": broker, "type": "mqtt-broker", "broker": host, "port": port, "autoConnect": True},
+        {"id": tab, "type": "tab"},
+        {"id": incoming, "z": tab, "type": "mqtt in", "broker": broker,
+         "topic": "edgelinkd/action", "inputs": 1 if dynamic else 0,
+         "datatype": "utf8", "wires": [[collector]]},
+        {"id": outgoing, "z": tab, "type": "mqtt out", "broker": broker,
+         "topic": "edgelinkd/action", "wires": [[]]},
+        {"id": collector, "z": tab, "type": "test-once"},
+    ]
+    return flows, incoming, outgoing
+
+
 
 
 @pytest.mark.describe("MQTT Nodes")
@@ -160,85 +198,134 @@ class TestMqttNodes:
     async def test_v5_publish_properties(self):
         await run_flow_with_msgs_ntimes(_v5_flow(), [], 0)
 
-    @pytest.mark.skip(reason="requires Node-RED MQTT broker lifecycle fixture")
+    @pytest.mark.skip(reason="MQTT v5 publish properties need an MQTT v5-capable test broker; amqtt only accepts MQTT 3.1.1")
     @pytest.mark.it('should send JSON with v5 media type "text/plain" and receive a string (auto mode)')
     async def test_v5_text_plain_auto(self):
         pass
 
-    @pytest.mark.skip(reason="requires Node-RED MQTT broker lifecycle fixture")
+    @pytest.mark.skip(reason="MQTT v5 publish properties need an MQTT v5-capable test broker; amqtt only accepts MQTT 3.1.1")
     @pytest.mark.it('should send JSON with v5 media type "text/plain" and receive a string (auto-detect mode)')
     async def test_v5_text_plain_auto_detect(self):
         pass
 
-    @pytest.mark.skip(reason="requires Node-RED MQTT broker lifecycle fixture")
+    @pytest.mark.skip(reason="MQTT v5 publish properties need an MQTT v5-capable test broker; amqtt only accepts MQTT 3.1.1")
     @pytest.mark.it('should send JSON with v5 media type "application/json" and receive an object (auto-detect mode)')
     async def test_v5_application_json_auto_detect(self):
         pass
 
-    @pytest.mark.skip(reason="requires Node-RED MQTT broker lifecycle fixture")
+    @pytest.mark.asyncio
     @pytest.mark.it('should send invalid JSON and raise error (json mode)')
     async def test_invalid_json_json_mode(self):
-        pass
+        async with mqtt_broker(port=0) as (host, port):
+            tab, broker = red_id("invalid-json.tab"), red_id("invalid-json.broker")
+            out, incoming, catcher, collector = (red_id(name) for name in
+                ("invalid-json.out", "invalid-json.in", "invalid-json.catch", "invalid-json.collector"))
+            flows = [
+                {"id": broker, "type": "mqtt-broker", "broker": host, "port": port},
+                {"id": tab, "type": "tab"},
+                {"id": out, "z": tab, "type": "mqtt out", "broker": broker,
+                 "topic": "edgelinkd/invalid-json", "wires": [[]]},
+                {"id": incoming, "z": tab, "type": "mqtt in", "broker": broker,
+                 "topic": "edgelinkd/invalid-json", "datatype": "json", "wires": [[]]},
+                {"id": catcher, "z": tab, "type": "catch", "wires": [[collector]]},
+                {"id": collector, "z": tab, "type": "test-once"},
+            ]
+            messages = await run_flow_for_seconds_scheduled(
+                flows, [{"nid": out, "msg": {"payload": "{bad json", "topic": "edgelinkd/invalid-json"},
+                           "delay_ms": 500}], 2)
+            assert len(messages) == 1
+            assert messages[0]["error"]["source"]["type"] == "mqtt in"
 
-    @pytest.mark.skip(reason="binary payloads cannot cross the pytest bridge")
+    @pytest.mark.asyncio
     @pytest.mark.it('should send String and receive Buffer (buffer mode)')
     async def test_string_buffer_mode(self):
-        pass
+        await _buffer_roundtrip(list(b"hello"), "buffer", list(b"hello"))
 
-    @pytest.mark.skip(reason="binary payloads cannot cross the pytest bridge")
+    @pytest.mark.asyncio
     @pytest.mark.it('should send utf8 Buffer and receive String (auto mode)')
     async def test_utf8_buffer_auto(self):
-        pass
+        await _buffer_roundtrip(list(b"hello"), "auto", "hello")
 
-    @pytest.mark.skip(reason="binary payloads cannot cross the pytest bridge")
+    @pytest.mark.asyncio
     @pytest.mark.it('should send non utf8 Buffer and receive Buffer (auto mode)')
     async def test_non_utf8_buffer_auto(self):
-        pass
+        await _buffer_roundtrip([0xff, 0xfe, 0x00], "auto", [0xff, 0xfe, 0x00])
 
-    @pytest.mark.skip(reason="requires MQTT v5 broker properties support")
+    @pytest.mark.skip(reason="MQTT v5 properties cannot be exercised because the available amqtt test broker only accepts MQTT 3.1.1")
     @pytest.mark.it('should send/receive all v5 flags and settings')
     async def test_v5_flags(self):
         pass
 
-    @pytest.mark.skip(reason="requires MQTT v5 broker properties support")
+    @pytest.mark.skip(reason="MQTT v5 properties cannot be exercised because the available amqtt test broker only accepts MQTT 3.1.1")
     @pytest.mark.it('should send regular string with v5 media type "text/plain" and receive a string (auto mode)')
     async def test_v5_regular_text_plain(self):
         pass
 
-    @pytest.mark.skip(reason="requires binary payload bridge and MQTT v5 broker properties support")
+    @pytest.mark.skip(reason="MQTT v5 properties cannot be exercised because the available amqtt test broker only accepts MQTT 3.1.1")
     @pytest.mark.it('should send buffer with v5 media type "application/json" and receive an object (auto-detect mode)')
     async def test_v5_buffer_application_json(self):
         pass
 
-    @pytest.mark.skip(reason="requires binary payload bridge and MQTT v5 broker properties support")
+    @pytest.mark.skip(reason="MQTT v5 properties cannot be exercised because the available amqtt test broker only accepts MQTT 3.1.1")
     @pytest.mark.it('should send buffer with v5 media type "text/plain" and receive a string (auto mode)')
     async def test_v5_buffer_text_plain(self):
         pass
 
-    @pytest.mark.skip(reason="requires binary payload bridge and MQTT v5 broker properties support")
+    @pytest.mark.skip(reason="MQTT v5 properties cannot be exercised because the available amqtt test broker only accepts MQTT 3.1.1")
     @pytest.mark.it('should send buffer with v5 media type "application/zip" and receive a buffer (auto mode)')
     async def test_v5_buffer_binary(self):
         pass
 
-    @pytest.mark.skip(reason="requires MQTT v5 broker support")
+    @pytest.mark.skip(reason="MQTT v5 properties cannot be exercised because the available amqtt test broker only accepts MQTT 3.1.1")
     @pytest.mark.it('should send invalid JSON with v5 media type "application/json" and raise an error (auto mode)')
     async def test_v5_invalid_json(self):
         pass
 
-    @pytest.mark.skip(reason="requires MQTT dynamic subscription lifecycle")
+    @pytest.mark.asyncio
     @pytest.mark.it('should subscribe dynamically via action')
     async def test_dynamic_subscription(self):
-        pass
+        async with mqtt_broker(port=0) as (host, port):
+            tab, broker = red_id("dynamic.tab"), red_id("dynamic.broker")
+            incoming, outgoing, filter_node, collector = (red_id(name) for name in
+                ("dynamic.in", "dynamic.out", "dynamic.filter", "dynamic.collector"))
+            flows = [
+                {"id": broker, "type": "mqtt-broker", "broker": host, "port": port, "autoConnect": False},
+                {"id": tab, "type": "tab"},
+                {"id": incoming, "z": tab, "type": "mqtt in", "broker": broker, "inputs": 1,
+                 "datatype": "utf8", "wires": [[filter_node]]},
+                {"id": filter_node, "z": tab, "type": "function",
+                 "func": "if (msg.subscriptions) return null; return msg;", "wires": [[collector]]},
+                {"id": outgoing, "z": tab, "type": "mqtt out", "broker": broker,
+                 "topic": "edgelinkd/dynamic", "wires": [[]]},
+                {"id": collector, "z": tab, "type": "test-once"},
+            ]
+            scheduled = [
+                {"nid": incoming, "msg": {"action": "connect"}, "delay_ms": 0},
+                {"nid": incoming, "msg": {"action": "subscribe", "topic": "edgelinkd/dynamic"}, "delay_ms": 200},
+                {"nid": outgoing, "msg": {"payload": "dynamic", "topic": "edgelinkd/dynamic"}, "delay_ms": 600},
+            ]
+            messages = await run_flow_for_seconds_scheduled(flows, scheduled, 2)
+            assert len(messages) == 1 and messages[0]["payload"] == "dynamic"
 
-    @pytest.mark.skip(reason="requires MQTT connection action lifecycle")
+    @pytest.mark.asyncio
     @pytest.mark.it('should connect via "connect" action')
     async def test_connect_action(self):
-        pass
+        async with mqtt_broker(port=0) as (host, port):
+            flows, incoming, outgoing = await _action_flow(host, port)
+            messages = await run_flow_for_seconds_scheduled(flows, [
+                {"nid": outgoing, "msg": {"action": "connect"}, "delay_ms": 0},
+            ], 0.5)
+            assert messages == []
 
-    @pytest.mark.skip(reason="requires MQTT connection action lifecycle")
+    @pytest.mark.asyncio
     @pytest.mark.it('should disconnect via "disconnect" action')
     async def test_disconnect_action(self):
-        pass
+        async with mqtt_broker(port=0) as (host, port):
+            flows, incoming, outgoing = await _action_flow(host, port)
+            messages = await run_flow_for_seconds_scheduled(flows, [
+                {"nid": outgoing, "msg": {"action": "disconnect"}, "delay_ms": 0},
+            ], 0.5)
+            assert messages == []
 
     @pytest.mark.skip(reason="requires broker birth message configuration")
     @pytest.mark.it('should publish birth message')

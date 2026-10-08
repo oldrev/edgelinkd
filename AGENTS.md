@@ -54,7 +54,7 @@ Where scope decisions are declared:
 | Place | What it records |
 |---|---|
 | `README.md` roadmap | feature-level ✅/⬜ status |
-| `tests/REDNODES-SPECS-DIFF.md` (generated) | per-node spec coverage against upstream |
+| `tests/REDNODES-SPECS-DIFF.svg` (generated) | visual spec coverage overview; detailed results are published on the website |
 | `@pytest.mark.skip(reason=...)` in `tests/` | a spec we deliberately do not support |
 | `EdgelinkError::NotSupported` at runtime | configuration that is recognised but out of scope |
 
@@ -67,7 +67,7 @@ Where scope decisions are declared:
 | Node-RED spec tests (pytest) | `pytest ./tests -v` — needs `cargo build --all` first |
 | Format check (CI gate) | `cargo fmt --check` |
 | Lint (CI gate) | `cargo clippy --all-features --tests --all` |
-| Spec coverage report | `python scripts/specs_diff.py 3rd-party/node-red -o tests/REDNODES-SPECS-DIFF.md` |
+| Spec coverage report | `python scripts/specs_diff.py 3rd-party/node-red --svg-output tests/REDNODES-SPECS-DIFF.svg` |
 
 CI (`.github/workflows/CICD.yml`): `fmt-and-check` (fmt + `cargo check --workspace`) runs on
 every push; the Linux job additionally builds, runs the Rust tests and `pytest ./tests -v`;
@@ -96,8 +96,9 @@ missing `it()` for an out-of-scope feature as a decision to record, not work to 
    with `-p no:skip`, so a skipped spec still counts as covered: the `reason=` string is the
    only written record of the gap, so it must name the unsupported feature and why it is out
    of scope. Never skip a spec for a feature we claim to support.
-4. **Never hand-edit generated files** — `tests/REDNODES-SPECS-DIFF.md` (regenerate with
-   the script) and `Cargo.lock` (let `cargo` update it).
+4. **Never hand-edit generated files** — `tests/REDNODES-SPECS-DIFF.svg` (regenerate with
+   the script) and `Cargo.lock` (let `cargo` update it). Detailed spec results are generated
+   as JSON in CI and published to the website.
 5. **Run `cargo fmt` before committing.** The tree is rustfmt-clean with the root
    `rustfmt.toml` (120 columns, `use_small_heuristics = "Max"`), and CI checks it.
 6. **Keep clippy clean.** `cargo clippy -p edgelink-core --tests` is a fast local check;

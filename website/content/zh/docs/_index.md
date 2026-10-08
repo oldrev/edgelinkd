@@ -13,4 +13,4 @@ EdgeLinkd 是用 Rust 编写、兼容 Node-RED 的流程运行时。它直接执
 - **[架构](architecture/)**——各个 crate 如何协作，以及一条消息如何穿过引擎。
 - **[兼容性](compatibility/)**——这里的"兼容 Node-RED"意味着什么，迁移流程前需要检查哪些事项。
 
-> EdgeLinkd 目前处于 **beta** 阶段，不同的 Beta 版本之间行为可能发生变化。当前状态请以项目 [README](https://github.com/oldrev/edgelinkd#readme) 与[规范覆盖报告](https://github.com/oldrev/edgelinkd/blob/master/tests/REDNODES-SPECS-DIFF.md)为准。
+> EdgeLinkd 目前处于 **beta** 阶段，不同的 Beta 版本之间行为可能发生变化。当前状态请以项目 [README](https://github.com/oldrev/edgelinkd#readme) 与[实时规范覆盖报告](../specs/)为准。

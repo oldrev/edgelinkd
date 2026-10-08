@@ -16,6 +16,7 @@ import contextlib
 import platform
 from math import ceil, sqrt
 from pathlib import Path
+from datetime import datetime, timezone
 from xml.sax.saxutils import escape as xml_escape
 
 from colorama import init as colorama_init
@@ -481,6 +482,53 @@ def write_report(markdown_path, svg_path, report, totals, svg_width, svg_height)
         svg_file.write_text(generate_svg(report, totals, svg_width, svg_height), encoding="utf-8")
 
 
+def _git_value(args, default=None):
+    """Read repository metadata without making report generation depend on Git."""
+    try:
+        return subprocess.check_output(["git", *args], text=True, stderr=subprocess.DEVNULL).strip() or default
+    except (OSError, subprocess.CalledProcessError):
+        return default
+
+
+def write_json_report(json_path, report, totals, nr_path, label=None, commit=None):
+    """Write the stable, machine-readable report consumed by the project website."""
+    path = Path(json_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    package_path = Path(nr_path) / "package.json"
+    node_red_version = None
+    if package_path.exists():
+        try:
+            node_red_version = json.loads(package_path.read_text(encoding="utf-8")).get("version")
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    enriched = []
+    for category in report:
+        nodes = []
+        for node in category["nodes"]:
+            node_totals = {status: sum(test["status"] == status for test in node["specs"])
+                           for status in STATUS_INFO}
+            nodes.append({
+                "node": node["node"],
+                "python_spec_file": node.get("python_spec_file"),
+                "node_red_spec_file": node.get("node_red_spec_file"),
+                "totals": node_totals,
+                "specs": node["specs"],
+            })
+        enriched.append({"category": category["category"], "nodes": nodes})
+
+    payload = {
+        "schema_version": 1,
+        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "ref": label or _git_value(["branch", "--show-current"], "unknown"),
+        "commit": commit or _git_value(["rev-parse", "HEAD"]),
+        "node_red": {"version": node_red_version},
+        "totals": {**totals, "coverage": totals["covered"] / totals["js"] if totals["js"] else 0},
+        "categories": enriched,
+    }
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Compare Node-RED and EdgeLinkd it() specs and optionally write Markdown and a nested-squares SVG chart.")
@@ -490,6 +538,14 @@ if __name__ == "__main__":
                         help="The output path to a Markdown file")
     parser.add_argument('--svg-output', type=str, default=None,
                         help="Write a nested-squares SVG chart to this path")
+    parser.add_argument('--json-output', type=str, default=None,
+                        help="Write a machine-readable JSON report to this path")
+    parser.add_argument('--label', type=str, default=None,
+                        help="Branch or release label to store in the JSON report")
+    parser.add_argument('--commit', type=str, default=None,
+                        help="Commit SHA to store in the JSON report")
+    parser.add_argument('--no-fail', action='store_true',
+                        help="Return success even when upstream tests are missing")
     parser.add_argument('--svg-width', type=int, default=1400,
                         help="SVG canvas width in pixels (default: 1400)")
     parser.add_argument('--svg-height', type=int, default=900,
@@ -507,7 +563,12 @@ if __name__ == "__main__":
     for cat in categories:
         md_cat = {"category": cat["category"], "nodes": []}
         for triple in cat["nodes"]:
-            md_node = {"node": triple[0], "specs": []}
+            md_node = {
+                "node": triple[0],
+                "python_spec_file": triple[1],
+                "node_red_spec_file": triple[2],
+                "specs": [],
+            }
             py_path = os.path.join(os.path.normpath(os.path.join(TESTS_DIR, triple[1])))
             js_path = os.path.join(args.NR_PATH, triple[2])
             js_specs = extract_it_strings_js(args.NR_PATH, js_path)
@@ -554,8 +615,10 @@ if __name__ == "__main__":
     print(f"Percent:\t{pc}")
 
     write_report(args.output, args.svg_output, report, totals, args.svg_width, args.svg_height)
+    if args.json_output:
+        write_json_report(args.json_output, report, totals, args.NR_PATH, args.label, args.commit)
 
-    if totals["missing"]:
+    if totals["missing"] and not args.no_fail:
         exit(-1)
     else:
         exit(0)

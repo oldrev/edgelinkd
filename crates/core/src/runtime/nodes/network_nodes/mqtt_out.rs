@@ -148,6 +148,7 @@ impl MqttOutNode {
         _options: Option<&config::Config>,
     ) -> crate::Result<Box<dyn FlowNodeBehavior>> {
         let mqtt_config = MqttOutNodeConfig::deserialize(&config.rest)?;
+        Self::parse_user_properties(&mqtt_config.user_properties)?;
 
         let node =
             MqttOutNode { base: base_node, config: mqtt_config, connection: Mutex::new(MqttConnection::default()) };
@@ -324,26 +325,46 @@ impl MqttOutNode {
         // Convert payload to bytes following Node-RED conversion rules
         let payload_bytes = Self::convert_payload_to_bytes(payload)?;
 
-        // Build MQTT v5 properties if needed (for future MQTT v5 support)
-        // For now, we use rumqttc which primarily supports MQTT v3.1.1
-
         // Publish the message
         match client {
             MqttClient::V4(client) => {
                 client.publish(topic, qos, retain, payload_bytes).await.map_err(|e| e.to_string())
             }
             MqttClient::V5(client) => {
+                let response_topic = msg
+                    .get("responseTopic")
+                    .and_then(Variant::as_str)
+                    .map(str::to_owned)
+                    .filter(|value| !value.is_empty())
+                    .or_else(|| (!self.config.response_topic.is_empty()).then(|| self.config.response_topic.clone()));
+                let correlation_data =
+                    msg.get("correlationData").map(Self::variant_to_bytes).transpose()?.or_else(|| {
+                        (!self.config.correlation_data.is_empty())
+                            .then(|| self.config.correlation_data.as_bytes().to_vec())
+                    });
+                let content_type = msg
+                    .get("contentType")
+                    .and_then(Variant::as_str)
+                    .map(str::to_owned)
+                    .filter(|value| !value.is_empty())
+                    .or_else(|| (!self.config.content_type.is_empty()).then(|| self.config.content_type.clone()));
+                let expiry = msg
+                    .get("messageExpiryInterval")
+                    .and_then(Variant::as_u64)
+                    .map(|value| value as u32)
+                    .or(self.config.message_expiry_interval);
+                let payload_format_indicator =
+                    msg.get("payloadFormatIndicator").and_then(Variant::as_bool).map(u8::from);
                 let properties = rumqttc::v5::mqttbytes::v5::PublishProperties {
-                    payload_format_indicator: None,
-                    message_expiry_interval: self.config.message_expiry_interval,
+                    payload_format_indicator,
+                    message_expiry_interval: expiry,
                     topic_alias: None,
-                    response_topic: (!self.config.response_topic.is_empty())
-                        .then(|| self.config.response_topic.clone()),
-                    correlation_data: (!self.config.correlation_data.is_empty())
-                        .then(|| self.config.correlation_data.clone().into_bytes().into()),
-                    user_properties: serde_json::from_str(&self.config.user_properties).unwrap_or_default(),
+                    response_topic,
+                    correlation_data: correlation_data.map(Into::into),
+                    user_properties: Self::user_properties(msg)?
+                        .unwrap_or(Self::parse_user_properties(&self.config.user_properties)?),
                     subscription_identifiers: Vec::new(),
-                    content_type: (!self.config.content_type.is_empty()).then(|| self.config.content_type.clone()),
+                    content_type,
                 };
                 let qos = match qos {
                     rumqttc::QoS::AtMostOnce => rumqttc::v5::mqttbytes::QoS::AtMostOnce,
@@ -359,6 +380,41 @@ impl MqttOutNode {
         .map_err(|e| crate::EdgelinkError::invalid_operation(&format!("MQTT publish failed: {e}")))?;
 
         Ok(())
+    }
+
+    fn variant_to_bytes(value: &Variant) -> crate::Result<Vec<u8>> {
+        match value {
+            Variant::Bytes(bytes) => Ok(bytes.clone()),
+            Variant::String(value) => Ok(value.as_bytes().to_vec()),
+            _ => Err(crate::EdgelinkError::invalid_operation("MQTT v5 correlationData must be a string or buffer")),
+        }
+    }
+
+    fn user_properties(msg: &Msg) -> crate::Result<Option<Vec<(String, String)>>> {
+        let Some(value) = msg.get("userProperties") else { return Ok(None) };
+        let Variant::Object(properties) = value else {
+            return Err(crate::EdgelinkError::invalid_operation("MQTT v5 userProperties must be an object"));
+        };
+        Ok(Some(
+            properties
+                .iter()
+                .map(|(key, value)| {
+                    value.as_str().map(|value| (key.clone(), value.to_owned())).ok_or_else(|| {
+                        crate::EdgelinkError::invalid_operation("MQTT v5 userProperties values must be strings")
+                    })
+                })
+                .collect::<crate::Result<Vec<_>>>()?,
+        ))
+    }
+
+    fn parse_user_properties(value: &str) -> crate::Result<Vec<(String, String)>> {
+        if value.is_empty() {
+            return Ok(Vec::new());
+        }
+        let properties: std::collections::BTreeMap<String, String> = serde_json::from_str(value).map_err(|error| {
+            crate::EdgelinkError::invalid_operation(&format!("Invalid MQTT v5 userProps configuration: {error}"))
+        })?;
+        Ok(properties.into_iter().collect())
     }
 
     /// Validate topic for publishing (similar to Node-RED's isValidPublishTopic)
@@ -441,10 +497,11 @@ impl MqttOutNode {
             match action {
                 "connect" => {
                     // Handle connect action - similar to Node-RED handleConnectAction
-                    if let Some(_broker_data) = msg.get("broker") {
-                        // TODO: Handle dynamic broker configuration from msg.broker
-                        // For now, we just force reconnection with existing config
-                        log::info!("MQTT connect action with broker override (not implemented yet)");
+                    if msg.get("broker").is_some() {
+                        return Err(crate::EdgelinkError::NotSupported(
+                            "MQTT dynamic broker configuration via msg.broker".to_owned(),
+                        )
+                        .into());
                     }
 
                     // Check if we can connect
@@ -525,20 +582,7 @@ impl FlowNodeBehavior for MqttOutNode {
                         // Success - message handled
                         Ok(())
                     }
-                    Err(e) => {
-                        // Log the error but don't propagate it to avoid stopping the flow
-                        // This matches Node-RED behavior where MQTT errors are logged but don't break the flow
-                        log::warn!("MQTT out node error: {e}");
-
-                        // Check if this is a warning (like invalid topic) vs a real error
-                        if e.to_string().contains("Invalid topic") || e.to_string().contains("Invalid MQTT action") {
-                            // These are warnings in Node-RED, not hard errors
-                            log::debug!("MQTT warning: {e}");
-                        }
-
-                        // Always return Ok to continue processing
-                        Ok(())
-                    }
+                    Err(e) => Err(e),
                 }
             })
             .await;
@@ -562,7 +606,7 @@ impl FlowNodeBehavior for MqttOutNode {
 #[cfg(test)]
 mod tests {
     use super::{MqttOutNode, MqttOutNodeConfig};
-    use crate::runtime::model::Variant;
+    use crate::runtime::model::{Msg, Variant};
 
     #[test]
     fn publish_topic_rejects_wildcards_and_controls() {
@@ -587,5 +631,24 @@ mod tests {
         }))
         .unwrap();
         assert!(MqttOutNode::has_v5_properties(&config));
+    }
+
+    #[test]
+    fn v5_user_properties_reject_invalid_config_and_values() {
+        assert_eq!(
+            MqttOutNode::parse_user_properties(r#"{"source":"test"}"#).unwrap(),
+            vec![("source".to_owned(), "test".to_owned())]
+        );
+        assert!(MqttOutNode::parse_user_properties("not-json").is_err());
+
+        let mut msg = Msg::default();
+        msg.set("userProperties".to_owned(), Variant::String("invalid".to_owned()));
+        assert!(MqttOutNode::user_properties(&msg).is_err());
+    }
+
+    #[test]
+    fn v5_correlation_data_preserves_binary_bytes() {
+        assert_eq!(MqttOutNode::variant_to_bytes(&Variant::Bytes(vec![1, 2, 255])).unwrap(), vec![1, 2, 255]);
+        assert!(MqttOutNode::variant_to_bytes(&Variant::Bool(true)).is_err());
     }
 }

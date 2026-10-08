@@ -17,7 +17,7 @@ EdgeLinkd is a Node-RED **compatible** runtime, not a Node-RED clone. It targets
 ## Reading the status
 
 - The project [README](https://github.com/oldrev/edgelinkd#readme) tracks feature-level status. A check mark means the feature passes the integration tests ported from Node-RED.
-- [`tests/REDNODES-SPECS-DIFF.md`](https://github.com/oldrev/edgelinkd/blob/master/tests/REDNODES-SPECS-DIFF.md) is generated per node and compares the ported tests with upstream `describe()` and `it()` titles.
+- The [live spec coverage page](../../en/specs/) compares the ported tests with upstream `describe()` and `it()` titles by release, node, and individual test.
 - An upstream test marked `@pytest.mark.skip(reason=...)` records a deliberate scope decision; its reason names the unsupported feature.
 
 ## Before migrating flows

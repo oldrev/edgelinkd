@@ -5,9 +5,9 @@
 #   available — implemented and usable, with known upstream-spec gaps
 #   progress — still being implemented or not ready for general use
 #
-# Keep in sync with the README and tests/REDNODES-SPECS-DIFF.md.
+# Keep in sync with the README and the live spec coverage page.
 
-report: "https://github.com/oldrev/edgelinkd/blob/master/tests/REDNODES-SPECS-DIFF.md"
+report: "/edgelinkd/en/specs/"
 
 groups:
   - id: "common"

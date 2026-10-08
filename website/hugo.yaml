@@ -28,6 +28,7 @@ module:
 params:
   repo: "https://github.com/oldrev/edgelinkd"
   version: "4.1.15-beta"
+  specsDataURL: "https://raw.githubusercontent.com/oldrev/edgelinkd/specs-data/index.json"
 
 languages:
   en:

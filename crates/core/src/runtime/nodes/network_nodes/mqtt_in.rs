@@ -178,6 +178,17 @@ struct InboundPublish {
     payload: Vec<u8>,
     qos: u8,
     retain: bool,
+    v5_properties: Option<MqttV5PublishProperties>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct MqttV5PublishProperties {
+    payload_format_indicator: Option<u8>,
+    message_expiry_interval: Option<u32>,
+    response_topic: Option<String>,
+    correlation_data: Option<Vec<u8>>,
+    user_properties: Vec<(String, String)>,
+    content_type: Option<String>,
 }
 
 #[derive(Default)]
@@ -293,6 +304,14 @@ impl MqttInNode {
                                         payload: publish.payload.to_vec(),
                                         qos: publish.qos as u8,
                                         retain: publish.retain,
+                                        v5_properties: publish.properties.map(|properties| MqttV5PublishProperties {
+                                            payload_format_indicator: properties.payload_format_indicator,
+                                            message_expiry_interval: properties.message_expiry_interval,
+                                            response_topic: properties.response_topic,
+                                            correlation_data: properties.correlation_data.map(|value| value.to_vec()),
+                                            user_properties: properties.user_properties,
+                                            content_type: properties.content_type,
+                                        }),
                                     });
                                 }
                                 Ok(_) => {}
@@ -395,6 +414,7 @@ impl MqttInNode {
                                         rumqttc::QoS::ExactlyOnce => 2,
                                     },
                                     retain: publish.retain,
+                                    v5_properties: None,
                                 };
                                 if publish_tx.send(inbound).is_err() {
                                     break;
@@ -453,45 +473,51 @@ impl MqttInNode {
     }
 
     /// Convert payload based on data type setting
-    fn convert_payload(payload: &[u8], datatype: &MqttDataType) -> Variant {
+    fn convert_payload(payload: &[u8], datatype: &MqttDataType, content_type: Option<&str>) -> crate::Result<Variant> {
         match datatype {
-            MqttDataType::Buffer => Variant::Bytes(payload.to_vec()),
+            MqttDataType::Buffer => Ok(Variant::Bytes(payload.to_vec())),
             MqttDataType::Base64 => {
                 use base64::{Engine as _, engine::general_purpose};
                 let base64_string = general_purpose::STANDARD.encode(payload);
-                Variant::String(base64_string)
+                Ok(Variant::String(base64_string))
             }
             MqttDataType::Utf8 => {
                 match std::str::from_utf8(payload) {
-                    Ok(s) => Variant::String(s.to_string()),
-                    Err(_) => Variant::Bytes(payload.to_vec()), // Fallback to buffer
+                    Ok(s) => Ok(Variant::String(s.to_string())),
+                    Err(_) => Ok(Variant::Bytes(payload.to_vec())), // Fallback to buffer
                 }
             }
             MqttDataType::Json => {
-                match std::str::from_utf8(payload) {
-                    Ok(s) => {
-                        match serde_json::from_str::<serde_json::Value>(s) {
-                            Ok(json_val) => Self::json_value_to_variant(json_val),
-                            Err(_) => Variant::String(s.to_string()), // Fallback to string
-                        }
-                    }
-                    Err(_) => Variant::Bytes(payload.to_vec()), // Fallback to buffer
-                }
+                let text = std::str::from_utf8(payload).map_err(|error| {
+                    crate::EdgelinkError::invalid_operation(&format!("MQTT JSON payload is not valid UTF-8: {error}"))
+                })?;
+                let value = serde_json::from_str::<serde_json::Value>(text).map_err(|error| {
+                    crate::EdgelinkError::invalid_operation(&format!("Invalid MQTT JSON payload: {error}"))
+                })?;
+                Ok(Self::json_value_to_variant(value))
             }
             MqttDataType::Auto | MqttDataType::AutoDetect => {
-                // Auto-detect the best format
+                let media_type = content_type.unwrap_or_default().split(';').next().unwrap_or_default().trim();
+                let is_json = media_type.eq_ignore_ascii_case("application/json");
+                let is_text = media_type.starts_with("text/");
                 if let Ok(utf8_str) = std::str::from_utf8(payload) {
-                    // Try to parse as JSON first
-                    if datatype == &MqttDataType::AutoDetect
-                        && let Ok(json_val) = serde_json::from_str::<serde_json::Value>(utf8_str)
-                    {
-                        return Self::json_value_to_variant(json_val);
+                    let should_parse_json = is_json || (datatype == &MqttDataType::AutoDetect && !is_text);
+                    if should_parse_json {
+                        let parsed = serde_json::from_str::<serde_json::Value>(utf8_str);
+                        if is_json {
+                            return parsed.map(Self::json_value_to_variant).map_err(|error| {
+                                crate::EdgelinkError::invalid_operation(&format!("Invalid MQTT JSON payload: {error}"))
+                            });
+                        }
+                        if let Ok(json_val) = parsed {
+                            return Ok(Self::json_value_to_variant(json_val));
+                        }
                     }
                     // Return as string
-                    Variant::String(utf8_str.to_string())
+                    Ok(Variant::String(utf8_str.to_string()))
                 } else {
                     // Not valid UTF-8, return as buffer
-                    Variant::Bytes(payload.to_vec())
+                    Ok(Variant::Bytes(payload.to_vec()))
                 }
             }
         }
@@ -815,7 +841,48 @@ impl FlowNodeBehavior for MqttInNode {
             } else {
                 self.config.datatype.clone()
             };
-            mqtt_msg.set("payload".to_string(), Self::convert_payload(&publish.payload, &datatype));
+            let properties = publish.v5_properties.as_ref();
+            let payload = match Self::convert_payload(
+                &publish.payload,
+                &datatype,
+                properties.and_then(|properties| properties.content_type.as_deref()),
+            ) {
+                Ok(payload) => payload,
+                Err(error) => {
+                    self.report_error(error.to_string(), MsgHandle::new(mqtt_msg), stop_token.clone()).await;
+                    continue;
+                }
+            };
+            mqtt_msg.set("payload".to_string(), payload);
+            if let Some(properties) = properties {
+                if let Some(value) = &properties.content_type {
+                    mqtt_msg.set("contentType".to_owned(), Variant::String(value.clone()));
+                }
+                if let Some(value) = &properties.response_topic {
+                    mqtt_msg.set("responseTopic".to_owned(), Variant::String(value.clone()));
+                }
+                if let Some(value) = &properties.correlation_data {
+                    mqtt_msg.set("correlationData".to_owned(), Variant::Bytes(value.clone()));
+                }
+                if let Some(value) = properties.payload_format_indicator {
+                    mqtt_msg.set("payloadFormatIndicator".to_owned(), Variant::Bool(value != 0));
+                }
+                if let Some(value) = properties.message_expiry_interval {
+                    mqtt_msg.set("messageExpiryInterval".to_owned(), Variant::Number(value.into()));
+                }
+                if !properties.user_properties.is_empty() {
+                    mqtt_msg.set(
+                        "userProperties".to_owned(),
+                        Variant::Object(
+                            properties
+                                .user_properties
+                                .iter()
+                                .map(|(key, value)| (key.clone(), Variant::String(value.clone())))
+                                .collect(),
+                        ),
+                    );
+                }
+            }
             mqtt_msg.set("_topic".to_string(), Variant::String(publish.topic));
             if let Err(error) =
                 self.fan_out_one(Envelope { port: 0, msg: MsgHandle::new(mqtt_msg) }, CancellationToken::new()).await
@@ -856,14 +923,26 @@ mod tests {
     #[test]
     fn payload_conversion_matches_datatypes() {
         assert_eq!(
-            MqttInNode::convert_payload(br#"{"value":1}"#, &MqttDataType::Auto),
+            MqttInNode::convert_payload(br#"{"value":1}"#, &MqttDataType::Auto, None).unwrap(),
             Variant::String(r#"{"value":1}"#.into())
         );
         assert!(matches!(
-            MqttInNode::convert_payload(br#"{"value":1}"#, &MqttDataType::AutoDetect),
+            MqttInNode::convert_payload(br#"{"value":1}"#, &MqttDataType::AutoDetect, None).unwrap(),
             Variant::Object(_)
         ));
-        assert_eq!(MqttInNode::convert_payload(b"abc", &MqttDataType::Utf8), Variant::String("abc".into()));
-        assert_eq!(MqttInNode::convert_payload(&[0xff], &MqttDataType::Utf8), Variant::Bytes(vec![0xff]));
+        assert_eq!(
+            MqttInNode::convert_payload(b"abc", &MqttDataType::Utf8, None).unwrap(),
+            Variant::String("abc".into())
+        );
+        assert_eq!(
+            MqttInNode::convert_payload(&[0xff], &MqttDataType::Utf8, None).unwrap(),
+            Variant::Bytes(vec![0xff])
+        );
+        assert!(MqttInNode::convert_payload(b"{bad json", &MqttDataType::Json, None).is_err());
+        assert_eq!(
+            MqttInNode::convert_payload(br#"{"value":1}"#, &MqttDataType::AutoDetect, Some("text/plain")).unwrap(),
+            Variant::String(r#"{"value":1}"#.into())
+        );
+        assert!(MqttInNode::convert_payload(b"{bad json", &MqttDataType::Auto, Some("application/json")).is_err());
     }
 }

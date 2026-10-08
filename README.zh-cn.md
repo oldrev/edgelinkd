@@ -152,7 +152,9 @@ py.test
 - ✅ 设置和配置管理
 - ✅ 流程导入/导出功能
 
-参考 [REDNODES-SPECS-DIFF.md](tests/REDNODES-SPECS-DIFF.md) 查看目前项目已实现节点和 Node-RED 的规格测试对比。
+详细的节点和 Node-RED 规范测试对比请查看[在线 Node-RED 规范覆盖率页面](https://oldrev.github.io/edgelinkd/zh/specs/)。
+
+也可以访问[在线 Node-RED 规范覆盖率页面](https://oldrev.github.io/edgelinkd/zh/specs/)，比较 master 与各个发布版本并搜索单条测试。
 
 ## 开发路线图
 

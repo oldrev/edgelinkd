@@ -93,4 +93,4 @@ impl FlowNodeBehavior for JunctionNode {
 
 ## 验证
 
-兼容性靠测试，而不是假设。Node-RED 的 mocha 规范被移植为 pytest，**`describe()` 与 `it()` 标题与上游完全一致**，并通过 PyO3 扩展 `edgelink_pymod` 驱动真实引擎运行。一个脚本会把移植后的标题与上游比对，生成 [`tests/REDNODES-SPECS-DIFF.md`](https://github.com/oldrev/edgelinkd/blob/master/tests/REDNODES-SPECS-DIFF.md)。
+兼容性靠测试，而不是假设。Node-RED 的 mocha 规范被移植为 pytest，**`describe()` 与 `it()` 标题与上游完全一致**，并通过 PyO3 扩展 `edgelink_pymod` 驱动真实引擎运行。[在线覆盖率页面](../../zh/specs/) 会按版本和节点展示生成的对比结果。
