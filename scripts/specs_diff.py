@@ -10,9 +10,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import pytest
-import io
-import contextlib
 import platform
 from math import ceil, sqrt
 from pathlib import Path
@@ -104,14 +101,37 @@ def extract_it_strings_py(file_path) -> list[dict]:
         report_file_path = report_file.name
         report_file.close()
 
-    output_capture = io.StringIO()
-    with contextlib.redirect_stdout(output_capture), contextlib.redirect_stderr(output_capture):
-        pytest.main(["-q", "--co", "--disable-warnings", "-p", "no:skip",
-                    "--json-report", f"--json-report-file={report_file_path}", file_path])
+    # Run collection in a fresh process. Calling pytest.main() repeatedly in this process is
+    # unsafe: pytest and pytest-json-report retain plugin state between invocations, and this
+    # script collects many files (often after the CI job has already run pytest once). That can
+    # leave an empty report file even though collection failed.
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            "--co",
+            "--disable-warnings",
+            "-p",
+            "no:skip",
+            "--json-report",
+            f"--json-report-file={report_file_path}",
+            file_path,
+        ],
+        cwd=os.path.abspath(os.path.join(_SCRIPT_DIR, "..")),
+        capture_output=True,
+        text=True,
+    )
 
     try:
         # Read the report after pytest finishes
-        if os.path.exists(report_file_path):
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"pytest collection failed for {file_path} (exit {result.returncode}):\n"
+                f"{result.stdout}\n{result.stderr}"
+            )
+        if os.path.exists(report_file_path) and os.path.getsize(report_file_path) > 0:
             report = load_json(report_file_path)
             for coll in report['collectors']:
                 for result in coll['result']:
@@ -126,6 +146,11 @@ def extract_it_strings_py(file_path) -> list[dict]:
                             "title": result['fullTitle'].rstrip(),
                             "skipped": test_key in skipped_tests,
                         })
+        else:
+            raise RuntimeError(
+                f"pytest produced no JSON report for {file_path}:\n"
+                f"{result.stdout}\n{result.stderr}"
+            )
     finally:
         # Clean up the temporary file
         try:
