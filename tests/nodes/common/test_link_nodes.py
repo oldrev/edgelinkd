@@ -8,17 +8,19 @@ from tests import *
 @pytest.mark.describe('link Node')
 class TestInjectNode:
 
-    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should be loaded (link in)')
     async def test_it_should_be_loaded_link_in(self):
-        pass
+        flows = [{"id": "100", "type": "tab"}, {"id": "1", "z": "100", "type": "link in", "wires": [["2"]]}, {"id": "2", "z": "100", "type": "test-once"}]
+        msgs = await run_flow_with_msgs_ntimes(flows, [{"payload": "loaded"}], 1, injectee_node_id="1")
+        assert msgs[0]["payload"] == "loaded"
 
-    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should be loaded (link out)')
     async def test_it_should_be_loaded_link_out(self):
-        pass
+        flows = [{"id": "100", "type": "tab"}, {"id": "1", "z": "100", "type": "link out", "links": []}, {"id": "2", "z": "100", "type": "test-once"}]
+        msgs = await run_flow_with_msgs_ntimes(flows, [], 0, injectee_node_id="1")
+        assert msgs == []
 
     @pytest.mark.asyncio
     @pytest.mark.it('should be linked')

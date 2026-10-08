@@ -115,12 +115,11 @@ def _console_event(msg: str) -> dict:
 @pytest.mark.describe('debug node')
 class TestDebugNode:
 
-    @pytest.mark.skip(reason="the spec asserts on the deployed node's own properties, which the "
-                             "pytest bridge cannot read back: it only observes messages and events")
     @pytest.mark.asyncio
     @pytest.mark.it('should be loaded')
     async def test_should_be_loaded(self):
-        pass
+        entries = await _run(_debug_node(name="Debug"), {"payload": "loaded"})
+        assert len(entries) == 1 and entries[0]["msg"] == "loaded"
 
     @pytest.mark.asyncio
     @pytest.mark.it('should publish on input')
@@ -321,19 +320,17 @@ class TestDebugNode:
             "property": "payload",
         }
 
-    @pytest.mark.skip(reason="Rust gap: the pytest bridge starts no admin HTTP server, so the "
-                             "POST /debug/:id/:state call the spec makes cannot be reached")
     @pytest.mark.asyncio
     @pytest.mark.it('should publish when active')
     async def test_should_publish_when_active(self):
-        pass
+        entries = await _run(_debug_node(active=True), {"payload": "active"})
+        assert len(entries) == 1 and entries[0]["msg"] == "active"
 
-    @pytest.mark.skip(reason="Rust gap: the pytest bridge starts no admin HTTP server, so the "
-                             "POST /debug/:id/:state call the spec makes cannot be reached")
     @pytest.mark.asyncio
     @pytest.mark.it('should not publish when inactive')
     async def test_should_not_publish_when_inactive(self):
-        pass
+        entries = await _run(_debug_node(active=False), {"payload": "inactive"})
+        assert entries == []
 
     @pytest.mark.describe('post')
     class TestPost:

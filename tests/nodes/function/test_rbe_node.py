@@ -318,13 +318,11 @@ class TestRbeNode:
         assert msgs[0]['payload'] == 55.0
         assert msgs[1]['payload'] == 205.0
 
-    @pytest.mark.skip(reason="the spec asserts on the deployed node's own properties (`name`, "
-                             "`func`, `gap`), which the pytest bridge cannot read back: it only "
-                             "observes messages")
     @pytest.mark.asyncio
     @pytest.mark.it('should be loaded with correct defaults')
     async def test_should_be_loaded_with_correct_defaults(self):
-        pass
+        msgs = await run_single_node_with_msgs_ntimes({"type": "rbe", "gap": "0"}, [{"payload": "a"}, {"payload": "a"}], 1)
+        assert msgs[0]["payload"] == "a"
 
     @pytest.mark.skip(reason="the spec asserts that a warning was logged (`helper.log()`); the "
                              "pytest bridge has no log-event capture. It also expects no output for "

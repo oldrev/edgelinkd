@@ -7,25 +7,24 @@ from tests import *
 @pytest.mark.describe('change Node')
 class TestChangeNode:
 
-    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should load node with defaults')
     async def test_it_should_load_node_with_defaults(self):
-        pass
+        msgs = await run_single_node_with_msgs_ntimes({"type": "change", "rules": []}, [{"payload": "unchanged"}], 1)
+        assert msgs[0]["payload"] == "unchanged"
 
-    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should load defaults if set to replace')
     async def test_it_should_load_defaults_if_set_to_replace(self):
-        pass
+        msgs = await run_single_node_with_msgs_ntimes({"type": "change", "action": "replace", "property": "payload", "to": "x", "tot": "str"}, [{"payload": "a"}], 1)
+        assert msgs[0]["payload"] == "x"
 
-    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should load defaults if set to change')
     async def test_it_should_load_defaults_if_set_to_change(self):
-        pass
+        msgs = await run_single_node_with_msgs_ntimes({"type": "change", "rules": [{"t": "set", "p": "payload", "pt": "msg", "to": "payload", "tot": "msg"}]}, [{"payload": "a"}], 1)
+        assert msgs[0]["payload"] == "a"
 
-    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should no-op if there are no rules')
     async def test_it_should_no_op_if_there_are_no_rules(self):

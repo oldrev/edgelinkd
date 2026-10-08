@@ -6,21 +6,18 @@ from tests import *
 @pytest.mark.describe('exec node')
 class TestExecNode:
 
-    @pytest.mark.skip(reason="the pytest bridge only observes messages, so it cannot read a deployed "
-                             "node's own properties back: the upstream assertion on the node object "
-                             "(`n1.name === 'exec1'`) has no equivalent here")
     @pytest.mark.asyncio
     @pytest.mark.it('should be loaded with any defaults')
     async def test_should_be_loaded_with_defaults(self):
         node = {
             "type": "exec",
-            "name": "exec1"
+            "name": "exec1", "command": "echo", "addpay": True
         }
         # This would typically test node properties, but we'll adapt for our testing framework
         # Just verify the node can be created without errors
-        msgs = await run_single_node_with_msgs_ntimes(node, [{}], 1, timeout=1)
+        msgs = await run_single_node_with_msgs_ntimes(node, [{"payload": "loaded"}], 1, timeout=1)
         # Basic validation that the node exists and processes messages
-        assert len(msgs) >= 0
+        assert len(msgs) == 1
 
     @pytest.mark.describe('calling exec')
     class TestCallingExec:
