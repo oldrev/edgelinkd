@@ -17,8 +17,12 @@
     <section id="spec-dashboard" hidden>
       <div id="spec-summary" class="spec-summary-grid"></div>
       <div class="specs-chart-panel">
-        <div class="specs-panel-head"><h2>Coverage by category</h2><span id="spec-coverage-label"></span></div>
-        <div id="spec-category-chart" class="spec-category-chart"></div>
+        <div class="specs-panel-head"><h2>Coverage map</h2><span id="spec-coverage-label"></span></div>
+        <div id="spec-category-chart" class="spec-square-chart" aria-label="Coverage map"></div>
+      </div>
+      <div class="specs-chart-panel specs-pie-panel">
+        <div class="specs-panel-head"><h2>Test status</h2><span>All upstream and ported tests</span></div>
+        <div id="spec-pie-chart" class="spec-pie-chart" aria-label="Test status pie chart"></div>
       </div>
       <div class="specs-filter-row">
         <label for="spec-node-search">Filter nodes</label>
