@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "reports": [
+    {
+      "name": "master",
+      "ref": "master",
+      "commit": "dcad0037a4c0c2426f3869b804f985336db79d10",
+      "generated_at": "2026-10-08T13:33:20.797015Z",
+      "url": "reports/master.json",
+      "totals": {
+        "covered": 1243,
+        "missing": 82,
+        "extra": 4,
+        "skipped": 188,
+        "js": 1513,
+        "python": 1435,
+        "coverage": 0.8215465961665566
+      }
+    }
+  ]
+}
