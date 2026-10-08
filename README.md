@@ -189,8 +189,6 @@ The heavy check mark ( :heavy_check_mark: ) below indicates that the supported b
 
 ### Node-RED test status
 
-The node list below is derived from the registered spec comparisons. The detailed per-`it()` results and the nested-squares visualization are in [REDNODES-SPECS-DIFF.md](tests/REDNODES-SPECS-DIFF.md) and [REDNODES-SPECS-DIFF.svg](tests/REDNODES-SPECS-DIFF.svg). A skipped test is counted in the upstream total and shown as a gray square; it is not counted as executed coverage.
-
 ![REDNODES-SPECS-DIFF.svg](tests/REDNODES-SPECS-DIFF.svg)
 
 Regenerate the report and chart with:
