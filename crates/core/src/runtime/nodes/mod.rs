@@ -1,5 +1,9 @@
 use std::fmt;
+#[cfg(feature = "metrics")]
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
+#[cfg(feature = "metrics")]
+use std::time::Instant;
 
 use async_trait::async_trait;
 use runtime::engine::Engine;
@@ -113,6 +117,115 @@ pub struct BaseFlowNodeState {
     pub on_received: MsgEventSender,
     pub on_completed: MsgEventSender,
     pub on_error: MsgEventSender,
+    pub metrics: NodeMetrics,
+}
+
+/// Low-overhead counters shared by every flow node.
+///
+/// The counters describe runtime activity rather than node-specific semantics: a message is
+/// received when it leaves the node input queue, and a wire is delivered only after its send
+/// succeeds. This keeps the numbers comparable across node implementations.
+#[derive(Debug, Default)]
+pub struct NodeMetrics {
+    #[cfg(feature = "metrics")]
+    received: AtomicU64,
+    #[cfg(feature = "metrics")]
+    completed: AtomicU64,
+    #[cfg(feature = "metrics")]
+    errors: AtomicU64,
+    #[cfg(feature = "metrics")]
+    emitted_messages: AtomicU64,
+    #[cfg(feature = "metrics")]
+    delivered_wires: AtomicU64,
+    #[cfg(feature = "metrics")]
+    dropped: AtomicU64,
+    #[cfg(feature = "metrics")]
+    processing_nanos: AtomicU64,
+    #[cfg(feature = "metrics")]
+    in_flight: AtomicU64,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct NodeMetricsSnapshot {
+    pub received: u64,
+    pub completed: u64,
+    pub errors: u64,
+    pub emitted_messages: u64,
+    pub delivered_wires: u64,
+    pub dropped: u64,
+    pub processing_nanos: u64,
+    pub in_flight: u64,
+}
+
+impl NodeMetrics {
+    pub fn snapshot(&self) -> NodeMetricsSnapshot {
+        #[cfg(feature = "metrics")]
+        {
+            return NodeMetricsSnapshot {
+                received: self.received.load(Ordering::Relaxed),
+                completed: self.completed.load(Ordering::Relaxed),
+                errors: self.errors.load(Ordering::Relaxed),
+                emitted_messages: self.emitted_messages.load(Ordering::Relaxed),
+                delivered_wires: self.delivered_wires.load(Ordering::Relaxed),
+                dropped: self.dropped.load(Ordering::Relaxed),
+                processing_nanos: self.processing_nanos.load(Ordering::Relaxed),
+                in_flight: self.in_flight.load(Ordering::Relaxed),
+            };
+        }
+        #[cfg(not(feature = "metrics"))]
+        {
+            NodeMetricsSnapshot::default()
+        }
+    }
+
+    fn received(&self) {
+        #[cfg(feature = "metrics")]
+        {
+            self.received.fetch_add(1, Ordering::Relaxed);
+            self.in_flight.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    fn completed(&self) {
+        #[cfg(feature = "metrics")]
+        {
+            self.completed.fetch_add(1, Ordering::Relaxed);
+            self.finish_in_flight();
+        }
+    }
+
+    fn error(&self) {
+        #[cfg(feature = "metrics")]
+        {
+            self.errors.fetch_add(1, Ordering::Relaxed);
+            self.finish_in_flight();
+        }
+    }
+
+    #[cfg(feature = "metrics")]
+    fn finish_in_flight(&self) {
+        let _ = self.in_flight.try_update(Ordering::Relaxed, Ordering::Relaxed, |value| Some(value.saturating_sub(1)));
+    }
+
+    #[cfg(feature = "metrics")]
+    fn processing_time(&self, elapsed: std::time::Duration) {
+        self.processing_nanos.fetch_add(elapsed.as_nanos().min(u64::MAX as u128) as u64, Ordering::Relaxed);
+    }
+
+    fn emitted(&self) {
+        #[cfg(feature = "metrics")]
+        self.emitted_messages.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn delivered(&self) {
+        #[cfg(feature = "metrics")]
+        self.delivered_wires.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn dropped(&self) {
+        #[cfg(feature = "metrics")]
+        self.dropped.fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 #[derive(Debug)]
@@ -160,6 +273,10 @@ pub trait GlobalNodeBehavior: Send + Sync + FlowsElement {
 pub trait FlowNodeBehavior: Send + Sync + FlowsElement {
     fn get_base(&self) -> &BaseFlowNodeState;
 
+    fn metrics(&self) -> NodeMetricsSnapshot {
+        self.get_base().metrics.snapshot()
+    }
+
     async fn run(self: Arc<Self>, stop_token: CancellationToken);
 
     fn group(&self) -> Option<Group> {
@@ -191,6 +308,7 @@ pub trait FlowNodeBehavior: Send + Sync + FlowsElement {
 
     async fn recv_msg(&self, stop_token: CancellationToken) -> crate::Result<MsgHandle> {
         let msg = self.get_base().msg_rx.recv_msg(stop_token).await?;
+        self.get_base().metrics.received();
         if self.get_base().on_received.receiver_count() > 0 {
             self.get_base().on_received.send(msg.clone())?;
         }
@@ -198,6 +316,7 @@ pub trait FlowNodeBehavior: Send + Sync + FlowsElement {
     }
 
     async fn notify_uow_completed(&self, msg: MsgHandle, cancel: CancellationToken) {
+        self.get_base().metrics.completed();
         let (node_id, flow) = { (self.id(), self.get_base().flow.upgrade()) };
         if let Some(flow) = flow {
             flow.notify_node_uow_completed(&node_id, msg, cancel).await;
@@ -228,8 +347,15 @@ pub trait FlowNodeBehavior: Send + Sync + FlowsElement {
         for wire in port.wires.iter() {
             let msg_to_send = if msg_sent { envelope.msg.deep_clone(true).await } else { envelope.msg.clone() };
 
-            wire.tx(msg_to_send, cancel.clone()).await?;
+            if let Err(err) = wire.tx(msg_to_send, cancel.clone()).await {
+                self.get_base().metrics.dropped();
+                return Err(err);
+            }
+            self.get_base().metrics.delivered();
             msg_sent = true;
+        }
+        if msg_sent {
+            self.get_base().metrics.emitted();
         }
         Ok(())
     }
@@ -382,13 +508,18 @@ where
 {
     match node.recv_msg(cancel.clone()).await {
         Ok(msg) => {
+            #[cfg(feature = "metrics")]
+            let started = Instant::now();
             let result = proc(node, msg.clone()).await;
+            #[cfg(feature = "metrics")]
+            node.get_base().metrics.processing_time(started.elapsed());
             match result {
                 Ok(()) => {
                     // Report the completion
                     node.notify_uow_completed(msg, cancel.clone()).await;
                 }
                 Err(ref err) => {
+                    node.get_base().metrics.error();
                     let flow = node.flow().expect("flow");
                     let error_message = err.to_string();
 
@@ -654,6 +785,7 @@ mod tests {
             on_received: MsgEventSender::new(1),
             on_completed: MsgEventSender::new(1),
             on_error: MsgEventSender::new(1),
+            metrics: NodeMetrics::default(),
         };
 
         Arc::new(FanOutTestNode { base })
@@ -719,6 +851,16 @@ mod tests {
 
         assert_eq!(payload_of(rx0.recv().await.unwrap()).await, Variant::from("port-0"));
         assert_eq!(payload_of(rx1.recv().await.unwrap()).await, Variant::from("port-1"));
+
+        let metrics = node.metrics();
+        #[cfg(feature = "metrics")]
+        {
+            assert_eq!(metrics.emitted_messages, 2);
+            assert_eq!(metrics.delivered_wires, 2);
+            assert_eq!(metrics.dropped, 0);
+        }
+        #[cfg(not(feature = "metrics"))]
+        assert_eq!(metrics, NodeMetricsSnapshot::default());
     }
 
     /// An out-of-range port index must still be reported as an error.

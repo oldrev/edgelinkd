@@ -18,7 +18,7 @@ use super::nodes::FlowNodeBehavior;
 use super::red_env::*;
 use super::status_channel::StatusChannel;
 use crate::runtime::model::Variant;
-use crate::runtime::nodes::{GlobalNodeBehavior, NodeFactory, StatusObject, wellknown_names};
+use crate::runtime::nodes::{GlobalNodeBehavior, NodeFactory, NodeMetricsSnapshot, StatusObject, wellknown_names};
 use crate::runtime::status_channel::StatusMessage;
 use crate::*;
 
@@ -521,6 +521,13 @@ impl Engine {
 
     pub fn find_flow_node_by_id(&self, id: &ElementId) -> Option<Arc<dyn FlowNodeBehavior>> {
         self.inner.all_flow_nodes.get(id).map(|x| x.value().clone())
+    }
+
+    /// Return a point-in-time metrics snapshot for every flow node.
+    pub fn flow_node_metrics(&self) -> Vec<(ElementId, NodeMetricsSnapshot)> {
+        let mut metrics: Vec<_> = self.inner.all_flow_nodes.iter().map(|node| (*node.key(), node.metrics())).collect();
+        metrics.sort_by_key(|(id, _)| id.to_string());
+        metrics
     }
 
     /// Look a flow node up by name across every flow.
