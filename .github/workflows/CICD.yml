@@ -240,6 +240,9 @@ jobs:
 
       - name: Generate Node-RED spec coverage JSON
         if: github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v')
+        env:
+          EDGELINK_BUILD_TARGET: ${{ matrix.target }}
+          EDGELINK_BUILD_PROFILE: ci
         run: |
           python ./scripts/specs_diff.py 3rd-party/node-red \
             --json-output ./specs-report.json \
