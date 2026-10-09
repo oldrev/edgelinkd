@@ -1,18 +1,18 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-10-09T01:37:15.850590Z",
+  "generated_at": "2026-10-09T17:48:44.952612Z",
   "ref": "master",
-  "commit": "61d2a260e8f69477f38ef08cc27fcbc0441e0688",
+  "commit": "08f614017908b2b49dd2af9b75d0fc17e69e7e26",
   "node_red": {
-    "version": "4.1.15"
+    "version": "4.1.16"
   },
   "totals": {
     "covered": 1243,
     "missing": 82,
-    "extra": 4,
+    "extra": 0,
     "skipped": 188,
     "js": 1513,
-    "python": 1435,
+    "python": 1431,
     "coverage": 0.8215465961665566
   },
   "categories": [
@@ -3484,7 +3484,7 @@
           "totals": {
             "covered": 93,
             "missing": 0,
-            "extra": 2,
+            "extra": 0,
             "skipped": 0
           },
           "specs": [
@@ -3591,14 +3591,6 @@
             {
               "status": "covered",
               "title": "HTTP Request Node authentication should authenticate on server - digest SHA-512-256"
-            },
-            {
-              "status": "extra",
-              "title": "HTTP Request Node authentication should output an error when proxy authentication was failed"
-            },
-            {
-              "status": "extra",
-              "title": "HTTP Request Node authentication should output an error when proxy authentication was failed(http-proxy-config)"
             },
             {
               "status": "covered",
@@ -5718,7 +5710,7 @@
           "totals": {
             "covered": 174,
             "missing": 0,
-            "extra": 2,
+            "extra": 0,
             "skipped": 32
           },
           "specs": [
@@ -5851,16 +5843,8 @@
               "title": "@node-red/util/util encodeObject encode object object with undefined property"
             },
             {
-              "status": "extra",
-              "title": "@node-red/util/util encodeObject encode object test bad object constructor"
-            },
-            {
               "status": "covered",
               "title": "@node-red/util/util encodeObject encode object test bad toString"
-            },
-            {
-              "status": "extra",
-              "title": "@node-red/util/util encodeObject encode object very large object which fails to serialise should be truncated"
             },
             {
               "status": "covered",
