@@ -37,7 +37,7 @@ hero:
       label: "个自包含二进制，内置编辑器"
     - value: "6"
       label: "个官方支持的目标平台"
-    - value: "v4.1.15"
+    - value: "v4.1.16"
       label: "作为行为基准的 Node-RED 版本"
 
 why:

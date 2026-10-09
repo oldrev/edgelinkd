@@ -39,7 +39,7 @@ hero:
       label: "self-contained binary, editor included"
     - value: "6"
       label: "supported target triples"
-    - value: "v4.1.15"
+    - value: "v4.1.16"
       label: "Node-RED release used as the behavioural reference"
 
 why:

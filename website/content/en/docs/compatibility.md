@@ -34,4 +34,4 @@ EdgeLinkd is a Node-RED **compatible** runtime, not a Node-RED clone. It targets
 
 ## Reporting gaps
 
-If a supported node behaves differently from Node-RED v4.1.15, that is a bug. Please [open an issue](https://github.com/oldrev/edgelinkd/issues) with a minimal `flows.json` that reproduces it.
+If a supported node behaves differently from Node-RED v4.1.16, that is a bug. Please [open an issue](https://github.com/oldrev/edgelinkd/issues) with a minimal `flows.json` that reproduces it.
