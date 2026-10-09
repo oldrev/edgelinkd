@@ -2,6 +2,22 @@
   "schema_version": 1,
   "reports": [
     {
+      "name": "v4.1.16-beta",
+      "ref": "v4.1.16-beta",
+      "commit": "47387a866a75541ad2ec4a6912d97806926d9710",
+      "generated_at": "2026-10-09T17:19:23.468365Z",
+      "url": "reports/v4.1.16-beta.json",
+      "totals": {
+        "covered": 1243,
+        "missing": 82,
+        "extra": 0,
+        "skipped": 188,
+        "js": 1513,
+        "python": 1431,
+        "coverage": 0.8215465961665566
+      }
+    },
+    {
       "name": "master",
       "ref": "master",
       "commit": "61d2a260e8f69477f38ef08cc27fcbc0441e0688",
