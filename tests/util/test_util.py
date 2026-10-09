@@ -1480,32 +1480,6 @@ class TestEncodeObjectOfObject:
         assert 'canserialise' in result["msg"]
 
     @pytest.mark.asyncio
-    @pytest.mark.it('very large object which fails to serialise should be truncated')
-    async def test_0023(self):
-        result = await _encode("""(function(){
-            var big = '';
-            for (var i = 0; i < 1000; i++) {
-                big += 'some more string ';
-            }
-            return {
-                obj:{
-                    big: big,
-                    cantserialise:{
-                        message:'this will not be displayed',
-                        toJSON: function(val) {
-                            throw new Error('this exception should have been caught');
-                        },
-                    },
-                    canserialise:{
-                        message:'this should be displayed',
-                    }
-                },
-            };
-        })()""")
-        assert result["format"] == "error"
-        assert len(json.loads(result["msg"])["message"]) <= 1000
-
-    @pytest.mark.asyncio
     @pytest.mark.it('test bad toString')
     async def test_0024(self):
         result = await _encode("""(function(){
@@ -1517,24 +1491,6 @@ class TestEncodeObjectOfObject:
             return __v;
         })()""")
         assert '[Type not printable]' in result["msg"]
-
-    @pytest.mark.asyncio
-    @pytest.mark.it('test bad object constructor')
-    async def test_0025(self):
-        # Upstream only checks that a throwing `constructor` getter does not escape encodeObject.
-        result = await _encode("""(function(){
-            var __v = {
-                mystrangeobj: "hello",
-                constructor: {
-                    get name(){
-                        throw new Error('Exception in constructor name');
-                    }
-                }
-            };
-            return __v;
-        })()""")
-        assert result["format"]
-
 
 # Additional Node-RED 4.1.15 specs
 

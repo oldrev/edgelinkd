@@ -93,7 +93,7 @@ pub struct MetaNode {
     pub red_id: &'static str,   // Like "node-red/inject"
     pub red_name: &'static str, // Like "inject"
     pub module: &'static str,   // Like "node-red"
-    pub version: &'static str,  // Like "4.1.15"
+    pub version: &'static str,  // Like "4.1.16"
     pub local: bool,            // Default: false
     pub user: bool,             // Default: false
 }

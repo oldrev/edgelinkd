@@ -17,7 +17,7 @@ EdgeLinkd 是单个原生进程。同一个二进制同时承载流程引擎、N
 | `crates/pymod/` | `edgelink_pymod`——供测试套件驱动的 Python 扩展 |
 | `node-plugins/` | 静态链接的节点插件 |
 | `tests/` | 移植为 pytest 的 Node-RED mocha 规范测试套件 |
-| `3rd-party/node-red/` | 固定版本的 Node-RED（v4.0.9）：编辑器资源与行为基准 |
+| `3rd-party/node-red/` | 固定版本的 Node-RED（v4.1.16）：编辑器资源与行为基准 |
 
 ## 运行时模型
 

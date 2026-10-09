@@ -705,21 +705,9 @@ class TestHttpRequestNode:
             pass
 
         @pytest.mark.asyncio
-        @pytest.mark.skip(reason='proxy authentication is out of scope for the embedded runtime')
-        @pytest.mark.it('should output an error when proxy authentication was failed')
-        async def test_0076(self):
-            pass
-
-        @pytest.mark.asyncio
         @pytest.mark.skip(reason='proxy config nodes are out of scope for the embedded runtime')
         @pytest.mark.it('should authenticate on proxy server(http-proxy-config)')
         async def test_0077(self):
-            pass
-
-        @pytest.mark.asyncio
-        @pytest.mark.skip(reason='proxy config nodes are out of scope for the embedded runtime')
-        @pytest.mark.it('should output an error when proxy authentication was failed(http-proxy-config)')
-        async def test_0078(self):
             pass
 
         @pytest.mark.asyncio
