@@ -171,8 +171,9 @@ identifier = "com.github.oldrev.edgelink"
 
 [features]
 full = ["default", "rqjs_bindgen"]
-default = ["core", "js", "jsonata", "nodes_network", "nodes_storage", "nodes_parser"]
+default = ["core", "metrics", "js", "jsonata", "nodes_network", "nodes_storage", "nodes_parser"]
 core = ["edgelink-core/core"]
+metrics = ["edgelink-core/metrics"]
 js = ["edgelink-core/js"]
 jsonata = ["edgelink-core/jsonata"]
 nodes_network = ["edgelink-core/nodes_network"]

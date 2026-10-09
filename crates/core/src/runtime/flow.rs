@@ -747,6 +747,7 @@ impl Flow {
             on_received: MsgEventSender::new(1),
             on_completed: MsgEventSender::new(1),
             on_error: MsgEventSender::new(1),
+            metrics: NodeMetrics::default(),
         })
     }
 
