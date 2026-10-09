@@ -22,6 +22,10 @@ use crate::runtime::nodes::{GlobalNodeBehavior, NodeFactory, NodeMetricsSnapshot
 use crate::runtime::status_channel::StatusMessage;
 use crate::*;
 
+mod deployment;
+mod lifecycle;
+mod observability;
+
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct EngineArgs {
     //node_msg_queue_capacity: usize,
@@ -292,59 +296,6 @@ impl Engine {
         }
     }
 
-    pub async fn start(&self) -> crate::Result<()> {
-        log::info!("-- Starting engine...");
-        let mut shutdown_lock = self.inner.shutdown.try_write()?;
-        if !(*shutdown_lock) {
-            return Err(EdgelinkError::invalid_operation("already started."));
-        }
-
-        if self.inner.flows.is_empty() {
-            return Err(EdgelinkError::invalid_operation("no flows loaded in the engine."));
-        }
-
-        // 发布启动开始事件
-        self.publish_event(EngineEvent::EngineStarted);
-
-        // Load whatever the persistent context stores hold, before any flow can read it.
-        self.inner.context_manager.open_all().await?;
-
-        for f in self.inner.flows.iter() {
-            f.value().start().await?;
-        }
-
-        *shutdown_lock = false;
-
-        log::info!("-- All flows started.");
-        Ok(())
-    }
-
-    pub async fn stop(&self) -> crate::Result<()> {
-        let mut shutdown_lock = self.inner.shutdown.try_write()?;
-        if *shutdown_lock {
-            return Err(EdgelinkError::invalid_operation("not started."));
-        }
-        log::info!("-- Stopping engine...");
-
-        self.inner.stop_token.cancel();
-
-        for i in self.inner.flows.iter() {
-            i.value().stop().await?;
-        }
-
-        // Give the persistent context stores the chance to flush their pending writes.
-        self.inner.context_manager.close_all().await?;
-
-        *shutdown_lock = true;
-
-        // 发布停止事件
-        self.publish_event(EngineEvent::EngineStopped);
-
-        //drop(self.stopped_tx);
-        log::info!("-- Engine flows stopped.");
-        Ok(())
-    }
-
     #[cfg(any(test, feature = "pymod"))]
     pub async fn run_once_with_inject(
         &self,
@@ -519,59 +470,6 @@ impl Engine {
         Ok(received)
     }
 
-    pub fn find_flow_node_by_id(&self, id: &ElementId) -> Option<Arc<dyn FlowNodeBehavior>> {
-        self.inner.all_flow_nodes.get(id).map(|x| x.value().clone())
-    }
-
-    /// Return a point-in-time metrics snapshot for every flow node.
-    pub fn flow_node_metrics(&self) -> Vec<(ElementId, NodeMetricsSnapshot)> {
-        let mut metrics: Vec<_> = self.inner.all_flow_nodes.iter().map(|node| (*node.key(), node.metrics())).collect();
-        metrics.sort_by_key(|(id, _)| id.to_string());
-        metrics
-    }
-
-    /// Look a flow node up by name across every flow.
-    ///
-    /// A duplicated name is an error, not a first-match win: Node-RED resolves a `link call`
-    /// target by name across tabs and reports `Multiple link-in nodes named '<name>' found`
-    /// (`60-link.js`) instead of silently picking one of them.
-    pub fn find_flow_node_by_name(&self, name: &str) -> crate::Result<Option<Arc<dyn FlowNodeBehavior>>> {
-        let mut found: Option<Arc<dyn FlowNodeBehavior>> = None;
-        for i in self.inner.flows.iter() {
-            let flow = i.value();
-            match flow.get_node_by_name(name) {
-                Ok(Some(node)) => {
-                    if found.is_some() {
-                        return Err(EdgelinkError::InvalidOperation(format!(
-                            "There are multiple node with name '{name}'"
-                        ))
-                        .into());
-                    }
-                    found = Some(node);
-                }
-                Ok(None) => (),
-                Err(e) => return Err(e),
-            }
-        }
-        Ok(found)
-    }
-
-    pub fn find_global_node_by_id(&self, id: &ElementId) -> Option<Arc<dyn GlobalNodeBehavior>> {
-        self.inner.global_nodes.get(id).map(|x| x.value().clone())
-    }
-
-    pub fn find_global_node_by_name(&self, name: &str) -> crate::Result<Option<Arc<dyn GlobalNodeBehavior>>> {
-        let mut iter = self.inner.global_nodes.iter().filter(|val| val.name() == name);
-        let nfound = iter.clone().count();
-        if nfound == 1 {
-            Ok(iter.next().map(|x| x.clone()))
-        } else if nfound == 0 {
-            Ok(None)
-        } else {
-            Err(EdgelinkError::InvalidOperation(format!("There are multiple global nodes with name '{name}'")).into())
-        }
-    }
-
     pub async fn inject_msg(
         &self,
         flow_node_id: &ElementId,
@@ -585,163 +483,9 @@ impl Engine {
         node.inject_msg(msg, cancel).await
     }
 
-    pub fn get_envs(&self) -> RedEnvs {
-        self.inner.envs.clone()
-    }
-
-    /// Merge environment variables into the engine-wide environment.
-    ///
-    /// Every flow, group and node environment has the engine environment as its ultimate parent, so
-    /// this is what makes the `global-config` node's `env` visible everywhere.
-    pub fn add_envs(&self, envs: &RedEnvs) {
-        self.inner.envs.update_with(envs);
-    }
-
-    pub fn get_env(&self, key: &str) -> Option<Variant> {
-        self.inner.envs.evalute_env(key)
-    }
-
-    pub fn get_context_manager(&self) -> &Arc<ContextManager> {
-        &self.inner.context_manager
-    }
-
-    pub fn context(&self) -> &Context {
-        &self.inner.context
-    }
-
-    pub fn http_response_registry(&self) -> &Arc<HttpResponseRegistry> {
-        &self.inner.http_response_registry
-    }
-
-    pub fn debug_channel(&self) -> &DebugChannel {
-        &self.inner.debug_channel
-    }
-
-    pub fn status_channel(&self) -> &StatusChannel {
-        &self.inner.status_channel
-    }
-
-    /// The channel carrying every `node.log()`/`node.warn()`/... call of the running nodes.
-    pub fn node_log_channel(&self) -> &NodeLogChannel {
-        &self.inner.node_log_channel
-    }
-
-    pub fn report_node_status(&self, from: ElementId, status: StatusObject) {
-        let to_send = StatusMessage { sender_id: from, status };
-        self.inner.status_channel.send(to_send);
-    }
-
-    /// 检查引擎是否正在运行
-    pub fn is_running(&self) -> bool {
-        match self.inner.shutdown.try_read() {
-            Ok(shutdown_lock) => !*shutdown_lock,
-            Err(_) => {
-                // 如果无法获取锁，假设引擎正在运行
-                log::warn!("Failed to read engine shutdown state, assuming running");
-                true
-            }
-        }
-    }
-
-    /// 获取事件总线
-    pub fn event_bus(&self) -> &EngineEventBus {
-        &self.inner.event_bus
-    }
-
-    /// 发布事件
-    pub fn publish_event(&self, event: EngineEvent) {
-        self.inner.event_bus.publish(event);
-    }
-
-    /// 订阅事件
-    pub fn subscribe_events(&self) -> tokio::sync::broadcast::Receiver<EngineEvent> {
-        self.inner.event_bus.subscribe()
-    }
-
     #[cfg(any(test, feature = "pymod"))]
     pub fn recv_final_msg(&self, msg: MsgHandle) -> crate::Result<()> {
         self.inner.final_msgs_tx.send(msg)?;
-        Ok(())
-    }
-
-    pub async fn restart(&self) -> crate::Result<()> {
-        log::info!("-- Restarting engine...");
-
-        // 发布重启开始事件
-        self.publish_event(EngineEvent::EngineRestartStarted);
-
-        // 停止 Engine
-        self.stop().await?;
-
-        // 启动 Engine
-        self.start().await?;
-
-        // 发布重启完成事件
-        self.publish_event(EngineEvent::EngineRestartCompleted);
-
-        log::info!("-- Engine restarted successfully.");
-        Ok(())
-    }
-
-    pub async fn redeploy_flows(
-        &self,
-        json: serde_json::Value,
-        reg: &RegistryHandle,
-        elcfg: Option<&config::Config>,
-    ) -> crate::Result<()> {
-        log::info!("-- Redeploying flows...");
-
-        // A caller with no configuration of its own (the web deploy path passes `None`) must not
-        // silently drop the settings the engine was built with.
-        let elcfg = elcfg.or(self.inner.elcfg.as_ref());
-
-        // 发布流部署开始事件
-        self.publish_event(EngineEvent::FlowDeploymentStarted);
-
-        // 停止当前 Engine（如果正在运行）
-        if self.is_running() {
-            self.stop().await?;
-        }
-
-        // 清理现有的 flows 和 nodes
-        self.inner.flows.clear();
-        self.inner.all_flow_nodes.clear();
-        self.inner.global_nodes.clear();
-
-        // 发布 debug channel 重新初始化事件
-        self.publish_event(EngineEvent::DebugChannelReinitialized);
-
-        // 重新加载 flows 和 nodes
-        let json_values = json::deser::load_flows_json_value(json.clone()).map_err(|e| {
-            log::error!("Failed to load NodeRED JSON value: {e}");
-            e
-        })?;
-
-        // Recalculate flows hash
-        {
-            let mut hash = self.inner.flows_hash.write().await;
-            *hash = Self::calculate_flows_hash(&json);
-        }
-
-        self.load_global_nodes(json_values.global_nodes, reg.clone(), elcfg)?;
-        self.load_flows(json_values.flows, reg, elcfg)?;
-
-        // Node-RED drops the context of everything the new configuration no longer holds, now
-        // that the replacement nodes are known. Only a redeploy does this: building an engine
-        // (see `with_json`) never cleans, so a runtime started on a partial flow file cannot
-        // delete context belonging to the flows it did not load.
-        let mut active_nodes: Vec<ElementId> = self.inner.flows.iter().map(|f| *f.key()).collect();
-        active_nodes.extend(self.inner.all_flow_nodes.iter().map(|n| *n.key()));
-        active_nodes.extend(self.inner.global_nodes.iter().map(|n| *n.key()));
-        self.inner.context_manager.clean_all(&active_nodes).await?;
-
-        // 启动 Engine
-        self.start().await?;
-
-        // 发布流部署完成事件
-        self.publish_event(EngineEvent::FlowDeploymentCompleted);
-
-        log::info!("-- Flows redeployed successfully.");
         Ok(())
     }
 }
