@@ -161,7 +161,7 @@ impl NodeMetrics {
     pub fn snapshot(&self) -> NodeMetricsSnapshot {
         #[cfg(feature = "metrics")]
         {
-            return NodeMetricsSnapshot {
+            NodeMetricsSnapshot {
                 received: self.received.load(Ordering::Relaxed),
                 completed: self.completed.load(Ordering::Relaxed),
                 errors: self.errors.load(Ordering::Relaxed),
@@ -170,7 +170,7 @@ impl NodeMetrics {
                 dropped: self.dropped.load(Ordering::Relaxed),
                 processing_nanos: self.processing_nanos.load(Ordering::Relaxed),
                 in_flight: self.in_flight.load(Ordering::Relaxed),
-            };
+            }
         }
         #[cfg(not(feature = "metrics"))]
         {
