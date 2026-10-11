@@ -12,7 +12,7 @@ weight: 10
 
 - **Rust 1.88 或更高版本**——通过 [rustup](https://rustup.rs) 安装的稳定版工具链。
 - **Git**——仓库以子模块形式固定了 Node-RED 版本。
-- **仅 Windows**——MSVC 工具链（Visual Studio Build Tools），以及位于 `PATH` 中的 `patch.exe`（随 Git for Windows 提供）。
+- **Windows 用户在上述基础上额外需要**——MSVC 工具链（Visual Studio Build Tools），以及位于 `PATH` 中的 `patch.exe`（随 Git for Windows 提供）。
 
 ## 1. 获取源码
 

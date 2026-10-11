@@ -12,7 +12,7 @@ This guide builds a release binary from source, runs it with the built-in Node-R
 
 - **Rust 1.88 or later** — a stable toolchain installed with [rustup](https://rustup.rs).
 - **Git** — the repository pins Node-RED as a submodule.
-- **Windows only** — the MSVC toolchain (Visual Studio Build Tools), and `patch.exe` on `PATH`. It ships with Git for Windows.
+- **On Windows, in addition to the above** — the MSVC toolchain (Visual Studio Build Tools), and `patch.exe` on `PATH` (it ships with Git for Windows).
 
 ## 1. Get the source
 
