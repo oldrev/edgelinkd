@@ -603,17 +603,30 @@ jobs:
           GITHUB_RUN_NUMBER: ${{ github.run_number }}
           EDGELINK_VERSION: ${{ github.ref_name }}
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Read Cargo package version
+        id: cargo-version
+        if: matrix.target != 'x86_64-unknown-linux-gnu'
+        shell: python
+        run: |
+          import os
+          import tomllib
+
+          with open("Cargo.toml", "rb") as manifest:
+              version = tomllib.load(manifest)["workspace"]["package"]["version"]
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              print(f"version={version}", file=output)
+
       - name: Build ARM Linux release
         if: matrix.target != 'x86_64-unknown-linux-gnu'
         run: cross build --release --workspace --target ${{ matrix.target }} --features full --exclude edgelink-pymod
         env:
           GITHUB_RUN_NUMBER: ${{ github.run_number }}
-          EDGELINK_VERSION: 4.0.19-beta+${{ github.run_number }}
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
+          EDGELINK_VERSION: ${{ steps.cargo-version.outputs.version }}+${{ github.run_number }}
 
       - name: Install packaging dependencies
         run: pip install tomlkit
