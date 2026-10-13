@@ -254,6 +254,20 @@ pub struct MqttBrokerSettings {
     pub will_payload: Option<String>,
     pub will_qos: u8,
     pub will_retain: bool,
+    pub will_content_type: Option<String>,
+    pub will_response_topic: Option<String>,
+    pub will_correlation_data: Option<Vec<u8>>,
+    pub will_message_expiry_interval: Option<u32>,
+    pub will_payload_format_indicator: Option<u8>,
+    pub will_user_properties: Vec<(String, String)>,
+    pub birth_topic: Option<String>,
+    pub birth_payload: Option<String>,
+    pub birth_qos: u8,
+    pub birth_retain: bool,
+    pub close_topic: Option<String>,
+    pub close_payload: Option<String>,
+    pub close_qos: u8,
+    pub close_retain: bool,
 }
 
 pub trait ScopedNodeBehavior {

@@ -16,7 +16,7 @@
 //! - `topic`: Default topic (can be overridden by msg.topic)
 //! - `qos`: Default QoS level (0, 1, or 2)
 //! - `retain`: Default retain flag
-//! - MQTT v5 properties (future enhancement)
+//! - MQTT v5 publish properties
 //!
 //! Message properties:
 //! - `msg.topic`: Topic to publish to (overrides config)
@@ -106,6 +106,33 @@ enum MqttClient {
 }
 
 impl MqttClient {
+    async fn publish(&self, topic: String, qos: u8, retain: bool, payload: Vec<u8>) -> Result<(), String> {
+        match self {
+            Self::V4(client) => {
+                client.publish(topic, Self::qos_v4(qos), retain, payload).await.map_err(|error| error.to_string())
+            }
+            Self::V5(client) => {
+                client.publish(topic, Self::qos_v5(qos), retain, payload).await.map_err(|error| error.to_string())
+            }
+        }
+    }
+
+    fn qos_v4(qos: u8) -> rumqttc::QoS {
+        match qos {
+            1 => rumqttc::QoS::AtLeastOnce,
+            2 => rumqttc::QoS::ExactlyOnce,
+            _ => rumqttc::QoS::AtMostOnce,
+        }
+    }
+
+    fn qos_v5(qos: u8) -> rumqttc::v5::mqttbytes::QoS {
+        match qos {
+            1 => rumqttc::v5::mqttbytes::QoS::AtLeastOnce,
+            2 => rumqttc::v5::mqttbytes::QoS::ExactlyOnce,
+            _ => rumqttc::v5::mqttbytes::QoS::AtMostOnce,
+        }
+    }
+
     async fn disconnect(self) -> Result<(), String> {
         match self {
             Self::V4(client) => client.disconnect().await.map_err(|e| e.to_string()),
@@ -132,6 +159,31 @@ struct MqttOutNode {
 }
 
 impl MqttOutNode {
+    async fn publish_close(&self, client: &MqttClient) -> crate::Result<()> {
+        let settings = self
+            .engine()
+            .and_then(|engine| self.config.broker.parse().ok().and_then(|id| engine.find_global_node_by_id(&id)))
+            .and_then(|node| node.mqtt_settings())
+            .ok_or_else(|| crate::EdgelinkError::invalid_operation("MQTT broker config not found"))?;
+        let Some(topic) = settings.close_topic else { return Ok(()) };
+        if !Self::is_valid_publish_topic(&topic) {
+            return Err(crate::EdgelinkError::invalid_operation("Invalid MQTT close topic"));
+        }
+        client
+            .publish(
+                topic,
+                settings.close_qos,
+                settings.close_retain,
+                settings.close_payload.unwrap_or_default().into_bytes(),
+            )
+            .await
+            .map_err(|error| crate::EdgelinkError::invalid_operation(&error))?;
+        // rumqttc's publish call enqueues the packet; let the event loop write it before
+        // the following DISCONNECT request is processed.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        Ok(())
+    }
+
     #[allow(dead_code)]
     fn has_v5_properties(config: &MqttOutNodeConfig) -> bool {
         !config.response_topic.is_empty()
@@ -179,6 +231,34 @@ impl MqttOutNode {
             options.set_clean_start(settings.clean);
             if let Some(username) = settings.username {
                 options.set_credentials(username, settings.password.unwrap_or_default());
+            }
+            if let Some(will_topic) = settings.will_topic.clone() {
+                let properties = if settings.will_content_type.is_some()
+                    || settings.will_response_topic.is_some()
+                    || settings.will_correlation_data.is_some()
+                    || settings.will_message_expiry_interval.is_some()
+                    || settings.will_payload_format_indicator.is_some()
+                    || !settings.will_user_properties.is_empty()
+                {
+                    Some(rumqttc::v5::mqttbytes::v5::LastWillProperties {
+                        delay_interval: None,
+                        payload_format_indicator: settings.will_payload_format_indicator,
+                        message_expiry_interval: settings.will_message_expiry_interval,
+                        content_type: settings.will_content_type.clone(),
+                        response_topic: settings.will_response_topic.clone(),
+                        correlation_data: settings.will_correlation_data.clone().map(Into::into),
+                        user_properties: settings.will_user_properties.clone(),
+                    })
+                } else {
+                    None
+                };
+                options.set_last_will(rumqttc::v5::mqttbytes::v5::LastWill::new(
+                    will_topic,
+                    settings.will_payload.unwrap_or_default().into_bytes(),
+                    MqttClient::qos_v5(settings.will_qos),
+                    settings.will_retain,
+                    properties,
+                ));
             }
             let (client, mut event_loop) = rumqttc::v5::AsyncClient::new(options, 10);
             let event_task = tokio::spawn(async move {
@@ -331,41 +411,7 @@ impl MqttOutNode {
                 client.publish(topic, qos, retain, payload_bytes).await.map_err(|e| e.to_string())
             }
             MqttClient::V5(client) => {
-                let response_topic = msg
-                    .get("responseTopic")
-                    .and_then(Variant::as_str)
-                    .map(str::to_owned)
-                    .filter(|value| !value.is_empty())
-                    .or_else(|| (!self.config.response_topic.is_empty()).then(|| self.config.response_topic.clone()));
-                let correlation_data =
-                    msg.get("correlationData").map(Self::variant_to_bytes).transpose()?.or_else(|| {
-                        (!self.config.correlation_data.is_empty())
-                            .then(|| self.config.correlation_data.as_bytes().to_vec())
-                    });
-                let content_type = msg
-                    .get("contentType")
-                    .and_then(Variant::as_str)
-                    .map(str::to_owned)
-                    .filter(|value| !value.is_empty())
-                    .or_else(|| (!self.config.content_type.is_empty()).then(|| self.config.content_type.clone()));
-                let expiry = msg
-                    .get("messageExpiryInterval")
-                    .and_then(Variant::as_u64)
-                    .map(|value| value as u32)
-                    .or(self.config.message_expiry_interval);
-                let payload_format_indicator =
-                    msg.get("payloadFormatIndicator").and_then(Variant::as_bool).map(u8::from);
-                let properties = rumqttc::v5::mqttbytes::v5::PublishProperties {
-                    payload_format_indicator,
-                    message_expiry_interval: expiry,
-                    topic_alias: None,
-                    response_topic,
-                    correlation_data: correlation_data.map(Into::into),
-                    user_properties: Self::user_properties(msg)?
-                        .unwrap_or(Self::parse_user_properties(&self.config.user_properties)?),
-                    subscription_identifiers: Vec::new(),
-                    content_type,
-                };
+                let properties = Self::v5_publish_properties(msg, &self.config)?;
                 let qos = match qos {
                     rumqttc::QoS::AtMostOnce => rumqttc::v5::mqttbytes::QoS::AtMostOnce,
                     rumqttc::QoS::AtLeastOnce => rumqttc::v5::mqttbytes::QoS::AtLeastOnce,
@@ -388,6 +434,46 @@ impl MqttOutNode {
             Variant::String(value) => Ok(value.as_bytes().to_vec()),
             _ => Err(crate::EdgelinkError::invalid_operation("MQTT v5 correlationData must be a string or buffer")),
         }
+    }
+
+    fn v5_publish_properties(
+        msg: &Msg,
+        config: &MqttOutNodeConfig,
+    ) -> crate::Result<rumqttc::v5::mqttbytes::v5::PublishProperties> {
+        let response_topic = msg
+            .get("responseTopic")
+            .and_then(Variant::as_str)
+            .map(str::to_owned)
+            .filter(|value| !value.is_empty())
+            .or_else(|| (!config.response_topic.is_empty()).then(|| config.response_topic.clone()));
+        let correlation_data = msg
+            .get("correlationData")
+            .map(Self::variant_to_bytes)
+            .transpose()?
+            .or_else(|| (!config.correlation_data.is_empty()).then(|| config.correlation_data.as_bytes().to_vec()));
+        let content_type = msg
+            .get("contentType")
+            .and_then(Variant::as_str)
+            .map(str::to_owned)
+            .filter(|value| !value.is_empty())
+            .or_else(|| (!config.content_type.is_empty()).then(|| config.content_type.clone()));
+        let message_expiry_interval = msg
+            .get("messageExpiryInterval")
+            .and_then(Variant::as_u64)
+            .map(|value| value as u32)
+            .or(config.message_expiry_interval);
+        let payload_format_indicator = msg.get("payloadFormatIndicator").and_then(Variant::as_bool).map(u8::from);
+        Ok(rumqttc::v5::mqttbytes::v5::PublishProperties {
+            payload_format_indicator,
+            message_expiry_interval,
+            topic_alias: None,
+            response_topic,
+            correlation_data: correlation_data.map(Into::into),
+            user_properties: Self::user_properties(msg)?
+                .unwrap_or(Self::parse_user_properties(&config.user_properties)?),
+            subscription_identifiers: Vec::new(),
+            content_type,
+        })
     }
 
     fn user_properties(msg: &Msg) -> crate::Result<Option<Vec<(String, String)>>> {
@@ -541,12 +627,15 @@ impl MqttOutNode {
                 "disconnect" => {
                     // Handle disconnect action - similar to Node-RED handleDisconnectAction
                     let mut connection = self.connection.lock().await;
-                    if let Some(task) = connection.event_task.take() {
-                        task.abort();
+                    if let Some(client) = connection.client.as_ref() {
+                        self.publish_close(client).await?;
                     }
                     if let Some(client) = connection.client.take() {
                         let _ = client.disconnect().await;
                         log::info!("MQTT disconnected");
+                    }
+                    if let Some(task) = connection.event_task.take() {
+                        task.abort();
                     }
                     connection.connected = false;
                 }
@@ -590,12 +679,17 @@ impl FlowNodeBehavior for MqttOutNode {
 
         // Cleanup connection on shutdown
         let mut connection = self.connection.lock().await;
-        if let Some(task) = connection.event_task.take() {
-            task.abort();
+        if let Some(client) = connection.client.as_ref()
+            && let Err(error) = self.publish_close(client).await
+        {
+            log::error!("Failed to publish MQTT close message during shutdown: {error}");
         }
         if let Some(client) = connection.client.take() {
             log::info!("Disconnecting MQTT client on shutdown");
             let _ = client.disconnect().await;
+        }
+        if let Some(task) = connection.event_task.take() {
+            task.abort();
         }
         connection.connected = false;
 
@@ -605,7 +699,7 @@ impl FlowNodeBehavior for MqttOutNode {
 
 #[cfg(test)]
 mod tests {
-    use super::{MqttOutNode, MqttOutNodeConfig};
+    use super::{MqttClient, MqttOutNode, MqttOutNodeConfig};
     use crate::runtime::model::{Msg, Variant};
 
     #[test]
@@ -650,5 +744,49 @@ mod tests {
     fn v5_correlation_data_preserves_binary_bytes() {
         assert_eq!(MqttOutNode::variant_to_bytes(&Variant::Bytes(vec![1, 2, 255])).unwrap(), vec![1, 2, 255]);
         assert!(MqttOutNode::variant_to_bytes(&Variant::Bool(true)).is_err());
+    }
+
+    #[test]
+    fn v5_publish_properties_merge_node_and_message_values() {
+        let config: MqttOutNodeConfig = serde_json::from_value(serde_json::json!({
+            "broker": "001",
+            "respTopic": "reply/default",
+            "correl": "config-correlation",
+            "contentType": "application/json",
+            "expiry": 30,
+            "userProps": "{\"origin\":\"config\"}"
+        }))
+        .unwrap();
+        let mut msg = Msg::default();
+        msg.set("responseTopic".into(), Variant::String("reply/message".into()));
+        msg.set("correlationData".into(), Variant::Bytes(vec![1, 2, 255]));
+        msg.set("contentType".into(), Variant::String("text/plain".into()));
+        msg.set("messageExpiryInterval".into(), Variant::Number(serde_json::Number::from(90)));
+        msg.set("payloadFormatIndicator".into(), Variant::Bool(true));
+        msg.set(
+            "userProperties".into(),
+            Variant::Object([(String::from("origin"), Variant::String("message".into()))].into()),
+        );
+
+        let properties = MqttOutNode::v5_publish_properties(&msg, &config).unwrap();
+        assert_eq!(properties.response_topic.as_deref(), Some("reply/message"));
+        assert_eq!(properties.correlation_data.as_deref(), Some(&[1, 2, 255][..]));
+        assert_eq!(properties.content_type.as_deref(), Some("text/plain"));
+        assert_eq!(properties.message_expiry_interval, Some(90));
+        assert_eq!(properties.payload_format_indicator, Some(1));
+        assert_eq!(properties.user_properties, vec![("origin".into(), "message".into())]);
+    }
+
+    #[test]
+    fn qos_conversion_preserves_all_levels_for_v4_and_v5() {
+        use rumqttc::QoS as V4;
+        use rumqttc::v5::mqttbytes::QoS as V5;
+
+        assert_eq!(MqttClient::qos_v4(0), V4::AtMostOnce);
+        assert_eq!(MqttClient::qos_v4(1), V4::AtLeastOnce);
+        assert_eq!(MqttClient::qos_v4(2), V4::ExactlyOnce);
+        assert_eq!(MqttClient::qos_v5(0), V5::AtMostOnce);
+        assert_eq!(MqttClient::qos_v5(1), V5::AtLeastOnce);
+        assert_eq!(MqttClient::qos_v5(2), V5::ExactlyOnce);
     }
 }

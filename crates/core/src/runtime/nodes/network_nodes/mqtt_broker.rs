@@ -72,20 +72,56 @@ struct MqttBrokerConfig {
     connect_timeout: u64,
 
     /// Will topic (optional)
-    #[serde(default)]
+    #[serde(rename = "willTopic", default)]
     will_topic: Option<String>,
 
     /// Will payload (optional)
-    #[serde(default)]
+    #[serde(rename = "willPayload", default)]
     will_payload: Option<String>,
 
     /// Will QoS
-    #[serde(default)]
+    #[serde(rename = "willQos", default)]
     will_qos: Option<u8>,
 
     /// Will retain
-    #[serde(default)]
+    #[serde(rename = "willRetain", default)]
     will_retain: Option<bool>,
+
+    #[serde(rename = "willMsg", default)]
+    will_message: Option<MqttWillMessage>,
+
+    #[serde(rename = "birthTopic", default)]
+    birth_topic: Option<String>,
+    #[serde(rename = "birthPayload", default)]
+    birth_payload: Option<String>,
+    #[serde(rename = "birthQos", default)]
+    birth_qos: Option<u8>,
+    #[serde(rename = "birthRetain", default)]
+    birth_retain: Option<bool>,
+    #[serde(rename = "closeTopic", default)]
+    close_topic: Option<String>,
+    #[serde(rename = "closePayload", default)]
+    close_payload: Option<String>,
+    #[serde(rename = "closeQos", default)]
+    close_qos: Option<u8>,
+    #[serde(rename = "closeRetain", default)]
+    close_retain: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+struct MqttWillMessage {
+    #[serde(rename = "contentType", default)]
+    content_type: Option<String>,
+    #[serde(rename = "respTopic", default)]
+    response_topic: Option<String>,
+    #[serde(rename = "correl", default)]
+    correlation_data: Option<serde_json::Value>,
+    #[serde(rename = "expiry", default)]
+    message_expiry_interval: Option<u32>,
+    #[serde(rename = "payloadFormatIndicator", default)]
+    payload_format_indicator: Option<bool>,
+    #[serde(rename = "userProps", default)]
+    user_properties: Option<serde_json::Value>,
 }
 
 fn default_keepalive() -> u16 {
@@ -322,6 +358,24 @@ impl GlobalNodeBehavior for MqttBrokerNode {
     }
 
     fn mqtt_settings(&self) -> Option<MqttBrokerSettings> {
+        let will_message = self.config.will_message.clone().unwrap_or_default();
+        let correlation_data = will_message.correlation_data.and_then(|value| match value {
+            serde_json::Value::String(value) => Some(value.into_bytes()),
+            serde_json::Value::Array(values) => {
+                Some(values.into_iter().filter_map(|value| value.as_u64().map(|v| v as u8)).collect())
+            }
+            _ => None,
+        });
+        let user_properties = will_message
+            .user_properties
+            .and_then(|value| value.as_object().cloned())
+            .map(|values| {
+                values
+                    .into_iter()
+                    .filter_map(|(key, value)| value.as_str().map(|value| (key, value.to_owned())))
+                    .collect()
+            })
+            .unwrap_or_default();
         Some(MqttBrokerSettings {
             host: self.parse_host(),
             port: self.parse_port(),
@@ -337,6 +391,20 @@ impl GlobalNodeBehavior for MqttBrokerNode {
             will_payload: self.config.will_payload.clone(),
             will_qos: self.config.will_qos.unwrap_or(0),
             will_retain: self.config.will_retain.unwrap_or(false),
+            will_content_type: will_message.content_type,
+            will_response_topic: will_message.response_topic,
+            will_correlation_data: correlation_data,
+            will_message_expiry_interval: will_message.message_expiry_interval,
+            will_payload_format_indicator: will_message.payload_format_indicator.map(|value| value as u8),
+            will_user_properties: user_properties,
+            birth_topic: self.config.birth_topic.clone(),
+            birth_payload: self.config.birth_payload.clone(),
+            birth_qos: self.config.birth_qos.unwrap_or(0),
+            birth_retain: self.config.birth_retain.unwrap_or(false),
+            close_topic: self.config.close_topic.clone(),
+            close_payload: self.config.close_payload.clone(),
+            close_qos: self.config.close_qos.unwrap_or(0),
+            close_retain: self.config.close_retain.unwrap_or(false),
         })
     }
 

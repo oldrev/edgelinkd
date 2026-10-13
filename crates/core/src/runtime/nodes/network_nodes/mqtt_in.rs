@@ -9,14 +9,14 @@
 //! - Support static topic subscription from configuration
 //! - Support dynamic topic subscription via input messages
 //! - Handle various data types and output formats
-//! - Process MQTT v5 properties (future enhancement)
+//! - Process MQTT v5 publish properties and subscription options
 //!
 //! Configuration:
 //! - `broker`: Broker configuration node ID
 //! - `topic`: Topic to subscribe to (supports wildcards)
 //! - `qos`: Quality of Service level (0, 1, or 2)
 //! - `datatype`: Output format ("auto-detect", "buffer", "utf8", "base64", "json")
-//! - MQTT v5 properties support (future enhancement)
+//! - MQTT v5 publish and subscription properties
 //!
 //! Dynamic subscription (when inputs=1):
 //! - `msg.action`: "subscribe", "unsubscribe", "connect", "disconnect", "getSubscriptions"
@@ -51,11 +51,11 @@ use edgelink_macro::*;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
 enum MqttQoS {
     #[serde(rename = "0")]
-    #[default]
     AtMost = 0,
     #[serde(rename = "1")]
     AtLeast = 1,
     #[serde(rename = "2")]
+    #[default]
     Exactly = 2,
 }
 
@@ -123,6 +123,14 @@ struct DynamicSubscription {
     datatype: MqttDataType,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+struct MqttV5SubscriptionOptions {
+    no_local: bool,
+    retain_as_published: bool,
+    retain_handling: u8,
+    subscription_identifier: Option<u32>,
+}
+
 #[derive(Clone)]
 enum MqttInClient {
     V4(rumqttc::AsyncClient),
@@ -130,7 +138,12 @@ enum MqttInClient {
 }
 
 impl MqttInClient {
-    async fn subscribe(&self, topic: &str, qos: MqttQoS) -> Result<(), String> {
+    async fn subscribe(
+        &self,
+        topic: &str,
+        qos: MqttQoS,
+        v5_options: Option<MqttV5SubscriptionOptions>,
+    ) -> Result<(), String> {
         match self {
             Self::V4(client) => client
                 .subscribe(
@@ -143,17 +156,35 @@ impl MqttInClient {
                 )
                 .await
                 .map_err(|error| error.to_string()),
-            Self::V5(client) => client
-                .subscribe(
-                    topic,
-                    match qos {
-                        MqttQoS::AtMost => rumqttc::v5::mqttbytes::QoS::AtMostOnce,
-                        MqttQoS::AtLeast => rumqttc::v5::mqttbytes::QoS::AtLeastOnce,
-                        MqttQoS::Exactly => rumqttc::v5::mqttbytes::QoS::ExactlyOnce,
-                    },
-                )
-                .await
-                .map_err(|error| error.to_string()),
+            Self::V5(client) => {
+                let qos = match qos {
+                    MqttQoS::AtMost => rumqttc::v5::mqttbytes::QoS::AtMostOnce,
+                    MqttQoS::AtLeast => rumqttc::v5::mqttbytes::QoS::AtLeastOnce,
+                    MqttQoS::Exactly => rumqttc::v5::mqttbytes::QoS::ExactlyOnce,
+                };
+                if let Some(options) = v5_options {
+                    let mut filter = rumqttc::v5::mqttbytes::v5::Filter::new(topic, qos);
+                    filter.nolocal = options.no_local;
+                    filter.preserve_retain = options.retain_as_published;
+                    filter.retain_forward_rule = match options.retain_handling {
+                        1 => rumqttc::v5::mqttbytes::v5::RetainForwardRule::OnNewSubscribe,
+                        2 => rumqttc::v5::mqttbytes::v5::RetainForwardRule::Never,
+                        _ => rumqttc::v5::mqttbytes::v5::RetainForwardRule::OnEverySubscribe,
+                    };
+                    client
+                        .subscribe_many_with_properties(
+                            [filter],
+                            rumqttc::v5::mqttbytes::v5::SubscribeProperties {
+                                id: options.subscription_identifier.map(|id| id as usize),
+                                user_properties: Vec::new(),
+                            },
+                        )
+                        .await
+                        .map_err(|error| error.to_string())
+                } else {
+                    client.subscribe(topic, qos).await.map_err(|error| error.to_string())
+                }
+            }
         }
     }
 
@@ -258,6 +289,9 @@ impl MqttInNode {
             .and_then(|engine| self.config.broker.parse().ok().and_then(|id| engine.find_global_node_by_id(&id)))
             .and_then(|node| node.mqtt_settings())
             .ok_or_else(|| crate::EdgelinkError::invalid_operation("MQTT broker config not found"))?;
+        let birth = settings.birth_topic.clone().map(|topic| {
+            (topic, settings.birth_payload.clone().unwrap_or_default(), settings.birth_qos, settings.birth_retain)
+        });
         let client_id =
             settings.client_id.unwrap_or_else(|| format!("edgelink_in_{}", &uuid::Uuid::new_v4().to_string()[..8]));
         if settings.protocol_version == 5 {
@@ -267,10 +301,39 @@ impl MqttInNode {
             if let Some(username) = settings.username {
                 options.set_credentials(username, settings.password.unwrap_or_default());
             }
+            if let Some(will_topic) = settings.will_topic.clone() {
+                let properties = if settings.will_content_type.is_some()
+                    || settings.will_response_topic.is_some()
+                    || settings.will_correlation_data.is_some()
+                    || settings.will_message_expiry_interval.is_some()
+                    || settings.will_payload_format_indicator.is_some()
+                    || !settings.will_user_properties.is_empty()
+                {
+                    Some(rumqttc::v5::mqttbytes::v5::LastWillProperties {
+                        delay_interval: None,
+                        payload_format_indicator: settings.will_payload_format_indicator,
+                        message_expiry_interval: settings.will_message_expiry_interval,
+                        content_type: settings.will_content_type.clone(),
+                        response_topic: settings.will_response_topic.clone(),
+                        correlation_data: settings.will_correlation_data.clone().map(Into::into),
+                        user_properties: settings.will_user_properties.clone(),
+                    })
+                } else {
+                    None
+                };
+                options.set_last_will(rumqttc::v5::mqttbytes::v5::LastWill::new(
+                    will_topic,
+                    settings.will_payload.unwrap_or_default().into_bytes(),
+                    Self::qos_from_u8_v5(settings.will_qos),
+                    settings.will_retain,
+                    properties,
+                ));
+            }
             let (client, mut eventloop) = rumqttc::v5::AsyncClient::new(options, 100);
             let publish_tx = self.publish_tx.clone();
             let topic = self.config.topic.clone();
             let qos = self.mqtt_qos_to_v5(self.config.qos);
+            let birth_for_connect = birth.clone();
             let connected = timeout(Duration::from_secs(10), async {
                 loop {
                     match eventloop.poll().await {
@@ -284,7 +347,33 @@ impl MqttInNode {
                     }
                 }
                 if !self.is_dynamic && !topic.is_empty() {
-                    client.subscribe(&topic, qos).await.map_err(|error| error.to_string())?;
+                    let mut filter = rumqttc::v5::mqttbytes::v5::Filter::new(&topic, qos);
+                    filter.nolocal = self.config.nl.unwrap_or(false);
+                    filter.preserve_retain = self.config.rap.unwrap_or(false);
+                    filter.retain_forward_rule = match self.config.rh.unwrap_or(0) {
+                        1 => rumqttc::v5::mqttbytes::v5::RetainForwardRule::OnNewSubscribe,
+                        2 => rumqttc::v5::mqttbytes::v5::RetainForwardRule::Never,
+                        _ => rumqttc::v5::mqttbytes::v5::RetainForwardRule::OnEverySubscribe,
+                    };
+                    client
+                        .subscribe_many_with_properties(
+                            [filter],
+                            rumqttc::v5::mqttbytes::v5::SubscribeProperties {
+                                id: self.config.subscription_identifier.map(|id| id as usize),
+                                user_properties: Vec::new(),
+                            },
+                        )
+                        .await
+                        .map_err(|error| error.to_string())?;
+                }
+                if let Some((topic, payload, qos, retain)) = birth_for_connect.clone() {
+                    if !Self::is_valid_publish_topic(&topic) {
+                        return Err("Invalid MQTT birth topic".to_owned());
+                    }
+                    client
+                        .publish(topic, Self::qos_from_u8_v5(qos), retain, payload.into_bytes())
+                        .await
+                        .map_err(|error| error.to_string())?;
                 }
                 Ok::<(), String>(())
             })
@@ -398,6 +487,16 @@ impl MqttInNode {
                     }
                 }
 
+                if let Some((topic, payload, qos, retain)) = &birth {
+                    if !Self::is_valid_publish_topic(topic) {
+                        return Err(crate::EdgelinkError::invalid_operation("Invalid MQTT birth topic"));
+                    }
+                    client
+                        .publish(topic, Self::qos_from_u8(*qos), *retain, payload.as_bytes())
+                        .await
+                        .map_err(|error| crate::EdgelinkError::invalid_operation(&error.to_string()))?;
+                }
+
                 connection.client = Some(MqttInClient::V4(client.clone()));
                 connection.connected = true;
                 let publish_tx = self.publish_tx.clone();
@@ -455,6 +554,29 @@ impl MqttInNode {
         !topic.chars().any(|c| matches!(c, '\x08' | '\x0C' | '\n' | '\r' | '\t' | '\x0B' | '\0'))
     }
 
+    fn is_valid_publish_topic(topic: &str) -> bool {
+        !topic.is_empty()
+            && !topic.contains('+')
+            && !topic.contains('#')
+            && !topic.chars().any(|c| matches!(c, '\x08' | '\x0C' | '\n' | '\r' | '\t' | '\x0B' | '\0'))
+    }
+
+    fn qos_from_u8(qos: u8) -> rumqttc::QoS {
+        match qos {
+            1 => rumqttc::QoS::AtLeastOnce,
+            2 => rumqttc::QoS::ExactlyOnce,
+            _ => rumqttc::QoS::AtMostOnce,
+        }
+    }
+
+    fn qos_from_u8_v5(qos: u8) -> rumqttc::v5::mqttbytes::QoS {
+        match qos {
+            1 => rumqttc::v5::mqttbytes::QoS::AtLeastOnce,
+            2 => rumqttc::v5::mqttbytes::QoS::ExactlyOnce,
+            _ => rumqttc::v5::mqttbytes::QoS::AtMostOnce,
+        }
+    }
+
     /// Convert internal QoS enum to rumqttc QoS
     fn mqtt_qos_to_rumqttc(&self, qos: MqttQoS) -> rumqttc::QoS {
         match qos {
@@ -497,11 +619,38 @@ impl MqttInNode {
                 Ok(Self::json_value_to_variant(value))
             }
             MqttDataType::Auto | MqttDataType::AutoDetect => {
-                let media_type = content_type.unwrap_or_default().split(';').next().unwrap_or_default().trim();
-                let is_json = media_type.eq_ignore_ascii_case("application/json");
-                let is_text = media_type.starts_with("text/");
+                let media_type =
+                    content_type.unwrap_or_default().split(';').next().unwrap_or_default().trim().to_ascii_lowercase();
+                let known_type = match media_type.as_str() {
+                    "text/css" | "text/html" | "text/plain" | "application/xml" => Some("string"),
+                    "application/json" => Some("json"),
+                    "application/octet-stream"
+                    | "application/pdf"
+                    | "application/x-gtar"
+                    | "application/x-gzip"
+                    | "application/x-tar"
+                    | "application/zip"
+                    | "audio/aac"
+                    | "audio/ac3"
+                    | "audio/basic"
+                    | "audio/mp4"
+                    | "audio/ogg"
+                    | "image/bmp"
+                    | "image/gif"
+                    | "image/jpeg"
+                    | "image/tiff"
+                    | "image/png" => Some("buffer"),
+                    _ => None,
+                };
+                if known_type == Some("buffer") {
+                    return Ok(Variant::Bytes(payload.to_vec()));
+                }
+                let is_json = known_type == Some("json");
                 if let Ok(utf8_str) = std::str::from_utf8(payload) {
-                    let should_parse_json = is_json || (datatype == &MqttDataType::AutoDetect && !is_text);
+                    if known_type == Some("string") {
+                        return Ok(Variant::String(utf8_str.to_owned()));
+                    }
+                    let should_parse_json = is_json || (datatype == &MqttDataType::AutoDetect);
                     if should_parse_json {
                         let parsed = serde_json::from_str::<serde_json::Value>(utf8_str);
                         if is_json {
@@ -593,7 +742,19 @@ impl MqttInNode {
             };
 
             // Subscribe
-            if let Err(e) = client.subscribe(&topic, qos).await {
+            if let Err(e) = client
+                .subscribe(
+                    &topic,
+                    qos,
+                    Some(MqttV5SubscriptionOptions {
+                        no_local: false,
+                        retain_as_published: true,
+                        retain_handling: 0,
+                        subscription_identifier: None,
+                    }),
+                )
+                .await
+            {
                 log::error!("Failed to subscribe to '{topic}': {e}");
                 continue;
             }
@@ -773,15 +934,17 @@ impl FlowNodeBehavior for MqttInNode {
     }
 
     async fn run(self: Arc<Self>, stop_token: CancellationToken) {
-        // For dynamic subscriptions, handle input messages
-        if self.is_dynamic {
+        // Node-RED accepts MQTT control actions on mqtt-in nodes even when the configured
+        // subscription is static (for example, an explicit connect action).
+        {
             let node = self.clone();
             let input_stop_token = stop_token.clone();
             tokio::spawn(async move {
                 while !input_stop_token.is_cancelled() {
                     let node = node.clone();
+                    let unit_stop_token = input_stop_token.clone();
 
-                    with_uow(node.as_ref(), input_stop_token.clone(), |node, msg| async move {
+                    with_uow(node.as_ref(), unit_stop_token.clone(), |node, msg| async move {
                         let msg_guard = msg.read().await;
 
                         match node.handle_input_message(&msg_guard).await {
@@ -796,7 +959,8 @@ impl FlowNodeBehavior for MqttInNode {
                                 // No response message
                             }
                             Err(e) => {
-                                log::warn!("MQTT In action error: {e}");
+                                drop(msg_guard);
+                                node.report_error(e.to_string(), msg, unit_stop_token.clone()).await;
                             }
                         }
 
@@ -942,6 +1106,37 @@ mod tests {
         assert_eq!(
             MqttInNode::convert_payload(br#"{"value":1}"#, &MqttDataType::AutoDetect, Some("text/plain")).unwrap(),
             Variant::String(r#"{"value":1}"#.into())
+        );
+        assert!(MqttInNode::convert_payload(b"{bad json", &MqttDataType::Auto, Some("application/json")).is_err());
+        assert_eq!(
+            MqttInNode::convert_payload(b"zip bytes", &MqttDataType::Auto, Some("application/zip")).unwrap(),
+            Variant::Bytes(b"zip bytes".to_vec())
+        );
+    }
+
+    #[test]
+    fn v5_content_types_control_auto_payload_conversion() {
+        let json = br#"{"value":1}"#;
+        assert_eq!(
+            MqttInNode::convert_payload(json, &MqttDataType::Auto, Some("text/plain")).unwrap(),
+            Variant::String(r#"{"value":1}"#.into())
+        );
+        assert_eq!(
+            MqttInNode::convert_payload(json, &MqttDataType::AutoDetect, Some("text/plain; charset=utf-8")).unwrap(),
+            Variant::String(r#"{"value":1}"#.into())
+        );
+        assert!(matches!(
+            MqttInNode::convert_payload(json, &MqttDataType::AutoDetect, Some("application/json")).unwrap(),
+            Variant::Object(_)
+        ));
+        assert!(matches!(
+            MqttInNode::convert_payload(json, &MqttDataType::AutoDetect, Some("application/json; charset=utf-8"))
+                .unwrap(),
+            Variant::Object(_)
+        ));
+        assert_eq!(
+            MqttInNode::convert_payload(b"binary", &MqttDataType::Auto, Some("application/zip")).unwrap(),
+            Variant::Bytes(b"binary".to_vec())
         );
         assert!(MqttInNode::convert_payload(b"{bad json", &MqttDataType::Auto, Some("application/json")).is_err());
     }
