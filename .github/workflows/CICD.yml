@@ -385,7 +385,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-modules-
       - name: Install QEMU user emulators
-        run: sudo apt-get update && sudo apt-get install -y qemu-user-static
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-user-static
 
       - name: Setup cross-compilation tools for ARM 64
         if: matrix.target == 'aarch64-unknown-linux-gnu'
@@ -393,9 +395,7 @@ jobs:
           echo "EDGELINK_TOOLCHAIN_TRIPLE=aarch64-linux-gnu" >> $GITHUB_ENV
           echo "EDGELINK_QEMU_CMD=qemu-aarch64-static" >> $GITHUB_ENV
           echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
-      #     sudo apt-get update
-      #     sudo apt-get install -y gcc-aarch64-linux-gnu libc-dev-arm64-cross libssl-dev:arm64
-      #     echo "OPENSSL_DIR=/usr/lib/aarch64-linux-gnu" >> $GITHUB_ENV
+          sudo apt-get install -y libc6-arm64-cross
 
       - name: Setup cross-compilation tools for ARM 32 (gnueabihf)
         if: matrix.target == 'armv7-unknown-linux-gnueabihf'
@@ -403,9 +403,7 @@ jobs:
           echo "EDGELINK_TOOLCHAIN_TRIPLE=arm-linux-gnueabihf" >> $GITHUB_ENV
           echo "EDGELINK_QEMU_CMD=qemu-arm-static" >> $GITHUB_ENV
           echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
-      #     sudo apt-get update
-      #     sudo apt-get install -y gcc-arm-linux-gnueabihf libc-dev-armhf-cross libssl-dev:armhf
-      #     echo "OPENSSL_DIR=/usr/lib/arm-linux-gnueabihf" >> $GITHUB_ENV
+          sudo apt-get install -y libc6-armhf-cross
 
       - name: Setup cross-compilation tools for ARM 32 (gnueabi)
         if: matrix.target == 'armv7-unknown-linux-gnueabi'
@@ -413,9 +411,7 @@ jobs:
           echo "EDGELINK_TOOLCHAIN_TRIPLE=arm-linux-gnueabi" >> $GITHUB_ENV
           echo "EDGELINK_QEMU_CMD=qemu-arm-static" >> $GITHUB_ENV
           echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
-      #     sudo apt-get update
-      #     sudo apt-get install -y gcc-arm-linux-gnueabi libc-dev-armel-cross libssl-dev:armel
-      #     echo "OPENSSL_DIR=/usr/lib/arm-linux-gnueabi" >> $GITHUB_ENV
+          sudo apt-get install -y libc6-armel-cross
 
       - name: Install cross
         run: cargo install cross --git https://github.com/cross-rs/cross
@@ -427,7 +423,7 @@ jobs:
         run: cross test --workspace --profile ci --target ${{ matrix.target }} --features full --exclude edgelink-pymod --no-run --message-format=json | tee ./target/${{ matrix.target }}/ci/cargo-build-test.json
 
       - name: Run unit tests in QEMU ARM
-        run: python3 ./scripts/cross-unittest.py ${{ env.EDGELINK_QEMU_CMD }}  ${{ env.EDGELINK_TOOLCHAIN_TRIPLE }} ./target/${{ matrix.target }}/ci/cargo-build-test.json
+        run: python3 ./scripts/cross-unittest.py ${{ env.EDGELINK_QEMU_CMD }} ${{ env.EDGELINK_TOOLCHAIN_TRIPLE }} ./target/${{ matrix.target }}/ci/cargo-build-test.json --target-triple ${{ matrix.target }}
         env:
           EDGELINK_TOOLCHAIN_TRIPLE: ${{ env.EDGELINK_TOOLCHAIN_TRIPLE }}
           EDGELINK_QEMU_CMD: ${{ env.EDGELINK_QEMU_CMD }}
