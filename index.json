@@ -4,8 +4,8 @@
     {
       "name": "master",
       "ref": "master",
-      "commit": "7ae757c284758853969761d6ab1e133fac1558e1",
-      "generated_at": "2026-10-13T09:54:15.515449Z",
+      "commit": "1dd143c694d5339504b035d233c0171465b716c7",
+      "generated_at": "2026-10-13T10:09:49.685566Z",
       "url": "reports/master.json",
       "totals": {
         "covered": 1258,
