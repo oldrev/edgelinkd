@@ -2,6 +2,22 @@
   "schema_version": 1,
   "reports": [
     {
+      "name": "master",
+      "ref": "master",
+      "commit": "7ae757c284758853969761d6ab1e133fac1558e1",
+      "generated_at": "2026-10-13T09:54:15.515449Z",
+      "url": "reports/master.json",
+      "totals": {
+        "covered": 1258,
+        "missing": 82,
+        "extra": 0,
+        "skipped": 173,
+        "js": 1513,
+        "python": 1431,
+        "coverage": 0.8314606741573034
+      }
+    },
+    {
       "name": "v4.1.16-beta",
       "ref": "v4.1.16-beta",
       "commit": "7ae757c284758853969761d6ab1e133fac1558e1",
@@ -15,22 +31,6 @@
         "js": 1513,
         "python": 1431,
         "coverage": 0.8314606741573034
-      }
-    },
-    {
-      "name": "master",
-      "ref": "master",
-      "commit": "dc13c353547ae6cbd3682fcfe33cf589b408879b",
-      "generated_at": "2026-10-13T02:18:14.122905Z",
-      "url": "reports/master.json",
-      "totals": {
-        "covered": 1243,
-        "missing": 82,
-        "extra": 0,
-        "skipped": 188,
-        "js": 1513,
-        "python": 1431,
-        "coverage": 0.8215465961665566
       }
     }
   ]
