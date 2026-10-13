@@ -4,9 +4,16 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
+    println!("cargo:rerun-if-env-changed=EDGELINK_VERSION");
+    println!("cargo:rerun-if-env-changed=GITHUB_RUN_NUMBER");
+    println!("cargo:rerun-if-env-changed=GITHUB_RUN_ATTEMPT");
     let build_time = chrono::Utc::now().to_rfc3339();
     println!("cargo:rustc-env=EDGELINK_BUILD_TIME={build_time}");
-    let build_number = env::var("GITHUB_RUN_NUMBER").unwrap_or_else(|_| "local".to_string());
+    let mut build_number = env::var("GITHUB_RUN_NUMBER").unwrap_or_else(|_| "local".to_string());
+    if let Ok(attempt) = env::var("GITHUB_RUN_ATTEMPT") {
+        build_number.push('.');
+        build_number.push_str(&attempt);
+    }
     println!("cargo:rustc-env=EDGELINK_BUILD_NUMBER={build_number}");
     let version = match env::var("EDGELINK_VERSION") {
         Ok(value) if value.starts_with('v') => format!("{}+{}", value.trim_start_matches('v'), build_number),
@@ -149,6 +156,10 @@ fn build_static_files() {
 
         println!("cargo:warning=Static files build complete!");
     }
+
+    for resource in ["index.html", "red/red.min.js", "red/main.min.js", "red/style.min.css", "vendor/vendor.js"] {
+        assert!(static_dir.join(resource).is_file(), "Missing editor resource: {resource}; build Node-RED first");
+    }
 }
 
 /// Incrementally copy directory contents, only copying files that are newer or don't exist
@@ -206,8 +217,7 @@ fn build_node_red(node_red_root: &Path) {
     let npm_check = Command::new(npm_cmd).arg("--version").output();
 
     if npm_check.is_err() {
-        println!("cargo:warning=npm not found, skipping Node-RED build");
-        return;
+        panic!("npm not found; install Node.js or build Node-RED on the host before cross compilation");
     }
 
     // Install dependencies

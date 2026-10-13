@@ -4,7 +4,7 @@
     <div class="hero-grid">
       <div class="hero-copy">
         {{- with $d.badge }}
-        <a class="hero-badge" href="{{ .href }}" target="_blank" rel="noopener">
+        <a class="hero-badge" href="{{ partial "func/href.html" .href }}" target="_blank" rel="noopener">
           <span class="hero-badge-tag">{{ .tag }}</span>
           <span class="hero-badge-text">{{ .text }}{{ with site.Data.release.version }} · {{ . }}{{ end }}</span>
           {{ partial "icon.html" "arrow-right" }}

@@ -92,7 +92,6 @@ def main():
 
     # 1. Get packaging time and branch
     dt_str = get_latest_commit_datetime()
-    build_number = os.environ.get("GITHUB_RUN_NUMBER", "local")
     is_nightly = args.branch == "dev"
     is_beta = args.branch == "tag"
     # Determine archive format by target
@@ -101,9 +100,11 @@ def main():
     if is_nightly:
         base_name = f"edgelinkd-dist-{args.target}-nightly-{dt_str}"
     elif is_beta:
-        version = args.version or "v4.0.19-beta"
-        version = version.removeprefix("v") + "+" + build_number
-        base_name = f"edgelinkd-dist-{args.target}-{version}-{dt_str}"
+        with (ROOT / "Cargo.toml").open(encoding="utf-8") as manifest:
+            version = tomlkit.load(manifest)["workspace"]["package"]["version"]
+        if args.version and args.version.removeprefix("v") != version:
+            parser.error(f"Release version must match Cargo.toml: {version}")
+        base_name = f"edgelinkd-dist-{args.target}-{version}"
     else:
         base_name = f"edgelinkd-dist-{args.target}-{dt_str}"
     if is_windows:
@@ -129,8 +130,10 @@ def main():
             bin_dir.mkdir()
             # Executable and DLLs
             target_dir = ROOT / "target" / args.target / args.mode
-            for f in target_dir.glob("edgelinkd.exe"):
-                shutil.copy(f, bin_dir / f.name)
+            executable = target_dir / ("edgelinkd.exe" if is_windows else "edgelinkd")
+            if not executable.is_file():
+                raise FileNotFoundError(f"Missing executable: {executable}")
+            shutil.copy(executable, bin_dir / executable.name)
             for dll in target_dir.glob("*.dll"):
                 if any(dll.name.startswith(prefix) for prefix in EXCLUDE_PREFIXES):
                     continue
@@ -138,6 +141,9 @@ def main():
 
             # 5. bin/ui_static
             ui_static_src = ROOT / "target" / "ui_static"
+            for resource in ("index.html", "red/red.min.js", "red/main.min.js", "red/style.min.css", "vendor/vendor.js"):
+                if not (ui_static_src / resource).is_file():
+                    raise FileNotFoundError(f"Missing editor resource: {ui_static_src / resource}")
             if ui_static_src.exists():
                 print(f"Copying ui_static from {ui_static_src} to {bin_dir / 'ui_static'}", file=sys.stderr)
                 copytree(ui_static_src, bin_dir / "ui_static")

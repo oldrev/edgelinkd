@@ -70,6 +70,12 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
+      - name: Validate release tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python3 scripts/check-release-version.py "$RELEASE_TAG"
+
       - name: Cargo metadata (fail fast on dependency errors)
         run: cargo metadata --locked --format-version=1
       - name: Check code formatting
@@ -373,7 +379,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '22'
           cache: 'npm'
           cache-dependency-path: 3rd-party/node-red/package-lock.json
 
@@ -415,6 +421,12 @@ jobs:
 
       - name: Install cross
         run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build Node-RED editor on host
+        working-directory: 3rd-party/node-red
+        run: |
+          npm install
+          npm run build
 
       - name: Cross build
         run: cross build --workspace --profile ci --target ${{ matrix.target }} --features full --exclude edgelink-pymod
@@ -517,6 +529,8 @@ jobs:
             Built on: ${{ steps.date.outputs.date }}
           files: build-out/edgelinkd-dist-x86_64-pc-windows-msvc-nightly-*.zip
           prerelease: true
+          overwrite_files: true
+          fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -536,6 +550,17 @@ jobs:
         with:
           target: x86_64-pc-windows-msvc
           override: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build Node-RED editor on host
+        working-directory: 3rd-party/node-red
+        run: |
+          npm install
+          npm run build
 
       - name: Build release binary
         run: cargo build --release --workspace --target x86_64-pc-windows-msvc
@@ -560,10 +585,12 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: EdgeLinkd ${{ github.ref_name }}
           body: |
-            EdgeLinkd beta release based on Node-RED 4.0.9.
+            EdgeLinkd beta release ${{ github.ref_name }}.
             Built from tag ${{ github.ref_name }} at ${{ github.sha }}.
           files: build-out/edgelinkd-dist-x86_64-pc-windows-msvc-*.zip
           prerelease: true
+          overwrite_files: true
+          fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -592,6 +619,17 @@ jobs:
           target: ${{ matrix.target }}
           override: true
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build Node-RED editor on host
+        working-directory: 3rd-party/node-red
+        run: |
+          npm install
+          npm run build
+
       - name: Install cross
         if: matrix.target != 'x86_64-unknown-linux-gnu'
         run: cargo install cross --git https://github.com/cross-rs/cross --locked
@@ -608,25 +646,11 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Read Cargo package version
-        id: cargo-version
-        if: matrix.target != 'x86_64-unknown-linux-gnu'
-        shell: python
-        run: |
-          import os
-          import tomllib
-
-          with open("Cargo.toml", "rb") as manifest:
-              version = tomllib.load(manifest)["workspace"]["package"]["version"]
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-              print(f"version={version}", file=output)
-
       - name: Build ARM Linux release
         if: matrix.target != 'x86_64-unknown-linux-gnu'
         run: cross build --release --workspace --target ${{ matrix.target }} --features full --exclude edgelink-pymod
         env:
           GITHUB_RUN_NUMBER: ${{ github.run_number }}
-          EDGELINK_VERSION: ${{ steps.cargo-version.outputs.version }}+${{ github.run_number }}
 
       - name: Install packaging dependencies
         run: pip install tomlkit
@@ -642,9 +666,11 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: EdgeLinkd ${{ github.ref_name }}
           body: |
-            EdgeLinkd beta release based on Node-RED 4.0.9.
+            EdgeLinkd beta release ${{ github.ref_name }}.
             Built from tag ${{ github.ref_name }} at ${{ github.sha }}.
           files: build-out/edgelinkd-dist-${{ matrix.target }}-*.tar.gz
           prerelease: true
+          overwrite_files: true
+          fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

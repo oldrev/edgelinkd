@@ -6,10 +6,15 @@ on:
     paths:
       - 'website/**'
       - '.github/workflows/website.yml'
+      - 'scripts/fetch-latest-release.py'
   pull_request:
     paths:
       - 'website/**'
       - '.github/workflows/website.yml'
+      - 'scripts/fetch-latest-release.py'
+  workflow_run:
+    workflows: [CICD]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -18,6 +23,7 @@ permissions:
 jobs:
   build:
     name: Build website
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -41,7 +47,7 @@ jobs:
 
   deploy:
     name: Deploy website
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     needs: build
     runs-on: ubuntu-latest
     permissions:

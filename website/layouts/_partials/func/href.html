@@ -7,7 +7,9 @@
 */ -}}
 {{- $h := . -}}
 {{- $out := $h -}}
-{{- if hasPrefix $h "#" -}}
+{{- if eq $h (printf "%s/releases/latest" site.Params.repo) -}}
+  {{- $out = site.Data.release.url | default (printf "%s/releases" site.Params.repo) -}}
+{{- else if hasPrefix $h "#" -}}
   {{- $out = printf "%s%s" site.Home.RelPermalink $h -}}
 {{- else if or (hasPrefix $h "http://") (hasPrefix $h "https://") (hasPrefix $h "mailto:") -}}
   {{- $out = $h -}}
