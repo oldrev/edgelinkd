@@ -2,6 +2,22 @@
   "schema_version": 1,
   "reports": [
     {
+      "name": "v4.1.16",
+      "ref": "v4.1.16",
+      "commit": "deab289c78b7cf9e9ef8c4e42f85ab4155482d65",
+      "generated_at": "2026-10-18T07:54:53.465323Z",
+      "url": "reports/v4.1.16.json",
+      "totals": {
+        "covered": 1258,
+        "missing": 82,
+        "extra": 0,
+        "skipped": 173,
+        "js": 1513,
+        "python": 1431,
+        "coverage": 0.8314606741573034
+      }
+    },
+    {
       "name": "master",
       "ref": "master",
       "commit": "deab289c78b7cf9e9ef8c4e42f85ab4155482d65",
