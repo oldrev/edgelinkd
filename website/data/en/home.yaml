@@ -35,8 +35,8 @@ hero:
   stats:
     - value: "≈10%"
       label: "of Node-RED's memory footprint"
-    - value: "1"
-      label: "self-contained binary, editor included"
+    - value: "54"
+      label: "supported node types"
     - value: "6"
       label: "supported target triples"
     - value: "v4.1.16"
