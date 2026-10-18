@@ -235,14 +235,21 @@ Please refer to [ISSUES.md](docs/ISSUES.md) for a list of known issues and worka
 
 We welcome your feedback! If you encounter any issues or have suggestions, please open an [issue](https://github.com/edge-link/edgelinkd/issues).
 
-* Contact me: E-mail: oldrev(at)gmail.com
-* Discord: [https://discord.gg/XJstgANe26](https://discord.gg/XJstgANe26)
+- Website: https://oldrev.github.io/edgelinkd
+- Contact me: E-mail: oldrev@gmail.com
+- Discord: [https://discord.gg/XJstgANe26](https://discord.gg/XJstgANe26)
 
 ## License
 
 This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENSE) file for more details.
 
 Copyright © Li Wei and other contributors. All rights reserved.
+
+This project is a Rust reimplementation of Node-RED
+(https://nodered.org/), which is developed by the OpenJS Foundation
+and licensed under the Apache License, Version 2.0.
+
+This project includes software developed at The OpenJS Foundation (https://openjsf.org/).
 
 ## AI-assisted development disclosure
 

@@ -182,7 +182,8 @@ py.test
 
 ### 联系作者
 
-- 邮箱：oldrev(at)gmail.com
+- 官方网站：https://oldrev.github.io/edgelinkd
+- 邮箱：oldrev@gmail.com
 - QQ：55431671
 
 > 超巨型广告：没事儿时可以承接网站前端开发/管理系统开发/PCB 画板打样/单片机开发/压水晶头/中老年陪聊/工地打灰等软硬件项目。
@@ -191,7 +192,13 @@ py.test
 
 此项目基于 Apache 2.0 许可证 - 详见 [LICENSE](LICENSE) 文件以获取更多详细信息。
 
-版权所啊 © 李维及其他贡献者，保留所有权利。
+版权所有 © 李维及其他贡献者，保留所有权利。
+
+本项目是 Node-RED（https://nodered.org/）的 Rust 重实现。
+Node-RED 由 OpenJS 基金会开发，依据 Apache License 2.0 授权。
+
+此项目包含 OpenJS 基金会 (https://openjsf.org/) 开发的软件。
+
 
 ## LLM/AI 辅助开发声明
 
