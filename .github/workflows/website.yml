@@ -35,7 +35,7 @@ jobs:
           hugo-version: '0.158.0'
           extended: false
 
-      - name: Fetch latest beta release
+      - name: Fetch latest release
         run: python ../scripts/fetch-latest-release.py
         working-directory: website
         env:
@@ -67,7 +67,7 @@ jobs:
           hugo-version: '0.158.0'
           extended: false
 
-      - name: Fetch latest beta release
+      - name: Fetch latest release
         run: python ../scripts/fetch-latest-release.py
         working-directory: website
         env:

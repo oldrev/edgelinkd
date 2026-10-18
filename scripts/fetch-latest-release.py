@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch the latest beta release for the Hugo build."""
+"""Fetch the latest stable release, falling back to the latest beta release."""
 
 import json
 import os
@@ -17,30 +17,43 @@ TARGETS = (
 
 
 def release_key(release):
-    if release.get("draft") or not release.get("prerelease"):
+    if release.get("draft"):
         return None
-    match = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)-beta(?:\.([1-9]\d*))?", release.get("tag_name", ""))
+    match = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)(?:-beta(?:\.([1-9]\d*))?)?", release.get("tag_name", ""))
     if not match:
+        return None
+    is_beta = "-beta" in release["tag_name"]
+    if release.get("prerelease") != is_beta:
         return None
     names = [asset["name"] for asset in release.get("assets", [])]
     if not all(any(name.startswith(f"edgelinkd-dist-{target}-") and name.endswith(
         ".zip" if "windows" in target else ".tar.gz"
     ) for name in names) for target in TARGETS):
         return None
-    return tuple(int(part or 0) for part in match.groups())
+    major, minor, patch, beta_sequence = (int(part or 0) for part in match.groups())
+    return int(not is_beta), major, minor, patch, beta_sequence
 
-request = urllib.request.Request(API, headers={"Accept": "application/vnd.github+json", "User-Agent": "edgelinkd-website"})
-token = os.environ.get("GITHUB_TOKEN")
-if token:
-    request.add_header("Authorization", f"Bearer {token}")
-
-try:
-    with urllib.request.urlopen(request, timeout=15) as response:
-        releases = json.load(response)
+def select_latest_release(releases):
     candidates = [(release_key(release), release) for release in releases]
-    beta = max((item for item in candidates if item[0] is not None), key=lambda item: item[0], default=(None, None))[1]
-    if beta:
-        OUTPUT.write_text(json.dumps({"version": beta["tag_name"].removeprefix("v"), "url": beta["html_url"]}) + "\n", encoding="utf-8")
-        print(f"Latest beta release: {beta['tag_name']}")
-except Exception as error:
-    print(f"GitHub release lookup failed; keeping existing release data if available: {error}")
+    return max((item for item in candidates if item[0] is not None), key=lambda item: item[0], default=(None, None))[1]
+
+
+def main():
+    request = urllib.request.Request(API, headers={"Accept": "application/vnd.github+json", "User-Agent": "edgelinkd-website"})
+    token = os.environ.get("GITHUB_TOKEN")
+    if token:
+        request.add_header("Authorization", f"Bearer {token}")
+
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            releases = json.load(response)
+        latest = select_latest_release(releases)
+        if latest:
+            OUTPUT.write_text(json.dumps({"version": latest["tag_name"].removeprefix("v"), "url": latest["html_url"]}) + "\n", encoding="utf-8")
+            print(f"Latest release: {latest['tag_name']}")
+    except Exception as error:
+        print(f"GitHub release lookup failed; keeping existing release data if available: {error}")
+
+
+if __name__ == "__main__":
+    main()
