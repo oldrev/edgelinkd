@@ -55,6 +55,7 @@ fn create_editor_routes() -> Router {
         .route("/locales/available", get(get_available_locales))
         .route("/locales/{namespace}", get(get_namespace_locale))
         .route("/settings/user", get(get_user_settings).post(update_user_settings))
+        .route("/red/about", get(get_about))
         .route("/comms", get(websocket_handler))
         // Debug node specific routes (Node-RED compatible)
         .route("/debug/view/view.html", get(serve_debug_view_html))

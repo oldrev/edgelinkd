@@ -1,3 +1,4 @@
+pub mod about;
 pub mod comms;
 pub mod context;
 pub mod flows;
@@ -8,6 +9,7 @@ pub mod settings;
 pub mod static_resources;
 pub mod web_state;
 
+pub use about::*;
 pub use comms::*;
 pub use context::*;
 pub use flows::*;
