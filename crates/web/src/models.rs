@@ -202,7 +202,10 @@ pub struct EditorTheme {
     #[serde(rename = "userMenu")]
     pub user_menu: bool,
     pub login: ThemeLogin,
-    pub languages: HashMap<String, String>,
+    /// Locale codes of the editor translations we ship (must match the dirs under
+    /// `ui_static/locales/`). The Node-RED editor calls `.map()` on this value, so it
+    /// must be an array, exactly like upstream's `i18n.availableLanguages("editor")`.
+    pub languages: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -297,10 +300,10 @@ impl Default for RedSystemSettings {
 
 impl Default for EditorTheme {
     fn default() -> Self {
-        let mut languages = HashMap::new();
-        languages.insert("en-US".to_string(), "English".to_string());
-        languages.insert("zh-CN".to_string(), "简体中文".to_string());
-        languages.insert("ja".to_string(), "日本語".to_string());
+        let languages = ["de", "en-US", "es-ES", "fr", "ja", "ko", "pt-BR", "ru", "zh-CN", "zh-TW"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>();
 
         Self {
             page: ThemePage { title: "EdgeLinkd".to_string(), favicon: None, css: None, scripts: None },
