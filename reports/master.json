@@ -1,19 +1,19 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-11-02T09:02:55.518951Z",
+  "generated_at": "2026-11-05T09:11:47.355580Z",
   "ref": "master",
-  "commit": "19cc6f9f6a77c63c814ee8a21e31625013ce47c2",
+  "commit": "90d42290c6a1d7e77503a1d43d14653947d322ef",
   "node_red": {
     "version": "4.1.16"
   },
   "totals": {
-    "covered": 1258,
+    "covered": 1278,
     "missing": 82,
     "extra": 0,
     "skipped": 173,
-    "js": 1513,
-    "python": 1431,
-    "coverage": 0.8314606741573034
+    "js": 1533,
+    "python": 1451,
+    "coverage": 0.8336594911937377
   },
   "categories": [
     {
@@ -3238,6 +3238,99 @@
     {
       "category": "network nodes",
       "nodes": [
+        {
+          "node": "tcp in",
+          "python_spec_file": "nodes/network/test_tcpin_node.py",
+          "node_red_spec_file": "test/nodes/core/network/31-tcpin_spec.js",
+          "totals": {
+            "covered": 20,
+            "missing": 0,
+            "extra": 0,
+            "skipped": 0
+          },
+          "specs": [
+            {
+              "status": "covered",
+              "title": "TCP in Node should connect & recv data (Single/Buffer)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should connect & recv data (Single/String)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should connect & recv data (Stream/Base64)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should connect & recv data (Stream/Base64)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should connect & recv data (Stream/Buffer)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should connect & recv data (Stream/String/Delimiter:\\n)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should connect & recv data (Stream/String/No delimiter)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should recv data (Single/Buffer)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should recv data (Single/String)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should recv data (Stream/Base64)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should recv data (Stream/Base64)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should recv data (Stream/Buffer)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should recv data (Stream/String/Delimiter:\\n)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should recv data (Stream/String/Delimiter:o\\n)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should recv data (Stream/String/Delimiter:o\\n) and reattach o"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should recv data (Stream/String/No delimiter)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should recv multiple data (Stream/Base64)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should recv multiple data (Stream/Buffer)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should recv multiple data (Stream/String/Delimiter:\\n)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should recv multiple data (Stream/String/No delimiter)"
+            }
+          ]
+        },
         {
           "node": "tcp request",
           "python_spec_file": "nodes/network/test_tcprequest_node.py",
