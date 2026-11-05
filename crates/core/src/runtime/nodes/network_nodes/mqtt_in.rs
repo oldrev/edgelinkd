@@ -42,7 +42,6 @@ use std::time::Duration;
 
 use serde::Deserialize;
 use tokio::sync::{Mutex, RwLock, mpsc};
-use tokio::time::timeout;
 
 use crate::runtime::flow::Flow;
 use crate::runtime::nodes::*;
@@ -123,18 +122,12 @@ struct DynamicSubscription {
     datatype: MqttDataType,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
-struct MqttV5SubscriptionOptions {
-    no_local: bool,
-    retain_as_published: bool,
-    retain_handling: u8,
-    subscription_identifier: Option<u32>,
-}
+type MqttV5SubscriptionOptions = MqttSubscriptionOptions;
 
 #[derive(Clone)]
-enum MqttInClient {
-    V4(rumqttc::AsyncClient),
-    V5(rumqttc::v5::AsyncClient),
+struct MqttInClient {
+    broker: Arc<dyn GlobalNodeBehavior>,
+    user_id: ElementId,
 }
 
 impl MqttInClient {
@@ -144,89 +137,27 @@ impl MqttInClient {
         qos: MqttQoS,
         v5_options: Option<MqttV5SubscriptionOptions>,
     ) -> Result<(), String> {
-        match self {
-            Self::V4(client) => client
-                .subscribe(
-                    topic,
-                    match qos {
-                        MqttQoS::AtMost => rumqttc::QoS::AtMostOnce,
-                        MqttQoS::AtLeast => rumqttc::QoS::AtLeastOnce,
-                        MqttQoS::Exactly => rumqttc::QoS::ExactlyOnce,
-                    },
-                )
-                .await
-                .map_err(|error| error.to_string()),
-            Self::V5(client) => {
-                let qos = match qos {
-                    MqttQoS::AtMost => rumqttc::v5::mqttbytes::QoS::AtMostOnce,
-                    MqttQoS::AtLeast => rumqttc::v5::mqttbytes::QoS::AtLeastOnce,
-                    MqttQoS::Exactly => rumqttc::v5::mqttbytes::QoS::ExactlyOnce,
-                };
-                if let Some(options) = v5_options {
-                    let mut filter = rumqttc::v5::mqttbytes::v5::Filter::new(topic, qos);
-                    filter.nolocal = options.no_local;
-                    filter.preserve_retain = options.retain_as_published;
-                    filter.retain_forward_rule = match options.retain_handling {
-                        1 => rumqttc::v5::mqttbytes::v5::RetainForwardRule::OnNewSubscribe,
-                        2 => rumqttc::v5::mqttbytes::v5::RetainForwardRule::Never,
-                        _ => rumqttc::v5::mqttbytes::v5::RetainForwardRule::OnEverySubscribe,
-                    };
-                    client
-                        .subscribe_many_with_properties(
-                            [filter],
-                            rumqttc::v5::mqttbytes::v5::SubscribeProperties {
-                                id: options.subscription_identifier.map(|id| id as usize),
-                                user_properties: Vec::new(),
-                            },
-                        )
-                        .await
-                        .map_err(|error| error.to_string())
-                } else {
-                    client.subscribe(topic, qos).await.map_err(|error| error.to_string())
-                }
-            }
-        }
+        self.broker
+            .mqtt_subscribe_user(self.user_id, topic, qos as u8, v5_options.unwrap_or_default())
+            .await
+            .map_err(|error| error.to_string())
     }
 
     async fn unsubscribe(&self, topic: &str) -> Result<(), String> {
-        match self {
-            Self::V4(client) => client.unsubscribe(topic).await.map_err(|error| error.to_string()),
-            Self::V5(client) => client.unsubscribe(topic).await.map_err(|error| error.to_string()),
-        }
+        self.broker.mqtt_unsubscribe_user(self.user_id, topic).await.map_err(|error| error.to_string())
     }
 
     async fn disconnect(&self) -> Result<(), String> {
-        match self {
-            Self::V4(client) => client.disconnect().await.map_err(|error| error.to_string()),
-            Self::V5(client) => client.disconnect().await.map_err(|error| error.to_string()),
-        }
+        self.broker.mqtt_disconnect().await.map_err(|error| error.to_string())
     }
 }
 
-#[derive(Debug)]
-struct InboundPublish {
-    topic: String,
-    payload: Vec<u8>,
-    qos: u8,
-    retain: bool,
-    v5_properties: Option<MqttV5PublishProperties>,
-}
-
-#[derive(Debug, Clone, Default)]
-struct MqttV5PublishProperties {
-    payload_format_indicator: Option<u8>,
-    message_expiry_interval: Option<u32>,
-    response_topic: Option<String>,
-    correlation_data: Option<Vec<u8>>,
-    user_properties: Vec<(String, String)>,
-    content_type: Option<String>,
-}
+type InboundPublish = MqttBrokerMessage;
 
 #[derive(Default)]
 struct MqttConnection {
     client: Option<MqttInClient>,
     connected: bool,
-    event_task: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl std::fmt::Debug for MqttConnection {
@@ -277,270 +208,36 @@ impl MqttInNode {
 
     async fn ensure_connection(&self) -> crate::Result<MqttInClient> {
         let mut connection = self.connection.lock().await;
-
-        if connection.connected && connection.client.is_some() {
-            return Ok(connection.client.clone().unwrap());
+        if let Some(client) = &connection.client
+            && connection.connected
+        {
+            return Ok(client.clone());
         }
-
-        // Create connection options
-        // TODO: In a real implementation, this would get broker config from the broker ID
-        let settings = self
+        let broker = self
             .engine()
             .and_then(|engine| self.config.broker.parse().ok().and_then(|id| engine.find_global_node_by_id(&id)))
-            .and_then(|node| node.mqtt_settings())
             .ok_or_else(|| crate::EdgelinkError::invalid_operation("MQTT broker config not found"))?;
-        let birth = settings.birth_topic.clone().map(|topic| {
-            (topic, settings.birth_payload.clone().unwrap_or_default(), settings.birth_qos, settings.birth_retain)
-        });
-        let client_id =
-            settings.client_id.unwrap_or_else(|| format!("edgelink_in_{}", &uuid::Uuid::new_v4().to_string()[..8]));
-        if settings.protocol_version == 5 {
-            let mut options = rumqttc::v5::MqttOptions::new(client_id, settings.host, settings.port);
-            options.set_keep_alive(Duration::from_secs(settings.keepalive as u64));
-            options.set_clean_start(settings.clean);
-            if let Some(username) = settings.username {
-                options.set_credentials(username, settings.password.unwrap_or_default());
-            }
-            if let Some(will_topic) = settings.will_topic.clone() {
-                let properties = if settings.will_content_type.is_some()
-                    || settings.will_response_topic.is_some()
-                    || settings.will_correlation_data.is_some()
-                    || settings.will_message_expiry_interval.is_some()
-                    || settings.will_payload_format_indicator.is_some()
-                    || !settings.will_user_properties.is_empty()
-                {
-                    Some(rumqttc::v5::mqttbytes::v5::LastWillProperties {
-                        delay_interval: None,
-                        payload_format_indicator: settings.will_payload_format_indicator,
-                        message_expiry_interval: settings.will_message_expiry_interval,
-                        content_type: settings.will_content_type.clone(),
-                        response_topic: settings.will_response_topic.clone(),
-                        correlation_data: settings.will_correlation_data.clone().map(Into::into),
-                        user_properties: settings.will_user_properties.clone(),
-                    })
-                } else {
-                    None
-                };
-                options.set_last_will(rumqttc::v5::mqttbytes::v5::LastWill::new(
-                    will_topic,
-                    settings.will_payload.unwrap_or_default().into_bytes(),
-                    Self::qos_from_u8_v5(settings.will_qos),
-                    settings.will_retain,
-                    properties,
-                ));
-            }
-            let (client, mut eventloop) = rumqttc::v5::AsyncClient::new(options, 100);
-            let publish_tx = self.publish_tx.clone();
-            let topic = self.config.topic.clone();
-            let qos = self.mqtt_qos_to_v5(self.config.qos);
-            let birth_for_connect = birth.clone();
-            let connected = timeout(Duration::from_secs(10), async {
-                loop {
-                    match eventloop.poll().await {
-                        Ok(rumqttc::v5::Event::Incoming(rumqttc::v5::mqttbytes::v5::Packet::ConnAck(connack)))
-                            if connack.code == rumqttc::v5::mqttbytes::v5::ConnectReturnCode::Success =>
-                        {
-                            break;
-                        }
-                        Ok(_) => continue,
-                        Err(error) => return Err(error.to_string()),
-                    }
-                }
-                if !self.is_dynamic && !topic.is_empty() {
-                    let mut filter = rumqttc::v5::mqttbytes::v5::Filter::new(&topic, qos);
-                    filter.nolocal = self.config.nl.unwrap_or(false);
-                    filter.preserve_retain = self.config.rap.unwrap_or(false);
-                    filter.retain_forward_rule = match self.config.rh.unwrap_or(0) {
-                        1 => rumqttc::v5::mqttbytes::v5::RetainForwardRule::OnNewSubscribe,
-                        2 => rumqttc::v5::mqttbytes::v5::RetainForwardRule::Never,
-                        _ => rumqttc::v5::mqttbytes::v5::RetainForwardRule::OnEverySubscribe,
-                    };
-                    client
-                        .subscribe_many_with_properties(
-                            [filter],
-                            rumqttc::v5::mqttbytes::v5::SubscribeProperties {
-                                id: self.config.subscription_identifier.map(|id| id as usize),
-                                user_properties: Vec::new(),
-                            },
-                        )
-                        .await
-                        .map_err(|error| error.to_string())?;
-                }
-                if let Some((topic, payload, qos, retain)) = birth_for_connect.clone() {
-                    if !Self::is_valid_publish_topic(&topic) {
-                        return Err("Invalid MQTT birth topic".to_owned());
-                    }
-                    client
-                        .publish(topic, Self::qos_from_u8_v5(qos), retain, payload.into_bytes())
-                        .await
-                        .map_err(|error| error.to_string())?;
-                }
-                Ok::<(), String>(())
-            })
-            .await;
-            match connected {
-                Ok(Ok(())) => {
-                    let event_client = client.clone();
-                    let event_task = tokio::spawn(async move {
-                        loop {
-                            match eventloop.poll().await {
-                                Ok(rumqttc::v5::Event::Incoming(rumqttc::v5::mqttbytes::v5::Packet::Publish(
-                                    publish,
-                                ))) => {
-                                    let topic = String::from_utf8_lossy(&publish.topic).into_owned();
-                                    let _ = publish_tx.send(InboundPublish {
-                                        topic,
-                                        payload: publish.payload.to_vec(),
-                                        qos: publish.qos as u8,
-                                        retain: publish.retain,
-                                        v5_properties: publish.properties.map(|properties| MqttV5PublishProperties {
-                                            payload_format_indicator: properties.payload_format_indicator,
-                                            message_expiry_interval: properties.message_expiry_interval,
-                                            response_topic: properties.response_topic,
-                                            correlation_data: properties.correlation_data.map(|value| value.to_vec()),
-                                            user_properties: properties.user_properties,
-                                            content_type: properties.content_type,
-                                        }),
-                                    });
-                                }
-                                Ok(_) => {}
-                                Err(error) => {
-                                    log::warn!("MQTT In v5 event loop stopped: {error}");
-                                    break;
-                                }
-                            }
-                        }
-                    });
-                    let wrapped = MqttInClient::V5(event_client);
-                    connection.client = Some(wrapped.clone());
-                    connection.connected = true;
-                    connection.event_task = Some(event_task);
-                    return Ok(wrapped);
-                }
-                Ok(Err(error)) => {
-                    return Err(crate::EdgelinkError::invalid_operation(&format!(
-                        "MQTT In v5 connection failed: {error}"
-                    )));
-                }
-                Err(_) => return Err(crate::EdgelinkError::invalid_operation("MQTT In v5 connection timeout")),
-            }
+        broker.mqtt_register_user(self.base.id, self.publish_tx.clone()).await?;
+        let client = MqttInClient { broker: broker.clone(), user_id: self.base.id };
+        if !self.is_dynamic && !self.config.topic.is_empty() {
+            client
+                .subscribe(
+                    &self.config.topic,
+                    self.config.qos,
+                    Some(MqttSubscriptionOptions {
+                        no_local: self.config.nl.unwrap_or(false),
+                        retain_as_published: self.config.rap.unwrap_or(false),
+                        retain_handling: self.config.rh.unwrap_or(0),
+                        subscription_identifier: self.config.subscription_identifier,
+                    }),
+                )
+                .await
+                .map_err(|error| crate::EdgelinkError::invalid_operation(&error))?;
         }
-        let mut mqttoptions = rumqttc::MqttOptions::new(client_id, settings.host, settings.port);
-        mqttoptions.set_keep_alive(Duration::from_secs(settings.keepalive as u64));
-        mqttoptions.set_clean_session(settings.clean);
-        if let Some(username) = settings.username {
-            mqttoptions.set_credentials(username, settings.password.unwrap_or_default());
-        }
-        if settings.tls {
-            mqttoptions.set_transport(rumqttc::Transport::tls_with_default_config());
-        }
-        if let Some(will_topic) = settings.will_topic {
-            mqttoptions.set_last_will(rumqttc::LastWill {
-                topic: will_topic,
-                message: settings.will_payload.unwrap_or_default().into_bytes().into(),
-                qos: match settings.will_qos {
-                    1 => rumqttc::QoS::AtLeastOnce,
-                    2 => rumqttc::QoS::ExactlyOnce,
-                    _ => rumqttc::QoS::AtMostOnce,
-                },
-                retain: settings.will_retain,
-            });
-        }
-
-        let (client, mut eventloop) = rumqttc::AsyncClient::new(mqttoptions, 100);
-
-        // Try to connect with timeout
-        match timeout(Duration::from_secs(10), async {
-            loop {
-                match eventloop.poll().await {
-                    Ok(rumqttc::Event::Incoming(rumqttc::Packet::ConnAck(connack))) => {
-                        if connack.code == rumqttc::ConnectReturnCode::Success {
-                            log::info!("MQTT In connected successfully to localhost:1883");
-                            return Ok(());
-                        } else {
-                            log::error!("MQTT In connection failed with code: {:?}", connack.code);
-                            return Err(format!("Connection refused: {:?}", connack.code));
-                        }
-                    }
-                    Ok(_) => continue,
-                    Err(e) => {
-                        log::warn!("MQTT In connection error: {e:?}");
-                        return Err(format!("Connection error: {e}"));
-                    }
-                }
-            }
-        })
-        .await
-        {
-            Ok(Ok(())) => {
-                // Subscribe to the configured topic if this is a static subscription
-                if !self.is_dynamic && !self.config.topic.is_empty() {
-                    if self.is_valid_subscription_topic(&self.config.topic) {
-                        let qos = self.mqtt_qos_to_rumqttc(self.config.qos);
-                        if let Err(e) = client.subscribe(&self.config.topic, qos).await {
-                            log::error!("Failed to subscribe to topic '{}': {}", self.config.topic, e);
-                        } else {
-                            log::info!("Subscribed to topic: {}", self.config.topic);
-                        }
-                    } else {
-                        log::error!("Invalid topic for subscription: '{}'", self.config.topic);
-                    }
-                }
-
-                if let Some((topic, payload, qos, retain)) = &birth {
-                    if !Self::is_valid_publish_topic(topic) {
-                        return Err(crate::EdgelinkError::invalid_operation("Invalid MQTT birth topic"));
-                    }
-                    client
-                        .publish(topic, Self::qos_from_u8(*qos), *retain, payload.as_bytes())
-                        .await
-                        .map_err(|error| crate::EdgelinkError::invalid_operation(&error.to_string()))?;
-                }
-
-                connection.client = Some(MqttInClient::V4(client.clone()));
-                connection.connected = true;
-                let publish_tx = self.publish_tx.clone();
-                let event_task = tokio::spawn(async move {
-                    loop {
-                        match eventloop.poll().await {
-                            Ok(rumqttc::Event::Incoming(rumqttc::Packet::Publish(publish))) => {
-                                let inbound = InboundPublish {
-                                    topic: publish.topic,
-                                    payload: publish.payload.to_vec(),
-                                    qos: match publish.qos {
-                                        rumqttc::QoS::AtMostOnce => 0,
-                                        rumqttc::QoS::AtLeastOnce => 1,
-                                        rumqttc::QoS::ExactlyOnce => 2,
-                                    },
-                                    retain: publish.retain,
-                                    v5_properties: None,
-                                };
-                                if publish_tx.send(inbound).is_err() {
-                                    break;
-                                }
-                            }
-                            Ok(_) => {}
-                            Err(error) => {
-                                log::warn!("MQTT In event loop stopped: {error}");
-                                break;
-                            }
-                        }
-                    }
-                });
-                let wrapped = MqttInClient::V4(client);
-                connection.client = Some(wrapped.clone());
-                connection.event_task = Some(event_task);
-                Ok(wrapped)
-            }
-            Ok(Err(e)) => {
-                log::error!("MQTT In connection failed: {e}");
-                Err(crate::EdgelinkError::invalid_operation(&format!("MQTT In connection failed: {e}")))
-            }
-            Err(_) => {
-                log::error!("MQTT In connection timeout after 10 seconds");
-                Err(crate::EdgelinkError::invalid_operation("MQTT In connection timeout"))
-            }
-        }
+        broker.mqtt_connect().await?;
+        connection.client = Some(client.clone());
+        connection.connected = true;
+        Ok(client)
     }
 
     /// Validate topic for subscription (allows wildcards)
@@ -552,46 +249,6 @@ impl MqttInNode {
         // Simple validation for MQTT subscription topics
         // Allows wildcards + and # but ensures they are properly placed
         !topic.chars().any(|c| matches!(c, '\x08' | '\x0C' | '\n' | '\r' | '\t' | '\x0B' | '\0'))
-    }
-
-    fn is_valid_publish_topic(topic: &str) -> bool {
-        !topic.is_empty()
-            && !topic.contains('+')
-            && !topic.contains('#')
-            && !topic.chars().any(|c| matches!(c, '\x08' | '\x0C' | '\n' | '\r' | '\t' | '\x0B' | '\0'))
-    }
-
-    fn qos_from_u8(qos: u8) -> rumqttc::QoS {
-        match qos {
-            1 => rumqttc::QoS::AtLeastOnce,
-            2 => rumqttc::QoS::ExactlyOnce,
-            _ => rumqttc::QoS::AtMostOnce,
-        }
-    }
-
-    fn qos_from_u8_v5(qos: u8) -> rumqttc::v5::mqttbytes::QoS {
-        match qos {
-            1 => rumqttc::v5::mqttbytes::QoS::AtLeastOnce,
-            2 => rumqttc::v5::mqttbytes::QoS::ExactlyOnce,
-            _ => rumqttc::v5::mqttbytes::QoS::AtMostOnce,
-        }
-    }
-
-    /// Convert internal QoS enum to rumqttc QoS
-    fn mqtt_qos_to_rumqttc(&self, qos: MqttQoS) -> rumqttc::QoS {
-        match qos {
-            MqttQoS::AtMost => rumqttc::QoS::AtMostOnce,
-            MqttQoS::AtLeast => rumqttc::QoS::AtLeastOnce,
-            MqttQoS::Exactly => rumqttc::QoS::ExactlyOnce,
-        }
-    }
-
-    fn mqtt_qos_to_v5(&self, qos: MqttQoS) -> rumqttc::v5::mqttbytes::QoS {
-        match qos {
-            MqttQoS::AtMost => rumqttc::v5::mqttbytes::QoS::AtMostOnce,
-            MqttQoS::AtLeast => rumqttc::v5::mqttbytes::QoS::AtLeastOnce,
-            MqttQoS::Exactly => rumqttc::v5::mqttbytes::QoS::ExactlyOnce,
-        }
     }
 
     /// Convert payload based on data type setting
@@ -796,9 +453,6 @@ impl MqttInNode {
                     let mut connection = self.connection.lock().await;
                     connection.connected = false;
                     connection.client = None;
-                    if let Some(task) = connection.event_task.take() {
-                        task.abort();
-                    }
                     drop(connection);
 
                     self.ensure_connection().await?;
@@ -809,9 +463,6 @@ impl MqttInNode {
                     if let Some(client) = connection.client.take() {
                         let _ = client.disconnect().await;
                         log::info!("MQTT In disconnected");
-                    }
-                    if let Some(task) = connection.event_task.take() {
-                        task.abort();
                     }
                     connection.connected = false;
                 }
@@ -1055,14 +706,11 @@ impl FlowNodeBehavior for MqttInNode {
             }
         }
 
-        // Cleanup
         let mut connection = self.connection.lock().await;
-        if let Some(client) = connection.client.take() {
-            log::info!("Disconnecting MQTT In client on shutdown");
-            let _ = client.disconnect().await;
-        }
-        if let Some(task) = connection.event_task.take() {
-            task.abort();
+        if let Some(client) = connection.client.take()
+            && let Err(error) = client.broker.mqtt_unregister_user(client.user_id).await
+        {
+            log::error!("Failed to unregister MQTT input: {error}");
         }
         connection.connected = false;
 

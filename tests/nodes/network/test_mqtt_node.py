@@ -13,11 +13,12 @@ def _flow(broker):
          "broker": broker.get("broker", "localhost"), "port": broker.get("port", 1883),
          "url": broker.get("url", ""), "clientid": broker.get("clientid", ""),
          "keepalive": broker.get("keepalive", 60), "clean": broker.get("clean", True),
-         "autoConnect": broker.get("autoConnect", True)},
+         "autoConnect": broker.get("autoConnect", True),
+         "protocolVersion": broker.get("protocolVersion", 4)},
         {"id": tab, "type": "tab"},
-        {"id": red_id("mqtt.in"), "z": tab, "type": "mqtt", "name": "mqtt.in",
+        {"id": red_id("mqtt.in"), "z": tab, "type": "mqtt in", "name": "mqtt.in",
          "broker": red_id("mqtt.broker"), "topic": "in_topic", "datatype": "utf8", "wires": [[]]},
-        {"id": red_id("mqtt.out"), "z": tab, "type": "mqtt", "name": "mqtt.out",
+        {"id": red_id("mqtt.out"), "z": tab, "type": "mqtt out", "name": "mqtt.out",
          "broker": red_id("mqtt.broker"), "topic": "out_topic", "wires": [[]]},
     ]
 
@@ -134,6 +135,165 @@ async def _action_flow(host, port, dynamic=False):
 @pytest.mark.timeout(20)
 class TestMqttNodes:
     @pytest.mark.asyncio
+    async def test_explicit_client_id_is_shared_between_mqtt_nodes(self):
+        async with mqtt_broker(port=0, with_instance=True) as (host, port, broker_server):
+            tab, broker = red_id("shared.explicit.tab"), red_id("shared.explicit.broker")
+            incoming, outgoing = red_id("shared.explicit.in"), red_id("shared.explicit.out")
+            flows = [
+                {"id": broker, "type": "mqtt-broker", "broker": host, "port": port,
+                 "clientid": "shared-client", "autoConnect": True},
+                {"id": tab, "type": "tab"},
+                {"id": incoming, "z": tab, "type": "mqtt in", "broker": broker,
+                 "topic": "shared/explicit", "datatype": "utf8", "wires": [[]]},
+                {"id": outgoing, "z": tab, "type": "mqtt out", "broker": broker,
+                 "topic": "shared/explicit", "wires": [[]]},
+            ]
+            run_task = asyncio.create_task(run_flow_for_seconds_scheduled(
+                flows,
+                [{"nid": outgoing, "msg": {"topic": "shared/explicit", "payload": "hello"}, "delay_ms": 500}],
+                2,
+            ))
+            await asyncio.sleep(1)
+            assert list(broker_server.sessions).count("shared-client") == 1
+            await run_task
+
+    @pytest.mark.asyncio
+    async def test_default_client_id_is_shared_between_mqtt_nodes(self):
+        async with mqtt_broker(port=0, with_instance=True) as (host, port, broker_server):
+            tab, broker = red_id("shared.default.tab"), red_id("shared.default.broker")
+            incoming, outgoing = red_id("shared.default.in"), red_id("shared.default.out")
+            flows = [
+                {"id": broker, "type": "mqtt-broker", "broker": host, "port": port, "autoConnect": True},
+                {"id": tab, "type": "tab"},
+                {"id": incoming, "z": tab, "type": "mqtt in", "broker": broker,
+                 "topic": "shared/default", "datatype": "utf8", "wires": [[]]},
+                {"id": outgoing, "z": tab, "type": "mqtt out", "broker": broker,
+                 "topic": "shared/default", "wires": [[]]},
+            ]
+            run_task = asyncio.create_task(run_flow_for_seconds_scheduled(
+                flows,
+                [{"nid": outgoing, "msg": {"topic": "shared/default", "payload": "hello"}, "delay_ms": 500}],
+                2,
+            ))
+            await asyncio.sleep(1)
+            assert len(broker_server.sessions) == 1
+            assert next(iter(broker_server.sessions.values()))[0].client_id.startswith("nodered")
+            await run_task
+
+    @pytest.mark.asyncio
+    async def test_v5_client_id_is_shared_between_mqtt_nodes(self):
+        async with mqtt5_broker() as (host, port, broker_server):
+            tab, broker = red_id("shared.v5.tab"), red_id("shared.v5.broker")
+            incoming, outgoing = red_id("shared.v5.in"), red_id("shared.v5.out")
+            flows = [
+                {"id": broker, "type": "mqtt-broker", "broker": host, "port": port,
+                 "protocolVersion": 5, "autoConnect": True},
+                {"id": tab, "type": "tab"},
+                {"id": incoming, "z": tab, "type": "mqtt in", "broker": broker,
+                 "topic": "shared/v5", "datatype": "utf8", "wires": [[]]},
+                {"id": outgoing, "z": tab, "type": "mqtt out", "broker": broker,
+                 "topic": "shared/v5", "wires": [[]]},
+            ]
+            run_task = asyncio.create_task(run_flow_for_seconds_scheduled(
+                flows,
+                [{"nid": outgoing, "msg": {"topic": "shared/v5", "payload": "hello"}, "delay_ms": 500}],
+                2,
+            ))
+            await asyncio.sleep(1)
+            assert len(broker_server.clients) == 1
+            await run_task
+
+    @pytest.mark.asyncio
+    async def test_default_v4_shared_connection_recovers_all_subscriptions(self):
+        async with mqtt_broker(port=0, with_instance=True) as (host, port, broker_server):
+            tab, broker = red_id("recovery.v4.tab"), red_id("recovery.v4.broker")
+            in_a, in_b, out, collector_a, collector_b = (
+                red_id(name) for name in ("recovery.v4.in-a", "recovery.v4.in-b", "recovery.v4.out",
+                                          "recovery.v4.collector-a", "recovery.v4.collector-b")
+            )
+            flows = [
+                {"id": broker, "type": "mqtt-broker", "broker": host, "port": port, "autoConnect": True,
+                 "reconnectPeriod": 100},
+                {"id": tab, "type": "tab"},
+                {"id": in_a, "z": tab, "type": "mqtt in", "broker": broker, "topic": "recovery/a",
+                 "datatype": "utf8", "wires": [[collector_a]]},
+                {"id": in_b, "z": tab, "type": "mqtt in", "broker": broker, "topic": "recovery/b",
+                 "datatype": "utf8", "wires": [[collector_b]]},
+                {"id": out, "z": tab, "type": "mqtt out", "broker": broker, "wires": [[]]},
+                {"id": collector_a, "z": tab, "type": "test-once"},
+                {"id": collector_b, "z": tab, "type": "test-once"},
+            ]
+
+            async def drop_connection():
+                await asyncio.sleep(0.8)
+                client_id, (_session, handler) = next(iter(broker_server.sessions.items()))
+                await handler.writer.close()
+                deadline = asyncio.get_running_loop().time() + 3
+                while asyncio.get_running_loop().time() < deadline:
+                    if client_id in broker_server.sessions and broker_server.sessions[client_id][1] is not handler:
+                        return
+                    await asyncio.sleep(0.05)
+                raise AssertionError("V4 broker session did not reconnect")
+
+            drop_task = asyncio.create_task(drop_connection())
+            messages = await run_flow_for_seconds_scheduled(
+                flows,
+                [
+                    {"nid": out, "msg": {"topic": "recovery/a", "payload": "after-a"}, "delay_ms": 1400},
+                    {"nid": out, "msg": {"topic": "recovery/b", "payload": "after-b"}, "delay_ms": 1600},
+                ],
+                3,
+            )
+            await drop_task
+            assert sorted(message["payload"] for message in messages) == ["after-a", "after-b"]
+
+    @pytest.mark.asyncio
+    async def test_default_v5_shared_connection_recovers_all_subscriptions(self):
+        async with mqtt5_broker() as (host, port, broker_server):
+            tab, broker = red_id("recovery.v5.tab"), red_id("recovery.v5.broker")
+            in_a, in_b, out, collector_a, collector_b = (
+                red_id(name) for name in ("recovery.v5.in-a", "recovery.v5.in-b", "recovery.v5.out",
+                                          "recovery.v5.collector-a", "recovery.v5.collector-b")
+            )
+            flows = [
+                {"id": broker, "type": "mqtt-broker", "broker": host, "port": port, "protocolVersion": 5,
+                 "autoConnect": True, "reconnectPeriod": 100},
+                {"id": tab, "type": "tab"},
+                {"id": in_a, "z": tab, "type": "mqtt in", "broker": broker, "topic": "recovery/v5/a",
+                 "datatype": "utf8", "wires": [[collector_a]]},
+                {"id": in_b, "z": tab, "type": "mqtt in", "broker": broker, "topic": "recovery/v5/b",
+                 "datatype": "utf8", "wires": [[collector_a]]},
+                {"id": out, "z": tab, "type": "mqtt out", "broker": broker, "wires": [[]]},
+                {"id": collector_a, "z": tab, "type": "test-once"},
+            ]
+
+            async def drop_connection():
+                await asyncio.sleep(0.8)
+                client = next(iter(broker_server.clients.values()))
+                client_id, old_client = client.client_id, client
+                client.writer.close()
+                deadline = asyncio.get_running_loop().time() + 3
+                while asyncio.get_running_loop().time() < deadline:
+                    if (client_id in broker_server.clients
+                            and broker_server.clients[client_id] is not old_client
+                            and {"recovery/v5/a", "recovery/v5/b"}.issubset(broker_server.clients[client_id].subscriptions)):
+                        return
+                    await asyncio.sleep(0.05)
+                raise AssertionError("V5 broker session did not reconnect")
+
+            drop_task = asyncio.create_task(drop_connection())
+            messages = await run_flow_for_seconds_scheduled(
+                flows,
+                [
+                    {"nid": out, "msg": {"topic": "recovery/v5/a", "payload": "after-a"}, "delay_ms": 2200},
+                    {"nid": out, "msg": {"topic": "recovery/v5/b", "payload": "after-b"}, "delay_ms": 2350},
+                ],
+                3,
+            )
+            await drop_task
+            assert sorted(message["payload"] for message in messages) == ["after-a", "after-b"]
+
+    @pytest.mark.asyncio
     @pytest.mark.it("should send JSON and receive string (auto mode)")
     async def test_json_string_auto(self):
         await _roundtrip('{"prop":"value1", "num":1}', "auto", '{"prop":"value1", "num":1}')
@@ -211,15 +371,30 @@ class TestMqttNodes:
     @pytest.mark.asyncio
     @pytest.mark.it("should be loaded and have default values (MQTT V4)")
     async def test_v4_defaults(self):
-        await run_flow_with_msgs_ntimes(_flow({"broker": "localhost", "port": 1883, "autoConnect": False}), [], 0)
+        async with mqtt_broker(port=0, with_instance=True) as (host, port, broker_server):
+            flows = _flow({"broker": host, "port": port, "autoConnect": False})
+            await run_flow_for_seconds_scheduled(
+                flows, [{"nid": red_id("mqtt.in"), "msg": {"action": "connect"}, "delay_ms": 100}], 1,
+            )
+            sessions = list(broker_server.sessions)
+            assert len(sessions) == 1
+            assert next(iter(broker_server.sessions.values()))[0].client_id.startswith("nodered")
+            assert next(iter(broker_server.sessions.values()))[0].clean_session is True
+            assert next(iter(broker_server.sessions.values()))[0].keep_alive == 60
 
     @pytest.mark.asyncio
     @pytest.mark.it("should be loaded and have default values (MQTT V5)")
     async def test_v5_defaults(self):
-        await run_flow_with_msgs_ntimes(
-            _flow({"broker": "localhost", "port": 1883, "clientid": "clientid", "keepalive": 35, "clean": False}),
-            [], 0,
-        )
+        async with mqtt5_broker() as (host, port, broker_server):
+            flows = _flow({"broker": host, "port": port, "autoConnect": False,
+                           "protocolVersion": 5, "clientid": "clientid", "keepalive": 35, "clean": False})
+            run_task = asyncio.create_task(run_flow_for_seconds_scheduled(
+                flows, [{"nid": red_id("mqtt.in"), "msg": {"action": "connect"}, "delay_ms": 100}], 2,
+            ))
+            await asyncio.sleep(0.5)
+            assert "clientid" in broker_server.clients
+            assert broker_server.clients["clientid"].client_id == "clientid"
+            await run_task
 
     @pytest.mark.asyncio
     async def test_v5_publish_properties(self):
@@ -450,17 +625,19 @@ class TestMqttNodes:
     @pytest.mark.it('should publish will message')
     async def test_will_message(self):
         async with mqtt_broker(port=0, with_instance=True) as (host, port, broker_server):
-            tab, broker = red_id("will.tab"), red_id("will.broker")
+            tab = red_id("will.tab")
+            listener_broker, sender_broker = red_id("will.listener"), red_id("will.sender")
             incoming, outgoing, collector = (red_id(name) for name in
                 ("will.in", "will.out", "will.collector"))
             topic = "edgelinkd/lifecycle/will"
             flows = [
-                {"id": broker, "type": "mqtt-broker", "broker": host, "port": port,
+                {"id": listener_broker, "type": "mqtt-broker", "broker": host, "port": port},
+                {"id": sender_broker, "type": "mqtt-broker", "broker": host, "port": port,
                  "willTopic": topic, "willPayload": '{"msg":"will"}', "willQos": 2},
                 {"id": tab, "type": "tab"},
-                {"id": incoming, "z": tab, "type": "mqtt in", "broker": broker, "qos": "2",
+                {"id": incoming, "z": tab, "type": "mqtt in", "broker": listener_broker, "qos": "2",
                  "topic": topic, "datatype": "utf8", "wires": [[collector]]},
-                {"id": outgoing, "z": tab, "type": "mqtt out", "broker": broker, "wires": [[]]},
+                {"id": outgoing, "z": tab, "type": "mqtt out", "broker": sender_broker, "wires": [[]]},
                 {"id": collector, "z": tab, "type": "test-once"},
             ]
             scheduled = [{"nid": outgoing, "msg": {"action": "connect"}, "delay_ms": 500}]
@@ -468,8 +645,7 @@ class TestMqttNodes:
                 deadline = asyncio.get_running_loop().time() + 3
                 while asyncio.get_running_loop().time() < deadline:
                     for client_id, (session, handler) in broker_server.sessions.items():
-                        if client_id.startswith("edgelink_") and not client_id.startswith("edgelink_in_") \
-                                and session.will_topic == topic and handler.writer:
+                        if session.will_topic == topic and handler.writer:
                             await handler.writer.close()
                             return
                     await asyncio.sleep(0.05)
@@ -486,30 +662,31 @@ class TestMqttNodes:
     @pytest.mark.it('should publish will message with V5 properties')
     async def test_v5_will_message(self):
         async with mqtt5_broker() as (host, port, broker_server):
-            tab, broker = red_id("v5-will.tab"), red_id("v5-will.broker")
+            tab = red_id("v5-will.tab")
+            listener_broker, sender_broker = red_id("v5-will.listener"), red_id("v5-will.sender")
             incoming, outgoing, collector = (red_id(name) for name in
                 ("v5-will.in", "v5-will.out", "v5-will.collector"))
             topic = "edgelinkd/lifecycle/v5-will"
             flows = [
-                {"id": broker, "type": "mqtt-broker", "broker": host, "port": port,
+                {"id": listener_broker, "type": "mqtt-broker", "broker": host, "port": port, "protocolVersion": 5},
+                {"id": sender_broker, "type": "mqtt-broker", "broker": host, "port": port,
                  "protocolVersion": 5, "willTopic": topic, "willPayload": '{"msg":"will"}', "willQos": 2,
                  "willMsg": {"contentType": "application/json", "userProps": {"will": "value"},
                              "respTopic": "reply/topic", "correl": "abc", "expiry": 2000,
                              "payloadFormatIndicator": True}},
                 {"id": tab, "type": "tab"},
-                {"id": incoming, "z": tab, "type": "mqtt in", "broker": broker, "qos": "2",
+                {"id": incoming, "z": tab, "type": "mqtt in", "broker": listener_broker, "qos": "2",
                  "topic": topic, "datatype": "utf8", "wires": [[collector]]},
-                {"id": outgoing, "z": tab, "type": "mqtt out", "broker": broker, "wires": [[]]},
+                {"id": outgoing, "z": tab, "type": "mqtt out", "broker": sender_broker, "wires": [[]]},
                 {"id": collector, "z": tab, "type": "test-once"},
             ]
             async def drop_v5_will_session():
                 deadline = asyncio.get_running_loop().time() + 3
                 while asyncio.get_running_loop().time() < deadline:
                     for client in list(broker_server.clients.values()):
-                        if client.client_id.startswith("edgelink_") \
-                                and not client.client_id.startswith("edgelink_in_") \
-                                and client.will and client.will[0] == topic:
+                        if client.will and client.will[0] == topic:
                             client.writer.close()
+                            return
                             return
                     await asyncio.sleep(0.05)
                 raise AssertionError("MQTT v5 Out session did not connect with the configured will")

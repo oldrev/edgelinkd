@@ -32,11 +32,9 @@
 //! - Handles various data types (strings, numbers, buffers, etc.)
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use serde::Deserialize;
 use tokio::sync::Mutex;
-use tokio::time::timeout;
 
 use crate::runtime::flow::Flow;
 use crate::runtime::nodes::*;
@@ -96,27 +94,13 @@ struct MqttOutNodeConfig {
 struct MqttConnection {
     client: Option<MqttClient>,
     connected: bool,
-    event_task: Option<tokio::task::JoinHandle<()>>,
 }
 
 #[derive(Clone)]
-enum MqttClient {
-    V4(rumqttc::AsyncClient),
-    V5(rumqttc::v5::AsyncClient),
-}
+struct MqttClient(Arc<dyn GlobalNodeBehavior>);
 
 impl MqttClient {
-    async fn publish(&self, topic: String, qos: u8, retain: bool, payload: Vec<u8>) -> Result<(), String> {
-        match self {
-            Self::V4(client) => {
-                client.publish(topic, Self::qos_v4(qos), retain, payload).await.map_err(|error| error.to_string())
-            }
-            Self::V5(client) => {
-                client.publish(topic, Self::qos_v5(qos), retain, payload).await.map_err(|error| error.to_string())
-            }
-        }
-    }
-
+    #[cfg(test)]
     fn qos_v4(qos: u8) -> rumqttc::QoS {
         match qos {
             1 => rumqttc::QoS::AtLeastOnce,
@@ -125,6 +109,7 @@ impl MqttClient {
         }
     }
 
+    #[cfg(test)]
     fn qos_v5(qos: u8) -> rumqttc::v5::mqttbytes::QoS {
         match qos {
             1 => rumqttc::v5::mqttbytes::QoS::AtLeastOnce,
@@ -134,10 +119,7 @@ impl MqttClient {
     }
 
     async fn disconnect(self) -> Result<(), String> {
-        match self {
-            Self::V4(client) => client.disconnect().await.map_err(|e| e.to_string()),
-            Self::V5(client) => client.disconnect().await.map_err(|e| e.to_string()),
-        }
+        self.0.mqtt_disconnect().await.map_err(|error| error.to_string())
     }
 }
 
@@ -159,31 +141,6 @@ struct MqttOutNode {
 }
 
 impl MqttOutNode {
-    async fn publish_close(&self, client: &MqttClient) -> crate::Result<()> {
-        let settings = self
-            .engine()
-            .and_then(|engine| self.config.broker.parse().ok().and_then(|id| engine.find_global_node_by_id(&id)))
-            .and_then(|node| node.mqtt_settings())
-            .ok_or_else(|| crate::EdgelinkError::invalid_operation("MQTT broker config not found"))?;
-        let Some(topic) = settings.close_topic else { return Ok(()) };
-        if !Self::is_valid_publish_topic(&topic) {
-            return Err(crate::EdgelinkError::invalid_operation("Invalid MQTT close topic"));
-        }
-        client
-            .publish(
-                topic,
-                settings.close_qos,
-                settings.close_retain,
-                settings.close_payload.unwrap_or_default().into_bytes(),
-            )
-            .await
-            .map_err(|error| crate::EdgelinkError::invalid_operation(&error))?;
-        // rumqttc's publish call enqueues the packet; let the event loop write it before
-        // the following DISCONNECT request is processed.
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        Ok(())
-    }
-
     #[allow(dead_code)]
     fn has_v5_properties(config: &MqttOutNodeConfig) -> bool {
         !config.response_topic.is_empty()
@@ -210,144 +167,17 @@ impl MqttOutNode {
 
     async fn ensure_connection(&self) -> crate::Result<()> {
         let mut connection = self.connection.lock().await;
-
         if connection.connected && connection.client.is_some() {
             return Ok(());
         }
-
-        // Create connection options
-        // TODO: In a real implementation, this would get broker config from the broker ID
-        // and support user/password, TLS, etc.
-        let settings = self
+        let broker = self
             .engine()
             .and_then(|engine| self.config.broker.parse().ok().and_then(|id| engine.find_global_node_by_id(&id)))
-            .and_then(|node| node.mqtt_settings())
             .ok_or_else(|| crate::EdgelinkError::invalid_operation("MQTT broker config not found"))?;
-        let client_id =
-            settings.client_id.unwrap_or_else(|| format!("edgelink_{}", &uuid::Uuid::new_v4().to_string()[..8]));
-        if settings.protocol_version == 5 {
-            let mut options = rumqttc::v5::MqttOptions::new(client_id, settings.host, settings.port);
-            options.set_keep_alive(Duration::from_secs(settings.keepalive as u64));
-            options.set_clean_start(settings.clean);
-            if let Some(username) = settings.username {
-                options.set_credentials(username, settings.password.unwrap_or_default());
-            }
-            if let Some(will_topic) = settings.will_topic.clone() {
-                let properties = if settings.will_content_type.is_some()
-                    || settings.will_response_topic.is_some()
-                    || settings.will_correlation_data.is_some()
-                    || settings.will_message_expiry_interval.is_some()
-                    || settings.will_payload_format_indicator.is_some()
-                    || !settings.will_user_properties.is_empty()
-                {
-                    Some(rumqttc::v5::mqttbytes::v5::LastWillProperties {
-                        delay_interval: None,
-                        payload_format_indicator: settings.will_payload_format_indicator,
-                        message_expiry_interval: settings.will_message_expiry_interval,
-                        content_type: settings.will_content_type.clone(),
-                        response_topic: settings.will_response_topic.clone(),
-                        correlation_data: settings.will_correlation_data.clone().map(Into::into),
-                        user_properties: settings.will_user_properties.clone(),
-                    })
-                } else {
-                    None
-                };
-                options.set_last_will(rumqttc::v5::mqttbytes::v5::LastWill::new(
-                    will_topic,
-                    settings.will_payload.unwrap_or_default().into_bytes(),
-                    MqttClient::qos_v5(settings.will_qos),
-                    settings.will_retain,
-                    properties,
-                ));
-            }
-            let (client, mut event_loop) = rumqttc::v5::AsyncClient::new(options, 10);
-            let event_task = tokio::spawn(async move {
-                loop {
-                    if event_loop.poll().await.is_err() {
-                        break;
-                    }
-                }
-            });
-            connection.client = Some(MqttClient::V5(client));
-            connection.connected = true;
-            connection.event_task = Some(event_task);
-            return Ok(());
-        }
-        let mut mqttoptions = rumqttc::MqttOptions::new(client_id, settings.host, settings.port);
-        mqttoptions.set_keep_alive(Duration::from_secs(settings.keepalive as u64));
-        mqttoptions.set_clean_session(settings.clean);
-        if let Some(username) = settings.username {
-            mqttoptions.set_credentials(username, settings.password.unwrap_or_default());
-        }
-        if settings.tls {
-            mqttoptions.set_transport(rumqttc::Transport::tls_with_default_config());
-        }
-        if let Some(will_topic) = settings.will_topic {
-            mqttoptions.set_last_will(rumqttc::LastWill {
-                topic: will_topic,
-                message: settings.will_payload.unwrap_or_default().into_bytes().into(),
-                qos: match settings.will_qos {
-                    1 => rumqttc::QoS::AtLeastOnce,
-                    2 => rumqttc::QoS::ExactlyOnce,
-                    _ => rumqttc::QoS::AtMostOnce,
-                },
-                retain: settings.will_retain,
-            });
-        }
-
-        let (client, mut eventloop) = rumqttc::AsyncClient::new(mqttoptions, 10);
-
-        // Try to connect with timeout - similar to Node-RED's connection logic
-        match timeout(Duration::from_secs(10), async {
-            loop {
-                match eventloop.poll().await {
-                    Ok(rumqttc::Event::Incoming(rumqttc::Packet::ConnAck(connack))) => {
-                        if connack.code == rumqttc::ConnectReturnCode::Success {
-                            log::info!("MQTT connected successfully to localhost:1883");
-                            return Ok(());
-                        } else {
-                            log::error!("MQTT connection failed with code: {:?}", connack.code);
-                            return Err(format!("Connection refused: {:?}", connack.code));
-                        }
-                    }
-                    Ok(rumqttc::Event::Outgoing(_)) => {
-                        log::debug!("MQTT outgoing packet sent");
-                        continue;
-                    }
-                    Ok(_) => continue,
-                    Err(e) => {
-                        log::warn!("MQTT connection error: {e:?}");
-                        return Err(format!("Connection error: {e}"));
-                    }
-                }
-            }
-        })
-        .await
-        {
-            Ok(Ok(())) => {
-                connection.client = Some(MqttClient::V4(client));
-                connection.connected = true;
-                let event_task = tokio::spawn(async move {
-                    let mut eventloop = eventloop;
-                    loop {
-                        if let Err(error) = eventloop.poll().await {
-                            log::warn!("MQTT out event loop stopped: {error}");
-                            break;
-                        }
-                    }
-                });
-                connection.event_task = Some(event_task);
-                Ok(())
-            }
-            Ok(Err(e)) => {
-                log::error!("MQTT connection failed: {e}");
-                Err(crate::EdgelinkError::invalid_operation(&format!("MQTT connection failed: {e}")))
-            }
-            Err(_) => {
-                log::error!("MQTT connection timeout after 10 seconds");
-                Err(crate::EdgelinkError::invalid_operation("MQTT connection timeout"))
-            }
-        }
+        broker.mqtt_connect().await?;
+        connection.client = Some(MqttClient(broker));
+        connection.connected = true;
+        Ok(())
     }
 
     async fn publish_message(&self, msg: &Msg) -> crate::Result<()> {
@@ -406,24 +236,42 @@ impl MqttOutNode {
         let payload_bytes = Self::convert_payload_to_bytes(payload)?;
 
         // Publish the message
-        match client {
-            MqttClient::V4(client) => {
-                client.publish(topic, qos, retain, payload_bytes).await.map_err(|e| e.to_string())
-            }
-            MqttClient::V5(client) => {
-                let properties = Self::v5_publish_properties(msg, &self.config)?;
-                let qos = match qos {
-                    rumqttc::QoS::AtMostOnce => rumqttc::v5::mqttbytes::QoS::AtMostOnce,
-                    rumqttc::QoS::AtLeastOnce => rumqttc::v5::mqttbytes::QoS::AtLeastOnce,
-                    rumqttc::QoS::ExactlyOnce => rumqttc::v5::mqttbytes::QoS::ExactlyOnce,
-                };
-                client
-                    .publish_with_properties(topic, qos, retain, payload_bytes, properties)
-                    .await
-                    .map_err(|e| e.to_string())
-            }
-        }
-        .map_err(|e| crate::EdgelinkError::invalid_operation(&format!("MQTT publish failed: {e}")))?;
+        let properties = if Self::has_v5_properties(&self.config)
+            || msg.get("responseTopic").is_some()
+            || msg.get("correlationData").is_some()
+            || msg.get("contentType").is_some()
+            || msg.get("messageExpiryInterval").is_some()
+            || msg.get("payloadFormatIndicator").is_some()
+            || msg.get("userProperties").is_some()
+        {
+            let properties = Self::v5_publish_properties(msg, &self.config)?;
+            Some(MqttBrokerPublishProperties {
+                payload_format_indicator: properties.payload_format_indicator,
+                message_expiry_interval: properties.message_expiry_interval,
+                response_topic: properties.response_topic,
+                correlation_data: properties.correlation_data.map(|value| value.to_vec()),
+                user_properties: properties.user_properties,
+                content_type: properties.content_type,
+            })
+        } else {
+            None
+        };
+        client
+            .0
+            .mqtt_publish(
+                &topic,
+                match qos {
+                    rumqttc::QoS::AtLeastOnce => 1,
+                    rumqttc::QoS::ExactlyOnce => 2,
+                    rumqttc::QoS::AtMostOnce => 0,
+                },
+                retain,
+                payload_bytes,
+                properties,
+            )
+            .await
+            .map_err(|e| e.to_string())
+            .map_err(|e| crate::EdgelinkError::invalid_operation(&format!("MQTT publish failed: {e}")))?;
 
         Ok(())
     }
@@ -605,9 +453,6 @@ impl MqttOutNode {
                             if force {
                                 // Force reconnection
                                 let mut connection = self.connection.lock().await;
-                                if let Some(task) = connection.event_task.take() {
-                                    task.abort();
-                                }
                                 if let Some(client) = connection.client.take() {
                                     let _ = client.disconnect().await;
                                 }
@@ -627,15 +472,9 @@ impl MqttOutNode {
                 "disconnect" => {
                     // Handle disconnect action - similar to Node-RED handleDisconnectAction
                     let mut connection = self.connection.lock().await;
-                    if let Some(client) = connection.client.as_ref() {
-                        self.publish_close(client).await?;
-                    }
                     if let Some(client) = connection.client.take() {
                         let _ = client.disconnect().await;
                         log::info!("MQTT disconnected");
-                    }
-                    if let Some(task) = connection.event_task.take() {
-                        task.abort();
                     }
                     connection.connected = false;
                 }
@@ -677,20 +516,8 @@ impl FlowNodeBehavior for MqttOutNode {
             .await;
         }
 
-        // Cleanup connection on shutdown
         let mut connection = self.connection.lock().await;
-        if let Some(client) = connection.client.as_ref()
-            && let Err(error) = self.publish_close(client).await
-        {
-            log::error!("Failed to publish MQTT close message during shutdown: {error}");
-        }
-        if let Some(client) = connection.client.take() {
-            log::info!("Disconnecting MQTT client on shutdown");
-            let _ = client.disconnect().await;
-        }
-        if let Some(task) = connection.event_task.take() {
-            task.abort();
-        }
+        connection.client = None;
         connection.connected = false;
 
         log::debug!("MqttOutNode process() task has been terminated.");

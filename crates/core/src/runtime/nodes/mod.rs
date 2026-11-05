@@ -270,6 +270,33 @@ pub struct MqttBrokerSettings {
     pub close_retain: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct MqttBrokerMessage {
+    pub topic: String,
+    pub payload: Vec<u8>,
+    pub qos: u8,
+    pub retain: bool,
+    pub v5_properties: Option<MqttBrokerPublishProperties>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct MqttBrokerPublishProperties {
+    pub payload_format_indicator: Option<u8>,
+    pub message_expiry_interval: Option<u32>,
+    pub response_topic: Option<String>,
+    pub correlation_data: Option<Vec<u8>>,
+    pub user_properties: Vec<(String, String)>,
+    pub content_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MqttSubscriptionOptions {
+    pub no_local: bool,
+    pub retain_as_published: bool,
+    pub retain_handling: u8,
+    pub subscription_identifier: Option<u32>,
+}
+
 pub trait ScopedNodeBehavior {
     fn get_scope(&self) -> &FlowNodeScope;
 }
@@ -290,6 +317,55 @@ pub trait GlobalNodeBehavior: Send + Sync + FlowsElement {
 
     fn mqtt_settings(&self) -> Option<MqttBrokerSettings> {
         None
+    }
+
+    async fn mqtt_shared_v4_client(&self) -> crate::Result<Option<rumqttc::AsyncClient>> {
+        Err(crate::EdgelinkError::NotSupported("MQTT shared V4 client is unavailable".to_owned()).into())
+    }
+
+    async fn mqtt_register_user(
+        &self,
+        _user_id: ElementId,
+        _sender: tokio::sync::mpsc::UnboundedSender<MqttBrokerMessage>,
+    ) -> crate::Result<()> {
+        Err(crate::EdgelinkError::NotSupported("MQTT shared broker users are unavailable".to_owned()).into())
+    }
+
+    async fn mqtt_subscribe_user(
+        &self,
+        _user_id: ElementId,
+        _topic: &str,
+        _qos: u8,
+        _options: MqttSubscriptionOptions,
+    ) -> crate::Result<()> {
+        Err(crate::EdgelinkError::NotSupported("MQTT shared broker subscriptions are unavailable".to_owned()).into())
+    }
+
+    async fn mqtt_unregister_user(&self, _user_id: ElementId) -> crate::Result<()> {
+        Err(crate::EdgelinkError::NotSupported("MQTT shared broker users are unavailable".to_owned()).into())
+    }
+
+    async fn mqtt_unsubscribe_user(&self, _user_id: ElementId, _topic: &str) -> crate::Result<()> {
+        Err(crate::EdgelinkError::NotSupported("MQTT shared broker subscriptions are unavailable".to_owned()).into())
+    }
+
+    async fn mqtt_connect(&self) -> crate::Result<()> {
+        Err(crate::EdgelinkError::NotSupported("MQTT shared broker connection is unavailable".to_owned()).into())
+    }
+
+    async fn mqtt_disconnect(&self) -> crate::Result<()> {
+        Err(crate::EdgelinkError::NotSupported("MQTT shared broker connection is unavailable".to_owned()).into())
+    }
+
+    async fn mqtt_publish(
+        &self,
+        _topic: &str,
+        _qos: u8,
+        _retain: bool,
+        _payload: Vec<u8>,
+        _properties: Option<MqttBrokerPublishProperties>,
+    ) -> crate::Result<()> {
+        Err(crate::EdgelinkError::NotSupported("MQTT shared broker publishing is unavailable".to_owned()).into())
     }
 }
 
