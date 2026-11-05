@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
@@ -187,20 +187,23 @@ impl TcpInNode {
                     && !newline.is_empty()
                     && matches!(self.config.datatype, DataType::Utf8)
                 {
-                    // Read line by line for UTF-8 with newline separator
-                    let mut line = String::new();
-                    let bytes_read = reader.read_line(&mut line).await?;
-                    if bytes_read == 0 {
-                        return Ok(None); // EOF
-                    }
-
-                    if !self.config.trim {
-                        // Keep the newline if trim is false
-                        return Ok(Some(line.into_bytes()));
-                    } else {
-                        // Remove the newline if trim is true
-                        line = line.trim_end_matches(['\r', '\n']).to_string();
-                        return Ok(Some(line.into_bytes()));
+                    let delimiter = newline.as_bytes();
+                    loop {
+                        if let Some(index) = buffer.windows(delimiter.len()).position(|part| part == delimiter) {
+                            let end = index + delimiter.len();
+                            let mut message = buffer.drain(..end).collect::<Vec<_>>();
+                            message.truncate(index);
+                            if self.config.trim && delimiter.len() > 1 {
+                                message.extend_from_slice(delimiter);
+                            }
+                            return Ok(Some(message));
+                        }
+                        let mut temp_buf = [0u8; 4096];
+                        let bytes_read = reader.read(&mut temp_buf).await?;
+                        if bytes_read == 0 {
+                            return if buffer.is_empty() { Ok(None) } else { Ok(Some(buffer.drain(..).collect())) };
+                        }
+                        buffer.extend_from_slice(&temp_buf[..bytes_read]);
                     }
                 }
 

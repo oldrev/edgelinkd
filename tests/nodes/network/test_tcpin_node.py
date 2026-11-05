@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import socket
 
 import pytest
 
@@ -9,28 +10,34 @@ from tests import TEST_EDGELINLKD_CONFIG, edgelink
 async def _flow(node, port, expected_count=1):
     flow = [
         {"id": "0", "type": "tab"},
-        {"id": "1", "type": "tcp in", "z": "0", "wires": [["2"]], "port": port, **node},
+        {"id": "1", "type": "tcp in", "z": "0", "wires": [["2"]], "port": str(port), **node},
         {"id": "2", "type": "test-once", "z": "0"},
     ]
-    return asyncio.create_task(edgelink.run_flows_once(expected_count, 5.0, flow, [], TEST_EDGELINLKD_CONFIG))
+    return asyncio.ensure_future(edgelink.run_flows_once(expected_count, 5.0, flow, [], TEST_EDGELINLKD_CONFIG))
 
 
 async def _server_case(node, writes, expected):
-    port = 19200
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0)); port = probe.getsockname()[1]
     task = await _flow({"server": True, "host": "127.0.0.1", **node}, port, len(expected))
-    await asyncio.sleep(0.15)
-    reader, writer = await asyncio.open_connection("127.0.0.1", port)
-    for value in writes:
-        writer.write(value)
-        await writer.drain()
-        await asyncio.sleep(0.03)
-    result = await task
-    writer.close(); await writer.wait_closed()
+    try:
+        await asyncio.sleep(0.15)
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        for value in writes:
+            writer.write(value)
+            await writer.drain()
+            await asyncio.sleep(0.03)
+        result = await task
+        writer.close(); await writer.wait_closed()
+    finally:
+        if not task.done():
+            task.cancel()
     assert [m["payload"] for m in result] == expected
 
 
 async def _client_case(node, writes, expected):
-    port = 19201
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0)); port = probe.getsockname()[1]
     connected = asyncio.Event()
 
     async def peer(reader, writer):
@@ -72,7 +79,7 @@ CASES = [
 
 
 def _make_case(title, node, writes, expected, client):
-    async def test():
+    async def test(_self):
         await (_client_case if client else _server_case)(node, writes, expected)
     test.__name__ = "test_" + str(abs(hash(title)))
     test = pytest.mark.asyncio(test)
