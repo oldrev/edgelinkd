@@ -118,6 +118,11 @@
         "category": "network nodes",
         "nodes": [
             [
+                "tcp in",
+                "nodes/network/test_tcpin_node.py",
+                "test/nodes/core/network/31-tcpin_spec.js"
+            ],
+            [
                 "tcp request",
                 "nodes/network/test_tcprequest_node.py",
                 "test/nodes/core/network/31-tcprequest_spec.js"
