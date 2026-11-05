@@ -4,17 +4,17 @@
     {
       "name": "master",
       "ref": "master",
-      "commit": "90d42290c6a1d7e77503a1d43d14653947d322ef",
-      "generated_at": "2026-11-05T09:11:47.355580Z",
+      "commit": "3090685f8de432e15784580ae5561ea21c0ee647",
+      "generated_at": "2026-11-05T13:45:25.650427Z",
       "url": "reports/master.json",
       "totals": {
-        "covered": 1278,
+        "covered": 1309,
         "missing": 82,
         "extra": 0,
         "skipped": 173,
-        "js": 1533,
-        "python": 1451,
-        "coverage": 0.8336594911937377
+        "js": 1564,
+        "python": 1482,
+        "coverage": 0.8369565217391305
       }
     },
     {
