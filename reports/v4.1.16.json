@@ -1,19 +1,19 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-10-18T07:54:53.465323Z",
+  "generated_at": "2026-11-05T13:48:35.585166Z",
   "ref": "v4.1.16",
-  "commit": "deab289c78b7cf9e9ef8c4e42f85ab4155482d65",
+  "commit": "3090685f8de432e15784580ae5561ea21c0ee647",
   "node_red": {
     "version": "4.1.16"
   },
   "totals": {
-    "covered": 1258,
+    "covered": 1309,
     "missing": 82,
     "extra": 0,
     "skipped": 173,
-    "js": 1513,
-    "python": 1431,
-    "coverage": 0.8314606741573034
+    "js": 1564,
+    "python": 1482,
+    "coverage": 0.8369565217391305
   },
   "categories": [
     {
@@ -3239,6 +3239,99 @@
       "category": "network nodes",
       "nodes": [
         {
+          "node": "tcp in",
+          "python_spec_file": "nodes/network/test_tcpin_node.py",
+          "node_red_spec_file": "test/nodes/core/network/31-tcpin_spec.js",
+          "totals": {
+            "covered": 20,
+            "missing": 0,
+            "extra": 0,
+            "skipped": 0
+          },
+          "specs": [
+            {
+              "status": "covered",
+              "title": "TCP in Node should connect & recv data (Single/Buffer)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should connect & recv data (Single/String)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should connect & recv data (Stream/Base64)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should connect & recv data (Stream/Base64)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should connect & recv data (Stream/Buffer)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should connect & recv data (Stream/String/Delimiter:\\n)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should connect & recv data (Stream/String/No delimiter)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should recv data (Single/Buffer)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should recv data (Single/String)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should recv data (Stream/Base64)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should recv data (Stream/Base64)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should recv data (Stream/Buffer)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should recv data (Stream/String/Delimiter:\\n)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should recv data (Stream/String/Delimiter:o\\n)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should recv data (Stream/String/Delimiter:o\\n) and reattach o"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should recv data (Stream/String/No delimiter)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should recv multiple data (Stream/Base64)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should recv multiple data (Stream/Buffer)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should recv multiple data (Stream/String/Delimiter:\\n)"
+            },
+            {
+              "status": "covered",
+              "title": "TCP in Node should recv multiple data (Stream/String/No delimiter)"
+            }
+          ]
+        },
+        {
           "node": "tcp request",
           "python_spec_file": "nodes/network/test_tcprequest_node.py",
           "node_red_spec_file": "test/nodes/core/network/31-tcprequest_spec.js",
@@ -3859,6 +3952,143 @@
             {
               "status": "covered",
               "title": "HTTP Request Node should parse broken headers should reject broken headers"
+            }
+          ]
+        },
+        {
+          "node": "websocket",
+          "python_spec_file": "nodes/network/test_websocket_node.py",
+          "node_red_spec_file": "test/nodes/core/network/22-websocket_spec.js",
+          "totals": {
+            "covered": 31,
+            "missing": 0,
+            "extra": 0,
+            "skipped": 0
+          },
+          "specs": [
+            {
+              "status": "covered",
+              "title": "websocket Node websocket in node should report error if no server config"
+            },
+            {
+              "status": "covered",
+              "title": "websocket Node websocket out node should report error if no server config"
+            },
+            {
+              "status": "covered",
+              "title": "websocket Node websocket-client should NOT feedback more than once"
+            },
+            {
+              "status": "covered",
+              "title": "websocket Node websocket-client should close on delete"
+            },
+            {
+              "status": "covered",
+              "title": "websocket Node websocket-client should connect to server"
+            },
+            {
+              "status": "covered",
+              "title": "websocket Node websocket-client should handle protocol property"
+            },
+            {
+              "status": "covered",
+              "title": "websocket Node websocket-client should handle wholemsg property"
+            },
+            {
+              "status": "covered",
+              "title": "websocket Node websocket-client should initiate with subprotocol"
+            },
+            {
+              "status": "covered",
+              "title": "websocket Node websocket-client should load"
+            },
+            {
+              "status": "covered",
+              "title": "websocket Node websocket-client should not be server"
+            },
+            {
+              "status": "covered",
+              "title": "websocket Node websocket-client should receive data"
+            },
+            {
+              "status": "covered",
+              "title": "websocket Node websocket-client should receive wholemsg data"
+            },
+            {
+              "status": "covered",
+              "title": "websocket Node websocket-client should receive wholemsg when data not JSON"
+            },
+            {
+              "status": "covered",
+              "title": "websocket Node websocket-client should send"
+            },
+            {
+              "status": "covered",
+              "title": "websocket Node websocket-client should send buffer"
+            },
+            {
+              "status": "covered",
+              "title": "websocket Node websocket-client should send wholemsg"
+            },
+            {
+              "status": "covered",
+              "title": "websocket Node websocket-listener should be server"
+            },
+            {
+              "status": "covered",
+              "title": "websocket Node websocket-listener should broadcast"
+            },
+            {
+              "status": "covered",
+              "title": "websocket Node websocket-listener should close socket on delete"
+            },
+            {
+              "status": "covered",
+              "title": "websocket Node websocket-listener should create socket"
+            },
+            {
+              "status": "covered",
+              "title": "websocket Node websocket-listener should do nothing if no payload"
+            },
+            {
+              "status": "covered",
+              "title": "websocket Node websocket-listener should echo"
+            },
+            {
+              "status": "covered",
+              "title": "websocket Node websocket-listener should echo wholemsg"
+            },
+            {
+              "status": "covered",
+              "title": "websocket Node websocket-listener should handle wholemsg property"
+            },
+            {
+              "status": "covered",
+              "title": "websocket Node websocket-listener should load"
+            },
+            {
+              "status": "covered",
+              "title": "websocket Node websocket-listener should receive data"
+            },
+            {
+              "status": "covered",
+              "title": "websocket Node websocket-listener should receive wholemsg"
+            },
+            {
+              "status": "covered",
+              "title": "websocket Node websocket-listener should receive wholemsg when data not JSON"
+            },
+            {
+              "status": "covered",
+              "title": "websocket Node websocket-listener should receive wholemsg when data not object"
+            },
+            {
+              "status": "covered",
+              "title": "websocket Node websocket-listener should send"
+            },
+            {
+              "status": "covered",
+              "title": "websocket Node websocket-listener should send wholemsg"
             }
           ]
         }
