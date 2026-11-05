@@ -27,6 +27,7 @@ async def _server_case(node, writes, expected):
             writer.write(value)
             await writer.drain()
             await asyncio.sleep(0.03)
+        writer.write_eof()
         result = await task
         writer.close(); await writer.wait_closed()
     finally:
