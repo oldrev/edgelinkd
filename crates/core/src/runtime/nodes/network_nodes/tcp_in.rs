@@ -203,7 +203,11 @@ impl TcpInNode {
                         if bytes_read == 0 {
                             return if buffer.is_empty() { Ok(None) } else { Ok(Some(buffer.drain(..).collect())) };
                         }
+                        let had_pending = !buffer.is_empty();
                         buffer.extend_from_slice(&temp_buf[..bytes_read]);
+                        if !had_pending && !buffer.windows(delimiter.len()).any(|part| part == delimiter) {
+                            return Ok(Some(buffer.drain(..).collect()));
+                        }
                     }
                 }
 

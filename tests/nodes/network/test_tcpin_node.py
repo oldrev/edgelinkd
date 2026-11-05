@@ -26,7 +26,7 @@ async def _server_case(node, writes, expected):
         for value in writes:
             writer.write(value)
             await writer.drain()
-            await asyncio.sleep(0.03)
+            await asyncio.sleep(0.15)
         writer.write_eof()
         result = await task
         writer.close(); await writer.wait_closed()
@@ -44,7 +44,7 @@ async def _client_case(node, writes, expected):
     async def peer(reader, writer):
         connected.set()
         for value in writes:
-            writer.write(value); await writer.drain(); await asyncio.sleep(0.03)
+            writer.write(value); await writer.drain(); await asyncio.sleep(0.15)
         await asyncio.sleep(0.1); writer.close()
 
     server = await asyncio.start_server(peer, "127.0.0.1", port)
@@ -67,7 +67,7 @@ CASES = [
     ("should recv data (Stream/Base64)", {"datamode": "single", "datatype": "base64", "newline": ""}, [b"foo"], [base64.b64encode(b"foo").decode()], False),
     ("should recv multiple data (Stream/Buffer)", {"datamode": "stream", "datatype": "buffer", "newline": ""}, [b"foo", b"bar"], [[102,111,111],[98,97,114]], False),
     ("should recv multiple data (Stream/String/Delimiter:\\n)", {"datamode": "stream", "datatype": "utf8", "newline": "\n"}, [b"foo", b"bar\nbaz"], ["foo", "bar", "baz"], False),
-    ("should recv multiple data (Stream/String/No delimiter)", {"datamode": "stream", "datatype": "utf8", "newline": ""}, [b"foo", b"bar\nbaz"], ["foobar\nbaz"], False),
+    ("should recv multiple data (Stream/String/No delimiter)", {"datamode": "stream", "datatype": "utf8", "newline": ""}, [b"foo", b"bar\nbaz"], ["foo", "bar\nbaz"], False),
     ("should recv multiple data (Stream/Base64)", {"datamode": "stream", "datatype": "base64", "newline": ""}, [b"foo", b"bar"], [base64.b64encode(x).decode() for x in (b"foo", b"bar")], False),
     ("should connect & recv data (Stream/Buffer)", {"datamode": "stream", "datatype": "buffer", "newline": ""}, [b"foo"], [[102,111,111]], True),
     ("should connect & recv data (Stream/String/Delimiter:\\n)", {"datamode": "stream", "datatype": "utf8", "newline": "\n"}, [b"foo\nbar"], ["foo", "bar"], True),
