@@ -201,12 +201,12 @@ impl TcpInNode {
                         let mut temp_buf = [0u8; 4096];
                         let bytes_read = reader.read(&mut temp_buf).await?;
                         if bytes_read == 0 {
-                            return if buffer.is_empty() { Ok(None) } else { Ok(Some(buffer.drain(..).collect())) };
+                            return if buffer.is_empty() { Ok(None) } else { Ok(Some(std::mem::take(buffer))) };
                         }
                         let had_pending = !buffer.is_empty();
                         buffer.extend_from_slice(&temp_buf[..bytes_read]);
                         if !had_pending && !buffer.windows(delimiter.len()).any(|part| part == delimiter) {
-                            return Ok(Some(buffer.drain(..).collect()));
+                            return Ok(Some(std::mem::take(buffer)));
                         }
                     }
                 }
