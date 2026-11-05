@@ -49,18 +49,25 @@ async def _client_case(node, writes, expected):
 
 CASES = [
     ("should recv data (Stream/Buffer)", {"datamode": "stream", "datatype": "buffer", "newline": ""}, [b"foo"], [[102, 111, 111]], False),
-    ("should recv data (Stream/String/Delimiter:\\n)", {"datamode": "stream", "datatype": "utf8", "newline": "`n"}, [b"foo`nbar"], ["foo", "bar"], False),
-    ("should recv data (Stream/String/Delimiter:o\\n)", {"datamode": "stream", "datatype": "utf8", "newline": "o`n"}, [b"foo`nbar"], ["fo", "bar"], False),
-    ("should recv data (Stream/String/Delimiter:o\\n) and reattach o", {"datamode": "stream", "datatype": "utf8", "newline": "o`n", "trim": True}, [b"foo`nbar"], ["foo\\n", "bar"], False),
-    ("should recv data (Stream/String/No delimiter)", {"datamode": "stream", "datatype": "utf8", "newline": ""}, [b"foo`nbar"], ["foo\\nbar"], False),
+    ("should recv data (Stream/String/Delimiter:\\n)", {"datamode": "stream", "datatype": "utf8", "newline": "\n"}, [b"foo\nbar"], ["foo", "bar"], False),
+    ("should recv data (Stream/String/Delimiter:o\\n)", {"datamode": "stream", "datatype": "utf8", "newline": "o\n"}, [b"foo\nbar"], ["fo", "bar"], False),
+    ("should recv data (Stream/String/Delimiter:o\\n) and reattach o", {"datamode": "stream", "datatype": "utf8", "newline": "o\n", "trim": True}, [b"foo\nbar"], ["foo\n", "bar"], False),
+    ("should recv data (Stream/String/No delimiter)", {"datamode": "stream", "datatype": "utf8", "newline": ""}, [b"foo\nbar"], ["foo\nbar"], False),
     ("should recv data (Stream/Base64)", {"datamode": "stream", "datatype": "base64", "newline": ""}, [b"foo"], [base64.b64encode(b"foo").decode()], False),
     ("should recv data (Single/Buffer)", {"datamode": "single", "datatype": "buffer", "newline": ""}, [b"foo"], [[102, 111, 111]], False),
-    ("should recv data (Single/String)", {"datamode": "single", "datatype": "utf8", "newline": "`n"}, [b"foo\\nbar\\nbaz"], ["foo\\nbar\\nbaz"], False),
+    ("should recv data (Single/String)", {"datamode": "single", "datatype": "utf8", "newline": "\n"}, [b"foo\nbar\nbaz"], ["foo\nbar\nbaz"], False),
     ("should recv data (Stream/Base64)", {"datamode": "single", "datatype": "base64", "newline": ""}, [b"foo"], [base64.b64encode(b"foo").decode()], False),
     ("should recv multiple data (Stream/Buffer)", {"datamode": "stream", "datatype": "buffer", "newline": ""}, [b"foo", b"bar"], [[102,111,111],[98,97,114]], False),
-    ("should recv multiple data (Stream/String/Delimiter:\\n)", {"datamode": "stream", "datatype": "utf8", "newline": "`n"}, [b"foo", b"bar`nbaz"], ["foo", "bar", "baz"], False),
-    ("should recv multiple data (Stream/String/No delimiter)", {"datamode": "stream", "datatype": "utf8", "newline": ""}, [b"foo", b"bar`nbaz"], ["foobar\\nbaz"], False),
+    ("should recv multiple data (Stream/String/Delimiter:\\n)", {"datamode": "stream", "datatype": "utf8", "newline": "\n"}, [b"foo", b"bar\nbaz"], ["foo", "bar", "baz"], False),
+    ("should recv multiple data (Stream/String/No delimiter)", {"datamode": "stream", "datatype": "utf8", "newline": ""}, [b"foo", b"bar\nbaz"], ["foobar\nbaz"], False),
     ("should recv multiple data (Stream/Base64)", {"datamode": "stream", "datatype": "base64", "newline": ""}, [b"foo", b"bar"], [base64.b64encode(x).decode() for x in (b"foo", b"bar")], False),
+    ("should connect & recv data (Stream/Buffer)", {"datamode": "stream", "datatype": "buffer", "newline": ""}, [b"foo"], [[102,111,111]], True),
+    ("should connect & recv data (Stream/String/Delimiter:\\n)", {"datamode": "stream", "datatype": "utf8", "newline": "\n"}, [b"foo\nbar"], ["foo", "bar"], True),
+    ("should connect & recv data (Stream/String/No delimiter)", {"datamode": "stream", "datatype": "utf8", "newline": ""}, [b"foo\nbar"], ["foo\nbar"], True),
+    ("should connect & recv data (Stream/Base64)", {"datamode": "stream", "datatype": "base64", "newline": ""}, [b"foo"], [base64.b64encode(b"foo").decode()], True),
+    ("should connect & recv data (Single/Buffer)", {"datamode": "single", "datatype": "buffer", "newline": ""}, [b"foo"], [[102,111,111]], True),
+    ("should connect & recv data (Single/String)", {"datamode": "single", "datatype": "utf8", "newline": "\n"}, [b"foo\nbar\nbaz"], ["foo\nbar\nbaz"], True),
+    ("should connect & recv data (Stream/Base64)", {"datamode": "single", "datatype": "base64", "newline": ""}, [b"foo"], [base64.b64encode(b"foo").decode()], True),
 ]
 
 
@@ -78,6 +85,6 @@ class TestTcpIn:
     pass
 
 
-for _title, _node, _writes, _expected, _client in CASES:
-    setattr(TestTcpIn, "test_" + str(abs(hash(_title))), _make_case(_title, _node, _writes, _expected, _client))
+for _index, (_title, _node, _writes, _expected, _client) in enumerate(CASES, 1):
+    setattr(TestTcpIn, f"test_{_index:04d}", _make_case(_title, _node, _writes, _expected, _client))
 
