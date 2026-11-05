@@ -1,8 +1,12 @@
 use axum::{
     Extension,
-    extract::{ws::WebSocket, ws::WebSocketUpgrade},
-    response::Response,
+    extract::{
+        FromRequestParts, Request,
+        ws::{Message as AxumMessage, WebSocket, WebSocketUpgrade},
+    },
+    response::{IntoResponse, Response},
 };
+use edgelink_core::runtime::nodes::network_nodes::websocket_session::Message as TungsteniteMessage;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -13,6 +17,58 @@ use tokio::sync::broadcast;
 use tokio::time::{Duration, interval};
 
 use crate::handlers::WebState;
+
+/// Bridge a Node-RED websocket configuration endpoint into the core endpoint registry.
+pub async fn websocket_node_handler(
+    Extension(state): Extension<Arc<WebState>>,
+    request: Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let endpoint =
+        state.engine.read().await.as_ref().and_then(|engine| engine.request_sessions().get_path(request.uri().path()));
+    let Some(endpoint) = endpoint else {
+        return next.run(request).await;
+    };
+    let (mut parts, _) = request.into_parts();
+    let ws = match WebSocketUpgrade::from_request_parts(&mut parts, &()).await {
+        Ok(ws) => ws,
+        Err(error) => return error.into_response(),
+    };
+    ws.on_upgrade(move |socket| async move {
+        let (mut sender, mut receiver) = socket.split();
+        let mut outgoing = endpoint.subscribe_outgoing();
+        let endpoint_for_input = endpoint.clone();
+        let session_id = edgelink_core::runtime::model::ElementId::new().to_string();
+        let input_session_id = session_id.clone();
+        tokio::select! {
+            _ = async move {
+                while let Some(Ok(message)) = receiver.next().await {
+                    match message {
+                        AxumMessage::Text(text) => endpoint_for_input.publish_incoming_from(TungsteniteMessage::Text(text.to_string().into()), input_session_id.clone()),
+                        AxumMessage::Binary(data) => endpoint_for_input.publish_incoming_from(TungsteniteMessage::Binary(data), input_session_id.clone()),
+                        AxumMessage::Close(_) => break,
+                        _ => {}
+                    }
+                }
+            } => {},
+            _ = async move {
+                while let Ok(message) = outgoing.recv().await {
+                    if message.session_id.as_ref().is_some_and(|id| id != &session_id) { continue; }
+                    let result = match message.message {
+                        TungsteniteMessage::Text(text) => sender.send(AxumMessage::Text(text.to_string().into())).await,
+                        TungsteniteMessage::Binary(data) => sender.send(AxumMessage::Binary(data.to_vec().into())).await,
+                        TungsteniteMessage::Close(_) => {
+                            let _ = sender.send(AxumMessage::Close(None)).await;
+                            break;
+                        }
+                        _ => Ok(())
+                    };
+                    if result.is_err() { break; }
+                }
+            } => {},
+        }
+    }).into_response()
+}
 
 /// Node-RED WebSocket message format
 #[derive(Debug, Clone, Serialize, Deserialize)]

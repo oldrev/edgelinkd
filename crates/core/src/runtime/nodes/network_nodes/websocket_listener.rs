@@ -1,325 +1,87 @@
-use futures_util::{SinkExt, StreamExt};
-use std::collections::HashMap;
-use std::net::SocketAddr;
-use std::sync::Arc;
-use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{Mutex, RwLock};
-use tokio_tungstenite::{WebSocketStream, accept_async, tungstenite::Message};
-use tokio_util::sync::CancellationToken;
-
-use serde::Deserialize;
-
-use crate::runtime::flow::Flow;
+use super::websocket_session::{Message, WebSocketEndpoint};
+use crate::runtime::engine::Engine;
 use crate::runtime::nodes::*;
 use edgelink_macro::*;
-
-type WebSocketConnection = Arc<Mutex<WebSocketStream<TcpStream>>>;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
-enum WebSocketType {
-    #[serde(rename = "server")]
-    #[default]
-    Server,
-    #[serde(rename = "client")]
-    Client,
-}
+use serde::Deserialize;
+use std::sync::Arc;
+use tokio_util::sync::CancellationToken;
 
 #[derive(Debug)]
-#[flow_node("websocket-listener", red_name = "websocket")]
+#[global_node("websocket-listener", red_name = "websocket")]
 struct WebSocketListenerNode {
-    base: BaseFlowNodeState,
-    config: WebSocketListenerConfig,
-    connections: Arc<RwLock<HashMap<String, WebSocketConnection>>>,
-    listener: Arc<Mutex<Option<TcpListener>>>,
+    base: BaseGlobalNodeState,
+    endpoint: Arc<WebSocketEndpoint>,
 }
 
 impl WebSocketListenerNode {
     fn build(
-        _flow: &Flow,
-        state: BaseFlowNodeState,
-        config: &RedFlowNodeConfig,
+        engine: &Engine,
+        config: &RedGlobalNodeConfig,
         _options: Option<&config::Config>,
-    ) -> crate::Result<Box<dyn FlowNodeBehavior>> {
+    ) -> crate::Result<Box<dyn GlobalNodeBehavior>> {
+        super::websocket_session::validate_options(&config.rest, true)?;
         let ws_config = WebSocketListenerConfig::deserialize(&config.rest)?;
-        let node = WebSocketListenerNode {
-            base: state,
-            config: ws_config,
-            connections: Arc::new(RwLock::new(HashMap::new())),
-            listener: Arc::new(Mutex::new(None)),
+        if !ws_config.path.starts_with('/') {
+            return Err(
+                crate::EdgelinkError::InvalidOperation("WebSocket listener path must start with /".into()).into()
+            );
+        }
+        let endpoint = engine.request_sessions().register_endpoint(config.id.to_string())?;
+        endpoint.set_wholemsg(ws_config.wholemsg);
+        if !config.disabled {
+            engine.request_sessions().bind_path(config.id.to_string(), ws_config.path.clone())?;
+        }
+        let state = BaseGlobalNodeState {
+            id: config.id,
+            name: config.name.clone(),
+            type_str: "websocket-listener",
+            ordering: config.ordering,
+            disabled: config.disabled,
+            context: engine.get_context_manager().new_context(engine.context(), config.id.to_string()),
         };
-        Ok(Box::new(node))
+        Ok(Box::new(Self { base: state, endpoint }))
     }
 }
 
 #[derive(Deserialize, Debug)]
-#[allow(dead_code)]
 struct WebSocketListenerConfig {
-    /// Path for WebSocket endpoint
-    #[serde(default = "default_path")]
     path: String,
-
-    /// Port to listen on
-    #[serde(deserialize_with = "crate::runtime::model::json::deser::str_to_option_u16")]
-    port: Option<u16>,
-
-    /// Whether to send whole message or just payload
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::websocket_session::deserialize_wholemsg")]
     wholemsg: bool,
-
-    /// WebSocket type (server/client)
-    #[serde(default, rename = "type")]
-    ws_type: WebSocketType,
-
-    /// Server URL (for client mode)
-    url: Option<String>,
-
-    /// Protocol(s) to use
-    protocol: Option<String>,
-
-    /// Headers to send (for client mode)
-    headers: Option<std::collections::BTreeMap<String, String>>,
-}
-
-fn default_path() -> String {
-    "/ws".to_string()
-}
-
-impl WebSocketListenerNode {
-    async fn start_server(&self) -> crate::Result<()> {
-        let port = self.config.port.unwrap_or(1880);
-        let addr = format!("0.0.0.0:{port}");
-
-        let listener = TcpListener::bind(&addr)
-            .await
-            .map_err(|e| crate::EdgelinkError::InvalidOperation(format!("Failed to bind to {addr}: {e}")))?;
-
-        log::info!("WebSocket listener: Listening on {addr}");
-
-        let mut listener_guard = self.listener.lock().await;
-        *listener_guard = Some(listener);
-
-        Ok(())
-    }
-
-    async fn accept_connections(&self, stop_token: CancellationToken) {
-        // We'll handle the listener directly without cloning
-        while !stop_token.is_cancelled() {
-            let accept_result = {
-                let guard = self.listener.lock().await;
-                if let Some(ref listener) = *guard {
-                    // Use select to make the accept cancellable
-                    tokio::select! {
-                        _ = stop_token.cancelled() => {
-                            break;
-                        }
-                        result = listener.accept() => {
-                            Some(result)
-                        }
-                    }
-                } else {
-                    None
-                }
-            };
-
-            if let Some(result) = accept_result {
-                match result {
-                    Ok((stream, addr)) => {
-                        log::debug!("WebSocket listener: New connection from {addr}");
-                        let connections = self.connections.clone();
-                        let stop_token = stop_token.clone();
-                        let path = self.config.path.clone();
-                        let wholemsg = self.config.wholemsg;
-
-                        tokio::spawn(async move {
-                            if let Err(e) =
-                                Self::handle_connection(stream, addr, connections, stop_token, path, wholemsg).await
-                            {
-                                log::error!("WebSocket listener: Connection error: {e}");
-                            }
-                        });
-                    }
-                    Err(e) => {
-                        log::error!("WebSocket listener: Accept error: {e}");
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    async fn handle_connection(
-        stream: TcpStream,
-        addr: SocketAddr,
-        connections: Arc<RwLock<HashMap<String, WebSocketConnection>>>,
-        stop_token: CancellationToken,
-        _path: String,
-        _wholemsg: bool,
-    ) -> crate::Result<()> {
-        // Accept WebSocket connection
-        let ws_stream = accept_async(stream)
-            .await
-            .map_err(|e| crate::EdgelinkError::InvalidOperation(format!("WebSocket handshake failed: {e}")))?;
-
-        let connection_id = format!("{addr}");
-        let ws_connection = Arc::new(Mutex::new(ws_stream));
-
-        // Store connection
-        {
-            let mut connections_guard = connections.write().await;
-            connections_guard.insert(connection_id.clone(), ws_connection.clone());
-        }
-
-        log::info!("WebSocket listener: Connection established with {addr}");
-
-        // Handle messages from this connection
-        let mut ws_stream = ws_connection.lock().await;
-
-        // Message receiving loop
-        while !stop_token.is_cancelled() {
-            tokio::select! {
-                _ = stop_token.cancelled() => break,
-                msg = ws_stream.next() => {
-                    match msg {
-                        Some(Ok(Message::Text(text))) => {
-                            log::debug!("WebSocket listener: Received text: {text}");
-                            // TODO: Send to output - would need different architecture
-                        }
-                        Some(Ok(Message::Binary(data))) => {
-                            log::debug!("WebSocket listener: Received binary data: {} bytes", data.len());
-                            // TODO: Send to output - would need different architecture
-                        }
-                        Some(Ok(Message::Close(_))) => {
-                            log::info!("WebSocket listener: Connection {addr} closed by client");
-                            break;
-                        }
-                        Some(Ok(Message::Ping(data))) => {
-                            if let Err(e) = ws_stream.send(Message::Pong(data)).await {
-                                log::error!("WebSocket listener: Failed to send pong: {e}");
-                                break;
-                            }
-                        }
-                        Some(Ok(Message::Pong(_))) => {
-                            // Handle pong
-                        }
-                        Some(Ok(Message::Frame(_))) => {
-                            // Handle raw frames - usually not needed in application code
-                            log::debug!("WebSocket listener: Received raw frame");
-                        }
-                        Some(Err(e)) => {
-                            log::error!("WebSocket listener: Receive error: {e}");
-                            break;
-                        }
-                        None => {
-                            log::info!("WebSocket listener: Connection {addr} ended");
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        // Remove connection
-        {
-            let mut connections_guard = connections.write().await;
-            connections_guard.remove(&connection_id);
-        }
-
-        log::info!("WebSocket listener: Connection {addr} cleaned up");
-        Ok(())
-    }
-
-    async fn handle_input_message(&self, msg: MsgHandle, _stop_token: CancellationToken) -> crate::Result<()> {
-        let msg_guard = msg.read().await;
-
-        // Get the payload to broadcast
-        let payload = msg_guard.get("payload").cloned().unwrap_or(Variant::Null);
-        let target_id = msg_guard.get("_sessionid").and_then(|v| v.as_str()).map(String::from);
-
-        drop(msg_guard);
-
-        // Convert payload to WebSocket message
-        let ws_message = match &payload {
-            Variant::String(s) => Message::Text(s.clone().into()),
-            Variant::Array(arr) => {
-                // Convert array of numbers to binary data
-                let mut bytes = Vec::new();
-                for item in arr {
-                    if let Some(num) = item.as_number()
-                        && let Some(b) = num.as_u64()
-                        && b <= 255
-                    {
-                        bytes.push(b as u8);
-                    }
-                }
-                Message::Binary(bytes.into())
-            }
-            _ => {
-                // Convert other types to JSON string
-                let json_str = serde_json::to_string(&payload).unwrap_or_else(|_| format!("{payload:?}"));
-                Message::Text(json_str.into())
-            }
-        };
-
-        // Send to specific connection or broadcast to all
-        let connections_guard = self.connections.read().await;
-
-        if let Some(target_id) = target_id {
-            // Send to specific connection
-            if let Some(connection) = connections_guard.get(&target_id) {
-                let mut conn = connection.lock().await;
-                if let Err(e) = conn.send(ws_message).await {
-                    log::error!("WebSocket listener: Failed to send to {target_id}: {e}");
-                }
-            } else {
-                log::warn!("WebSocket listener: Target connection {target_id} not found");
-            }
-        } else {
-            // Broadcast to all connections
-            for (id, connection) in connections_guard.iter() {
-                let mut conn = connection.lock().await;
-                if let Err(e) = conn.send(ws_message.clone()).await {
-                    log::error!("WebSocket listener: Failed to broadcast to {id}: {e}");
-                }
-            }
-        }
-
-        Ok(())
-    }
 }
 
 #[async_trait::async_trait]
-impl FlowNodeBehavior for WebSocketListenerNode {
-    fn get_base(&self) -> &BaseFlowNodeState {
+impl GlobalNodeBehavior for WebSocketListenerNode {
+    fn get_base(&self) -> &BaseGlobalNodeState {
         &self.base
     }
+    async fn start(self: Arc<Self>, _cancel: CancellationToken) -> crate::Result<()> {
+        Ok(())
+    }
+    async fn stop(&self) -> crate::Result<()> {
+        self.endpoint.publish_outgoing(Message::Close(None));
+        Ok(())
+    }
+}
 
-    async fn run(self: Arc<Self>, stop_token: CancellationToken) {
-        // Start the WebSocket server
-        if let Err(e) = self.start_server().await {
-            log::error!("WebSocket listener: Failed to start server: {e}");
-            return;
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
 
-        // Start accepting connections in a separate task
-        let self_clone = self.clone();
-        let accept_token = stop_token.clone();
-        let accept_task = tokio::spawn(async move {
-            self_clone.accept_connections(accept_token).await;
-        });
-
-        // Handle input messages
-        while !stop_token.is_cancelled() {
-            let self_clone = self.clone();
-            let stop_token_clone = stop_token.clone();
-
-            with_uow(self_clone.as_ref(), stop_token_clone.clone(), |node, msg| async move {
-                node.handle_input_message(msg, stop_token_clone).await
-            })
-            .await;
-        }
-
-        // Clean up
-        accept_task.abort();
-        log::info!("WebSocket listener: Node stopped");
+    #[test]
+    fn loads_upstream_listener_configuration_without_flow_or_port() {
+        let engine = crate::runtime::engine::build_test_engine(json!([
+            {"id":"100", "type":"tab"},
+            {"id":"1", "type":"websocket-listener", "path":"/ws", "wholemsg":"true"},
+            {"id":"2", "type":"websocket in", "z":"100", "server":"1"},
+            {"id":"3", "type":"websocket out", "z":"100", "server":"1"}
+        ]))
+        .unwrap();
+        assert!(engine.find_global_node_by_id(&"1".parse().unwrap()).is_some());
+        assert!(engine.find_flow_node_by_id(&"1".parse().unwrap()).is_none());
+        let config: WebSocketListenerConfig = serde_json::from_value(json!({"path":"/ws", "wholemsg":"true"})).unwrap();
+        assert!(config.wholemsg);
+        assert_eq!(config.path, "/ws");
     }
 }

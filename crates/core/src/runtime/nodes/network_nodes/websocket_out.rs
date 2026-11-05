@@ -28,6 +28,7 @@ struct WebSocketOutNode {
     base: BaseFlowNodeState,
     config: WebSocketOutConfig,
     connection: Arc<Mutex<Option<ClientWebSocketStream>>>,
+    endpoint_id: Option<String>,
 }
 
 impl WebSocketOutNode {
@@ -38,7 +39,11 @@ impl WebSocketOutNode {
         _options: Option<&config::Config>,
     ) -> crate::Result<Box<dyn FlowNodeBehavior>> {
         let ws_config = WebSocketOutConfig::deserialize(&config.rest)?;
-        let node = WebSocketOutNode { base: state, config: ws_config, connection: Arc::new(Mutex::new(None)) };
+        let endpoint_id =
+            config.rest.get("server").or_else(|| config.rest.get("client")).and_then(|value| value.as_str());
+        let endpoint_id = endpoint_id.map(str::to_owned);
+        let node =
+            WebSocketOutNode { base: state, config: ws_config, connection: Arc::new(Mutex::new(None)), endpoint_id };
         Ok(Box::new(node))
     }
 }
@@ -54,11 +59,11 @@ struct WebSocketOutConfig {
     path: String,
 
     /// Whether to send whole message or just payload
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::websocket_session::deserialize_wholemsg")]
     wholemsg: bool,
 
     /// Client type (connect/listen)
-    #[serde(default, rename = "client")]
+    #[serde(default, rename = "connection_type")]
     client_type: WebSocketOutType,
 
     /// Protocol(s) to use
@@ -165,6 +170,44 @@ impl WebSocketOutNode {
     async fn handle_input_message(&self, msg: MsgHandle, _stop_token: CancellationToken) -> crate::Result<()> {
         let msg_guard = msg.read().await;
 
+        if let Some(endpoint_id) = &self.endpoint_id {
+            let endpoint =
+                self.engine().and_then(|engine| engine.request_sessions().get_endpoint(endpoint_id)).ok_or_else(
+                    || crate::EdgelinkError::InvalidOperation(format!("websocket.errors.missing-conf: {endpoint_id}")),
+                )?;
+            if !endpoint.wholemsg() && msg_guard.get("payload").is_none() {
+                return Ok(());
+            }
+            let session_id = msg_guard
+                .get("_session")
+                .and_then(|value| value.as_object())
+                .filter(|session| session.get("type").and_then(|value| value.as_str()) == Some("websocket"))
+                .and_then(|session| session.get("id"))
+                .and_then(|id| id.as_str())
+                .map(str::to_owned);
+            let payload = if endpoint.wholemsg() {
+                let mut body = msg_guard.as_variant_object().clone();
+                body.remove("_session");
+                Variant::Object(body)
+            } else {
+                msg_guard.get("payload").cloned().unwrap_or(Variant::Null)
+            };
+            let message = match payload {
+                Variant::String(value) => Message::Text(value.into()),
+                Variant::Bytes(value) => Message::Binary(value.into()),
+                Variant::Array(values) => Message::Binary(
+                    values
+                        .into_iter()
+                        .filter_map(|value| value.as_number().and_then(|number| number.as_u64()).map(|v| v as u8))
+                        .collect::<Vec<_>>()
+                        .into(),
+                ),
+                value => Message::Text(serde_json::to_string(&value).unwrap_or_default().into()),
+            };
+            endpoint.publish_reply(message, session_id);
+            return Ok(());
+        }
+
         // Check for control commands
         if let Some(command) = msg_guard.get("connect")
             && command.as_bool().unwrap_or(false)
@@ -265,6 +308,11 @@ impl FlowNodeBehavior for WebSocketOutNode {
     }
 
     async fn run(self: Arc<Self>, stop_token: CancellationToken) {
+        if self.endpoint_id.is_none() {
+            self.report_error("websocket.errors.missing-conf".to_owned(), MsgHandle::default(), stop_token).await;
+            return;
+        }
+
         // Establish initial connection if auto-connect is enabled
         if self.config.reconnect
             && let Err(e) = self.ensure_connection().await

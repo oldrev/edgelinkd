@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use tokio::sync::{RwLock, oneshot};
+use tokio::sync::oneshot;
 
 /// HTTP Response for sending back to HTTP In nodes
 #[derive(Debug, Clone)]
@@ -18,37 +18,29 @@ impl Default for HttpResponse {
 /// A sender for HTTP responses
 pub type HttpResponseSender = oneshot::Sender<HttpResponse>;
 
-/// Global HTTP response registry for coordinating between HTTP In and HTTP Out nodes
-#[derive(Debug, Default)]
-pub struct HttpResponseRegistry {
-    handlers: RwLock<HashMap<String, HttpResponseSender>>,
+/// One pending HTTP response, owned by the generic request-session manager.
+#[derive(Debug)]
+pub struct HttpRequestSession {
+    sender: std::sync::Mutex<Option<HttpResponseSender>>,
 }
 
-impl HttpResponseRegistry {
-    pub fn new() -> Self {
-        Self { handlers: RwLock::new(HashMap::new()) }
+impl HttpRequestSession {
+    pub fn new(sender: HttpResponseSender) -> Self {
+        Self { sender: std::sync::Mutex::new(Some(sender)) }
     }
-
-    /// Register a response handler with a unique message ID
-    pub async fn register_handler(&self, msg_id: String, sender: HttpResponseSender) {
-        let mut handlers = self.handlers.write().await;
-        handlers.insert(msg_id, sender);
-    }
-
-    /// Send a response to the registered handler
-    pub async fn send_response(&self, msg_id: &str, response: HttpResponse) -> Result<(), HttpResponse> {
-        let mut handlers = self.handlers.write().await;
-        if let Some(sender) = handlers.remove(msg_id) {
-            sender.send(response)
-        } else {
-            log::warn!("HTTP response registry: No handler found for message ID: {msg_id}");
-            Err(response)
+    pub fn respond(&self, response: HttpResponse) -> Result<(), HttpResponse> {
+        match self.sender.lock().unwrap().take() {
+            Some(sender) => sender.send(response),
+            None => Err(response),
         }
     }
+}
 
-    /// Clean up expired handlers (optional, for memory management)
-    pub async fn cleanup_handler(&self, msg_id: &str) {
-        let mut handlers = self.handlers.write().await;
-        handlers.remove(msg_id);
+impl crate::runtime::request_session::RequestSession for HttpRequestSession {
+    fn close(&self) {
+        self.sender.lock().unwrap().take();
+    }
+    fn into_any(self: std::sync::Arc<Self>) -> std::sync::Arc<dyn std::any::Any + Send + Sync> {
+        self
     }
 }

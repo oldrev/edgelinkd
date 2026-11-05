@@ -12,8 +12,15 @@ impl Engine {
             return Err(EdgelinkError::invalid_operation("no flows loaded in the engine."));
         }
 
+        self.inner.request_sessions.reopen();
         self.publish_event(EngineEvent::EngineStarted);
         self.inner.context_manager.open_all().await?;
+
+        for node in self.inner.global_nodes.iter().map(|entry| entry.value().clone()).collect::<Vec<_>>() {
+            if !node.get_base().disabled {
+                node.clone().start(self.inner.stop_token.child_token()).await?;
+            }
+        }
 
         for f in self.inner.flows.iter() {
             f.value().start().await?;
@@ -32,8 +39,14 @@ impl Engine {
         log::info!("-- Stopping engine...");
 
         self.inner.stop_token.cancel();
+        self.inner.request_sessions.close_all();
         for flow in self.inner.flows.iter() {
             flow.value().stop().await?;
+        }
+        for node in self.inner.global_nodes.iter().map(|entry| entry.value().clone()).collect::<Vec<_>>() {
+            if !node.get_base().disabled {
+                node.stop().await?;
+            }
         }
         self.inner.context_manager.close_all().await?;
 

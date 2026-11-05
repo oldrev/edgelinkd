@@ -35,7 +35,7 @@ mod sequence_nodes;
 mod storage_nodes;
 
 #[cfg(feature = "nodes_network")]
-mod network_nodes;
+pub mod network_nodes;
 
 pub mod wellknown_names {
     pub const UNKNOWN_GLOBAL_NODE: &str = "unknown.global";
@@ -277,6 +277,16 @@ pub trait ScopedNodeBehavior {
 #[async_trait]
 pub trait GlobalNodeBehavior: Send + Sync + FlowsElement {
     fn get_base(&self) -> &BaseGlobalNodeState;
+
+    /// Start resources owned by a configuration node before flow tasks run.
+    async fn start(self: Arc<Self>, _cancel: CancellationToken) -> crate::Result<()> {
+        Ok(())
+    }
+
+    /// Release resources owned by a configuration node after flow tasks stop.
+    async fn stop(&self) -> crate::Result<()> {
+        Ok(())
+    }
 
     fn mqtt_settings(&self) -> Option<MqttBrokerSettings> {
         None

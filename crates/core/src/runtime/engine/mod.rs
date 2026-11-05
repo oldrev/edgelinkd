@@ -10,7 +10,6 @@ use tokio_util::sync::CancellationToken;
 use super::context::{Context, ContextManager, ContextManagerBuilder};
 use super::debug_channel::DebugChannel;
 use super::engine_events::{EngineEvent, EngineEventBus};
-use super::http_registry::HttpResponseRegistry;
 use super::model::json::{RedFlowConfig, RedGlobalNodeConfig};
 use super::model::*;
 use super::node_log_channel::NodeLogChannel;
@@ -75,7 +74,7 @@ struct InnerEngine {
     flows: DashMap<ElementId, Flow>,
     global_nodes: DashMap<ElementId, Arc<dyn GlobalNodeBehavior>>,
     all_flow_nodes: DashMap<ElementId, Arc<dyn FlowNodeBehavior>>,
-    http_response_registry: Arc<HttpResponseRegistry>,
+    request_sessions: Arc<crate::runtime::request_session::RequestSessionManager>,
     debug_channel: DebugChannel,
     status_channel: StatusChannel,
     node_log_channel: NodeLogChannel,
@@ -150,7 +149,7 @@ impl Engine {
                 elcfg: elcfg.clone(),
                 context_manager,
                 context,
-                http_response_registry: Arc::new(HttpResponseRegistry::new()),
+                request_sessions: Arc::new(Default::default()),
                 debug_channel: DebugChannel::new(1000),
                 status_channel: StatusChannel::new(1000),
                 node_log_channel: NodeLogChannel::new(1000),
@@ -501,6 +500,12 @@ impl std::fmt::Debug for InnerEngine {
 pub fn build_test_engine(flows_json: serde_json::Value) -> crate::Result<Engine> {
     let registry = crate::runtime::registry::RegistryBuilder::default().build().unwrap();
     Engine::with_json(&registry, flows_json, None)
+}
+
+impl Engine {
+    pub fn request_sessions(&self) -> &crate::runtime::request_session::RequestSessionManager {
+        &self.inner.request_sessions
+    }
 }
 
 #[cfg(test)]

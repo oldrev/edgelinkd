@@ -214,6 +214,22 @@ impl TcpOutNode {
         }
 
         let session_id = session_id.unwrap();
+        if let Some(engine) = self.engine()
+            && let Some(session) = engine.request_sessions().get::<super::tcp_session::TcpSession>(&session_id)
+        {
+            if msg_guard.get("reset").is_some_and(|value| value.as_bool() == Some(true) || value.as_str().is_some()) {
+                engine.request_sessions().remove(&session_id);
+                return Ok(());
+            }
+            if let Some(payload) = msg_guard.get("payload") {
+                let data = self.get_payload_bytes(payload).await?;
+                tokio::select! {
+                    _ = session.cancel.cancelled() => return Err(crate::EdgelinkError::InvalidOperation("TCP session closed".into()).into()),
+                    result = session.sender.send(data) => result.map_err(|_| crate::EdgelinkError::InvalidOperation("TCP session closed".into()))?,
+                }
+            }
+            return Ok(());
+        }
 
         // Check for reset command
         if let Some(reset) = msg_guard.get("reset")

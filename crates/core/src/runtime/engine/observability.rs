@@ -67,10 +67,6 @@ impl Engine {
         &self.inner.context
     }
 
-    pub fn http_response_registry(&self) -> &Arc<HttpResponseRegistry> {
-        &self.inner.http_response_registry
-    }
-
     pub fn debug_channel(&self) -> &DebugChannel {
         &self.inner.debug_channel
     }

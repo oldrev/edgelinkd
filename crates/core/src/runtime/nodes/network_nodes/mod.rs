@@ -43,6 +43,12 @@ mod websocket_out;
 #[cfg(feature = "nodes_websocket")]
 mod websocket_client;
 
+#[cfg(feature = "nodes_websocket")]
+pub mod websocket_session;
+
 // Configuration nodes
 mod http_proxy_config;
 mod tls_config;
+
+#[cfg(feature = "nodes_tcp")]
+mod tcp_session;

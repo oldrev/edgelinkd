@@ -149,7 +149,12 @@ impl HttpOutNode {
 
         // Send response through global registry
         if let Some(engine) = self.engine() {
-            match engine.http_response_registry().send_response(&msg_id, response).await {
+            let result =
+                match engine.request_sessions().take::<crate::runtime::http_registry::HttpRequestSession>(&msg_id) {
+                    Some(session) => session.respond(response),
+                    None => Err(response),
+                };
+            match result {
                 Ok(()) => {
                     log::info!(
                         "HTTP out: Sent response {} with {} bytes for message {}",

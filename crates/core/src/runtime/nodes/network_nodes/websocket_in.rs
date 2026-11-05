@@ -28,6 +28,7 @@ struct WebSocketInNode {
     base: BaseFlowNodeState,
     config: WebSocketInConfig,
     connection: Arc<Mutex<Option<ClientWebSocketStream>>>,
+    endpoint_id: Option<String>,
 }
 
 impl WebSocketInNode {
@@ -38,7 +39,11 @@ impl WebSocketInNode {
         _options: Option<&config::Config>,
     ) -> crate::Result<Box<dyn FlowNodeBehavior>> {
         let ws_config = WebSocketInConfig::deserialize(&config.rest)?;
-        let node = WebSocketInNode { base: state, config: ws_config, connection: Arc::new(Mutex::new(None)) };
+        let endpoint_id =
+            config.rest.get("server").or_else(|| config.rest.get("client")).and_then(|value| value.as_str());
+        let endpoint_id = endpoint_id.map(str::to_owned);
+        let node =
+            WebSocketInNode { base: state, config: ws_config, connection: Arc::new(Mutex::new(None)), endpoint_id };
         Ok(Box::new(node))
     }
 }
@@ -54,11 +59,11 @@ struct WebSocketInConfig {
     path: String,
 
     /// Whether to send whole message or just payload
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::websocket_session::deserialize_wholemsg")]
     wholemsg: bool,
 
     /// Client type (connect/listen)
-    #[serde(default, rename = "client")]
+    #[serde(default, rename = "connection_type")]
     client_type: WebSocketClientType,
 
     /// Protocol(s) to use
@@ -269,6 +274,60 @@ impl WebSocketInNode {
 
         Ok(())
     }
+
+    async fn receive_endpoint_messages(self: Arc<Self>, stop_token: CancellationToken) {
+        let Some(engine) = self.engine() else { return };
+        let Some(endpoint_id) = &self.endpoint_id else { return };
+        let Some(endpoint) = engine.request_sessions().get_endpoint(endpoint_id) else {
+            self.report_error(
+                format!("websocket.errors.missing-conf: {endpoint_id}"),
+                MsgHandle::default(),
+                stop_token,
+            )
+            .await;
+            return;
+        };
+        let mut messages = endpoint.subscribe_incoming();
+        while !stop_token.is_cancelled() {
+            let message = tokio::select! {
+                _ = stop_token.cancelled() => break,
+                result = messages.recv() => match result {
+                    Ok(message) => message,
+                    Err(_) => break,
+                },
+            };
+            let session_id = message.session_id;
+            let payload = match message.message {
+                Message::Text(text) => {
+                    let text = text.to_string();
+                    if endpoint.wholemsg() {
+                        serde_json::from_str::<serde_json::Value>(&text)
+                            .ok()
+                            .map(Variant::from)
+                            .unwrap_or_else(|| Variant::String(text))
+                    } else {
+                        Variant::String(text)
+                    }
+                }
+                Message::Binary(data) => Variant::Array(
+                    data.into_iter().map(|byte| Variant::Number(serde_json::Number::from(byte))).collect(),
+                ),
+                _ => continue,
+            };
+            let msg = if endpoint.wholemsg() && payload.is_object() {
+                MsgHandle::with_body(payload)
+            } else {
+                MsgHandle::with_payload(payload)
+            };
+            if let Some(id) = session_id {
+                msg.write()
+                    .await
+                    .as_variant_object_mut()
+                    .insert("_session".into(), Variant::from(serde_json::json!({"type":"websocket", "id":id})));
+            }
+            let _ = self.fan_out_one(Envelope { port: 0, msg }, stop_token.clone()).await;
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -278,6 +337,15 @@ impl FlowNodeBehavior for WebSocketInNode {
     }
 
     async fn run(self: Arc<Self>, stop_token: CancellationToken) {
+        if self.endpoint_id.is_none() {
+            self.report_error("websocket.errors.missing-conf".to_owned(), MsgHandle::default(), stop_token).await;
+            return;
+        }
+
+        if self.endpoint_id.is_some() {
+            self.receive_endpoint_messages(stop_token.clone()).await;
+            return;
+        }
         // Start WebSocket message handling in a separate task
         let self_clone = self.clone();
         let ws_token = stop_token.clone();

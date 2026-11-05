@@ -15,6 +15,8 @@ impl Engine {
         if self.is_running() {
             self.stop().await?;
         }
+        // A loaded but never-started engine also owns configuration sessions.
+        self.inner.request_sessions.close_all();
 
         self.inner.flows.clear();
         self.inner.all_flow_nodes.clear();
@@ -31,6 +33,7 @@ impl Engine {
             *hash = Self::calculate_flows_hash(&json);
         }
 
+        self.inner.request_sessions.reopen();
         self.load_global_nodes(json_values.global_nodes, reg.clone(), elcfg)?;
         self.load_flows(json_values.flows, reg, elcfg)?;
 

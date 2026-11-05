@@ -360,7 +360,7 @@ pub fn parse_red_id_str(id_str: &str) -> Option<ElementId> {
         return Some(element_id);
     }
 
-    log::warn!("Failed to parse ID '{id_str}' as hex, converting to hash");
+    log::info!("Mapping Node-RED ID '{id_str}' to an internal numeric ID");
 
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};

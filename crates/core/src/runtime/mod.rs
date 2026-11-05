@@ -12,6 +12,7 @@ pub mod nodes;
 pub mod paths;
 pub mod red_env;
 pub mod registry;
+pub mod request_session;
 pub mod status_channel;
 pub mod subflow;
 

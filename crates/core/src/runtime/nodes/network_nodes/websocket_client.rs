@@ -2,12 +2,13 @@ use futures_util::{SinkExt, StreamExt};
 use std::sync::Arc;
 use tokio::net::TcpStream;
 use tokio::sync::{Mutex, RwLock};
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message};
 use tokio_util::sync::CancellationToken;
 
 use serde::Deserialize;
 
-use crate::runtime::flow::Flow;
+use crate::runtime::engine::Engine;
 use crate::runtime::nodes::*;
 use edgelink_macro::*;
 
@@ -23,25 +24,42 @@ pub struct WebSocketClientConnection {
 }
 
 #[derive(Debug)]
-#[flow_node("websocket-client", red_name = "websocket")]
+#[global_node("websocket-client", red_name = "websocket")]
 #[allow(dead_code)]
 struct WebSocketClientNode {
-    base: BaseFlowNodeState,
+    base: BaseGlobalNodeState,
+    task: Mutex<Option<(CancellationToken, tokio::task::JoinHandle<()>)>>,
     config: WebSocketClientConfig,
     connection: Arc<Mutex<Option<WebSocketClientConnection>>>,
+    endpoint: Arc<super::websocket_session::WebSocketEndpoint>,
 }
 
 #[allow(dead_code)]
 impl WebSocketClientNode {
     fn build(
-        _flow: &Flow,
-        state: BaseFlowNodeState,
-        config: &RedFlowNodeConfig,
+        engine: &Engine,
+        config: &RedGlobalNodeConfig,
         _options: Option<&config::Config>,
-    ) -> crate::Result<Box<dyn FlowNodeBehavior>> {
+    ) -> crate::Result<Box<dyn GlobalNodeBehavior>> {
+        super::websocket_session::validate_options(&config.rest, false)?;
         let ws_config = WebSocketClientConfig::deserialize(&config.rest)?;
-        let node = WebSocketClientNode { base: state, config: ws_config, connection: Arc::new(Mutex::new(None)) };
-        Ok(Box::new(node))
+        let endpoint = engine.request_sessions().register_endpoint(config.id.to_string())?;
+        endpoint.set_wholemsg(ws_config.wholemsg);
+        let state = BaseGlobalNodeState {
+            id: config.id,
+            name: config.name.clone(),
+            type_str: "websocket-client",
+            ordering: config.ordering,
+            disabled: config.disabled,
+            context: engine.get_context_manager().new_context(engine.context(), config.id.to_string()),
+        };
+        Ok(Box::new(Self {
+            base: state,
+            config: ws_config,
+            connection: Arc::new(Mutex::new(None)),
+            endpoint,
+            task: Mutex::new(None),
+        }))
     }
 }
 
@@ -49,6 +67,7 @@ impl WebSocketClientNode {
 #[allow(dead_code)]
 struct WebSocketClientConfig {
     /// WebSocket server URL
+    #[serde(default)]
     url: String,
 
     /// Path for WebSocket endpoint (will be appended to URL if not already included)
@@ -56,7 +75,7 @@ struct WebSocketClientConfig {
     path: String,
 
     /// Whether to send whole message or just payload
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::websocket_session::deserialize_wholemsg")]
     wholemsg: bool,
 
     /// Protocol(s) to use
@@ -75,7 +94,7 @@ struct WebSocketClientConfig {
     timeout: u64,
 
     /// Headers to send with the connection request
-    headers: Option<std::collections::BTreeMap<String, String>>,
+    headers: Option<serde_json::Value>,
 
     /// Subprotocol to request
     subprotocol: Option<String>,
@@ -100,6 +119,9 @@ fn default_timeout() -> u64 {
 #[allow(dead_code)]
 impl WebSocketClientNode {
     fn get_full_url(&self) -> String {
+        if self.config.url.is_empty() {
+            return self.config.path.clone();
+        }
         let url = &self.config.url;
         if url.contains(&self.config.path) {
             url.clone()
@@ -126,9 +148,15 @@ impl WebSocketClientNode {
     async fn connect_websocket(&self, connection: &WebSocketClientConnection) -> crate::Result<()> {
         log::debug!("WebSocket client: Connecting to {}", connection.url);
 
-        let (ws_stream, _) = connect_async(&connection.url)
-            .await
-            .map_err(|e| crate::EdgelinkError::InvalidOperation(format!("Failed to connect to WebSocket: {e}")))?;
+        let mut request = connection.url.as_str().into_client_request()?;
+        if let Some(protocol) = &self.config.subprotocol {
+            let protocols = protocol.split(',').map(str::trim).collect::<Vec<_>>().join(", ");
+            if !protocols.is_empty() {
+                request.headers_mut().insert("Sec-WebSocket-Protocol", protocols.parse()?);
+            }
+        }
+        let (ws_stream, _) =
+            tokio::time::timeout(std::time::Duration::from_secs(self.config.timeout), connect_async(request)).await??;
 
         // Store the stream
         {
@@ -206,6 +234,8 @@ impl WebSocketClientNode {
         };
 
         if let Some(mut stream) = ws_stream {
+            let mut outgoing = self.endpoint.subscribe_outgoing();
+            let session_id = crate::runtime::model::ElementId::new().to_string();
             while !stop_token.is_cancelled() {
                 tokio::select! {
                     _ = stop_token.cancelled() => break,
@@ -213,12 +243,13 @@ impl WebSocketClientNode {
                         match msg {
                             Some(Ok(Message::Text(text))) => {
                                 log::debug!("WebSocket client: Received text: {text}");
-                                self.notify_subscribers(&text, "text").await;
+                                self.endpoint.publish_incoming_from(Message::Text(text.clone()), session_id.clone());
+
                             }
                             Some(Ok(Message::Binary(data))) => {
                                 log::debug!("WebSocket client: Received binary data: {} bytes", data.len());
-                                let data_str = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &data);
-                                self.notify_subscribers(&data_str, "binary").await;
+                                self.endpoint.publish_incoming_from(Message::Binary(data.clone()), session_id.clone());
+
                             }
                             Some(Ok(Message::Close(close_frame))) => {
                                 log::info!("WebSocket client: Connection closed by server: {close_frame:?}");
@@ -246,6 +277,19 @@ impl WebSocketClientNode {
                                 break;
                             }
                         }
+                    },
+                    message = outgoing.recv() => {
+                        match message {
+                            Ok(message) => {
+                                if message.session_id.as_ref().is_some_and(|id| id != &session_id) {
+                                    continue;
+                                }
+                                if let Err(error) = stream.send(message.message).await {
+                                    return Err(crate::EdgelinkError::InvalidOperation(format!("WebSocket send error: {error}")).into());
+                                }
+                            }
+                            Err(_) => break,
+                        }
                     }
                 }
             }
@@ -256,15 +300,6 @@ impl WebSocketClientNode {
         }
 
         Ok(())
-    }
-
-    async fn notify_subscribers(&self, data: &str, msg_type: &str) {
-        // This would typically notify other nodes that are using this connection
-        // For now, we'll just log the received data
-        log::debug!("WebSocket client: Notifying subscribers of {msg_type} message: {data}");
-
-        // TODO: In a real implementation, this would send messages to subscriber nodes
-        // that have registered to receive data from this WebSocket client
     }
 
     pub async fn send_message(&self, message: Message) -> crate::Result<()> {
@@ -329,61 +364,84 @@ impl WebSocketClientNode {
 }
 
 #[async_trait::async_trait]
-impl FlowNodeBehavior for WebSocketClientNode {
-    fn get_base(&self) -> &BaseFlowNodeState {
+impl GlobalNodeBehavior for WebSocketClientNode {
+    fn get_base(&self) -> &BaseGlobalNodeState {
         &self.base
     }
 
-    async fn run(self: Arc<Self>, stop_token: CancellationToken) {
-        // Create the WebSocket connection
-        let connection = match self.create_connection().await {
-            Ok(conn) => conn,
-            Err(e) => {
-                log::error!("WebSocket client: Failed to create connection: {e}");
-                return;
+    async fn start(self: Arc<Self>, cancel: CancellationToken) -> crate::Result<()> {
+        let connection = self.create_connection().await?;
+        *self.connection.lock().await = Some(connection.clone());
+        let node = self.clone();
+        let token = cancel.clone();
+        let task = tokio::spawn(async move {
+            tokio::select! {
+                _ = token.cancelled() => {},
+                _ = node.handle_connection_loop(connection, token.clone()) => {},
             }
-        };
-
-        // Store the connection
-        {
-            let mut conn_guard = self.connection.lock().await;
-            *conn_guard = Some(connection.clone());
-        }
-
-        // Start the connection loop in a separate task
-        let self_clone = self.clone();
-        let connection_token = stop_token.clone();
-        let connection_task = tokio::spawn(async move {
-            self_clone.handle_connection_loop(connection, connection_token).await;
         });
+        *self.task.lock().await = Some((cancel, task));
+        Ok(())
+    }
 
-        // Handle input messages
-        while !stop_token.is_cancelled() {
-            let self_clone = self.clone();
-            let stop_token_clone = stop_token.clone();
-
-            with_uow(self_clone.as_ref(), stop_token_clone.clone(), |node, msg| async move {
-                node.handle_input_message(msg, stop_token_clone).await
-            })
-            .await;
+    async fn stop(&self) -> crate::Result<()> {
+        if let Some((token, task)) = self.task.lock().await.take() {
+            token.cancel();
+            task.await?;
         }
-
-        // Clean up
-        connection_task.abort();
-
-        // Close connection
+        if let Some(connection) = self.connection.lock().await.take()
+            && let Some(mut stream) = connection.stream.lock().await.take()
         {
-            let mut conn_guard = self.connection.lock().await;
-            if let Some(connection) = conn_guard.take() {
-                let mut stream_guard = connection.stream.lock().await;
-                if let Some(mut stream) = stream_guard.take()
-                    && let Err(e) = stream.close(None).await
-                {
-                    log::error!("WebSocket client: Failed to close connection during cleanup: {e}");
-                }
-            }
+            stream.close(None).await?;
         }
+        Ok(())
+    }
+}
 
-        log::info!("WebSocket client: Node stopped");
+#[cfg(test)]
+mod config_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn loads_upstream_client_as_configuration_node_without_flow_id() {
+        let engine = crate::runtime::engine::build_test_engine(json!([
+            {"id":"100", "type":"tab"},
+            {"id":"1", "type":"websocket-client", "path":"ws://127.0.0.1:1880/ws"}
+        ]))
+        .unwrap();
+        assert!(engine.find_global_node_by_id(&"1".parse().unwrap()).is_some());
+        assert!(engine.find_flow_node_by_id(&"1".parse().unwrap()).is_none());
+    }
+
+    #[test]
+    fn accepts_upstream_path_and_wholemsg_configuration() {
+        let config: WebSocketClientConfig = serde_json::from_value(json!({
+            "path": "ws://127.0.0.1:1880/ws", "wholemsg": "true",
+            "subprotocol": "testprotocol1, testprotocol2"
+        }))
+        .unwrap();
+        assert_eq!(config.path, "ws://127.0.0.1:1880/ws");
+        assert!(config.wholemsg);
+        assert_eq!(config.subprotocol.as_deref(), Some("testprotocol1, testprotocol2"));
+        let default: WebSocketClientConfig = serde_json::from_value(json!({
+            "path": "ws://127.0.0.1:1880/ws"
+        }))
+        .unwrap();
+        assert!(!default.wholemsg);
+    }
+
+    #[test]
+    fn resolves_in_and_out_nodes_against_the_global_client_id() {
+        let engine = crate::runtime::engine::build_test_engine(json!([
+            {"id":"100", "type":"tab"},
+            {"id":"1", "type":"websocket-client", "path":"ws://127.0.0.1:1880/ws"},
+            {"id":"2", "type":"websocket in", "client":"1", "z":"100", "wires":[["3"]]},
+            {"id":"3", "type":"websocket out", "client":"1", "z":"100"}
+        ]))
+        .unwrap();
+        assert!(engine.find_global_node_by_id(&"1".parse().unwrap()).is_some());
+        assert!(engine.find_flow_node_by_id(&"2".parse().unwrap()).is_some());
+        assert!(engine.find_flow_node_by_id(&"3".parse().unwrap()).is_some());
     }
 }

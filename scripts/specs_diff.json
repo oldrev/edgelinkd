@@ -141,6 +141,11 @@
                 "http request",
                 "nodes/network/test_httprequest_node.py",
                 "test/nodes/core/network/21-httprequest_spec.js"
+              ],
+              [
+                  "websocket",
+                  "nodes/network/test_websocket_node.py",
+                  "test/nodes/core/network/22-websocket_spec.js"
             ]
         ]
     },

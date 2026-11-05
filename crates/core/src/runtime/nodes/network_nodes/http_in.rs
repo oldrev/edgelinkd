@@ -331,13 +331,24 @@ impl HttpInNode {
         // Create response channel and register with global registry
         let (response_tx, response_rx) = tokio::sync::oneshot::channel();
         if let Some(engine) = self.engine() {
-            engine.http_response_registry().register_handler(msg_id.clone(), response_tx).await;
+            if let Err(error) = engine
+                .request_sessions()
+                .register(msg_id.clone(), Arc::new(crate::runtime::http_registry::HttpRequestSession::new(response_tx)))
+            {
+                log::error!("HTTP session registration failed: {error}");
+                return;
+            }
         } else {
             log::error!("HTTP in: No engine available for response registry");
             let response = "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 21\r\n\r\nInternal Server Error";
             let _ = stream.write_all(response.as_bytes()).await;
             return;
         }
+
+        // Also unregister if this request task is aborted while awaiting I/O.
+        let session_engine = self.engine();
+        let _registration =
+            session_engine.as_ref().map(|engine| engine.request_sessions().registration(msg_id.clone()));
 
         // Create and send message
         let msg =
@@ -348,6 +359,9 @@ impl HttpInNode {
         // Send message to flow
         if let Err(e) = self.fan_out_one(Envelope { port: 0, msg }, stop_token.clone()).await {
             log::error!("HTTP in: Failed to send message: {e}");
+            if let Some(engine) = self.engine() {
+                engine.request_sessions().remove(&msg_id);
+            }
             let response = "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 21\r\n\r\nInternal Server Error";
             let _ = stream.write_all(response.as_bytes()).await;
             return;
@@ -357,17 +371,20 @@ impl HttpInNode {
         let response = tokio::select! {
             _ = stop_token.cancelled() => {
                 log::debug!("HTTP in: Request cancelled");
+                if let Some(engine) = self.engine() {
+                    engine.request_sessions().remove(&msg_id);
+                }
                 return;
             }
             result = response_rx => {
                 match result {
                     Ok(response) => response,
                     Err(_) => {
-                        // No response received, send default
+                        // The response capability was closed before replying.
                         HttpResponse {
-                            status_code: 200,
+                            status_code: 503,
                             headers: HashMap::new(),
-                            body: b"OK".to_vec(),
+                            body: b"Service Unavailable".to_vec(),
                         }
                     }
                 }
@@ -385,7 +402,7 @@ impl HttpInNode {
 
         // Clean up response handler from global registry
         if let Some(engine) = self.engine() {
-            engine.http_response_registry().cleanup_handler(&msg_id).await;
+            engine.request_sessions().remove(&msg_id);
         }
 
         // Send HTTP response

@@ -106,11 +106,12 @@ impl WebServer {
         // Use trait object for Extension so handlers using Extension<Arc<dyn WebStateCore + Send + Sync>> work
         Router::new()
             .merge(api_routes)
+            .fallback_service(static_service)
+            .layer(axum::middleware::from_fn(crate::handlers::websocket_node_handler))
             .layer(Extension(self.state.clone()))
             .layer(Extension(
                 self.state.clone() as Arc<dyn edgelink_core::web::web_state_trait::WebStateCore + Send + Sync>
             ))
-            .fallback_service(static_service)
     }
 
     /// Start the web server and return a JoinHandle
