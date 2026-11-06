@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-11-05T13:48:35.585166Z",
+  "generated_at": "2026-11-06T05:47:51.906139Z",
   "ref": "v4.1.16",
-  "commit": "3090685f8de432e15784580ae5561ea21c0ee647",
+  "commit": "76562984dac8bcef9ca765404f864294229a5835",
   "node_red": {
     "version": "4.1.16"
   },
