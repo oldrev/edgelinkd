@@ -807,16 +807,6 @@ impl GlobalNodeBehavior for MqttBrokerNode {
         })
     }
 
-    async fn mqtt_shared_v4_client(&self) -> crate::Result<Option<rumqttc::AsyncClient>> {
-        if self.config.protocol_version == 5 {
-            return Ok(None);
-        }
-        if !self.is_connected().await {
-            self.connect().await?;
-        }
-        Ok(self.clients.lock().await.values().next().cloned())
-    }
-
     async fn mqtt_register_user(
         &self,
         user_id: ElementId,

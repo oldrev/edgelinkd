@@ -319,10 +319,6 @@ pub trait GlobalNodeBehavior: Send + Sync + FlowsElement {
         None
     }
 
-    async fn mqtt_shared_v4_client(&self) -> crate::Result<Option<rumqttc::AsyncClient>> {
-        Err(crate::EdgelinkError::NotSupported("MQTT shared V4 client is unavailable".to_owned()).into())
-    }
-
     async fn mqtt_register_user(
         &self,
         _user_id: ElementId,
