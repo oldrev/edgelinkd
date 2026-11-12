@@ -188,12 +188,17 @@ pub struct RedSystemSettings {
     pub editor_theme: EditorTheme,
     pub context: ContextConfig,
     pub logging: LoggingConfig,
+    #[serde(default)]
     pub libraries: Vec<LibraryEntry>,
 }
 
 /// Editor theme configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EditorTheme {
+    #[serde(default)]
+    pub schemes: Vec<ThemeScheme>,
+    #[serde(default, rename = "codeEditor")]
+    pub code_editor: CodeEditor,
     pub page: ThemePage,
     pub header: ThemeHeader,
     #[serde(rename = "deployButton")]
@@ -206,6 +211,39 @@ pub struct EditorTheme {
     /// `ui_static/locales/`). The Node-RED editor calls `.map()` on this value, so it
     /// must be an array, exactly like upstream's `i18n.availableLanguages("editor")`.
     pub languages: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ThemeScheme {
+    Light,
+    Dark,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CodeEditor {
+    #[serde(default)]
+    pub lib: CodeEditorLibrary,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CodeEditorLibrary {
+    #[default]
+    Monaco,
+    Ace,
+    Basic,
+}
+
+impl<'de> Deserialize<'de> for CodeEditorLibrary {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let lib = String::deserialize(deserializer)?;
+        Ok(match lib.as_str() {
+            "monaco" => Self::Monaco,
+            "ace" => Self::Ace,
+            _ => Self::Basic,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -239,7 +277,7 @@ pub struct ThemeMenu {
     pub menu_item_export_library: bool,
     #[serde(rename = "menu-item-keyboard-shortcuts")]
     pub menu_item_keyboard_shortcuts: bool,
-    #[serde(rename = "menu-item-help")]
+    #[serde(default, rename = "menu-item-help")]
     pub menu_item_help: HashMap<String, String>,
 }
 
@@ -284,7 +322,7 @@ pub struct ApiResponse<T> {
 impl Default for RedSystemSettings {
     fn default() -> Self {
         Self {
-            version: "4.1.16".to_string(),
+            version: env!("NODE_RED_VERSION").to_string(),
             http_node_root: "/".to_string(),
             http_admin_root: "/".to_string(),
             http_static: None,
@@ -306,6 +344,8 @@ impl Default for EditorTheme {
             .collect::<Vec<String>>();
 
         Self {
+            schemes: vec![ThemeScheme::Light, ThemeScheme::Dark],
+            code_editor: CodeEditor::default(),
             page: ThemePage { title: "EdgeLinkd".to_string(), favicon: None, css: None, scripts: None },
             header: ThemeHeader { title: "EdgeLinkd".to_string(), url: None, image: None },
             deploy_button: ThemeDeployButton { button_type: "simple".to_string(), label: None, icon: None },

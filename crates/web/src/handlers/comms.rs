@@ -713,3 +713,17 @@ async fn handle_websocket_message(
         }
     }
 }
+
+#[cfg(test)]
+mod auth_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn acknowledges_stale_token_without_admin_auth() {
+        let (tx, mut rx) = broadcast::channel(8);
+        let comms = CommsManager::new();
+        handle_websocket_message(serde_json::json!({"auth": "stale-token"}), &tx, "test", &comms, None).await;
+        let response: Value = serde_json::from_str(&rx.try_recv().expect("authentication acknowledgement")).unwrap();
+        assert_eq!(response, serde_json::json!({"auth": "ok"}));
+    }
+}

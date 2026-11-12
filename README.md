@@ -171,6 +171,14 @@ port = 1888
 
 ## Project Status
 
+The `5.0.9` upgrade branch bundles the Node-RED 5.0.9 editor. Building it requires
+Node.js 22.9 or later. The admin API does not grant cross-origin access by default.
+The editor supports Monaco (default), Ace, and the basic editor through
+`web.editorTheme.codeEditor.lib`; an unknown editor name falls back to `basic`.
+Theme schemes are declared through `web.editorTheme.schemes` (`light` and `dark`).
+Third-party login and authentication code exchange are outside the current runtime
+scope: `POST /auth/token` returns HTTP 501 with `error: "not_supported"`.
+
 **Release 4.1.16**: This release is based on Node-RED v4.1.16 and includes the integrated editor and Rust runtime.
 
 **New: Integrated Web UI**: EdgeLinkd now includes a complete Node-RED web interface for flow design and management. The web UI is fully compatible with Node-RED's editor and provides the same user experience while running on the high-performance Rust runtime.

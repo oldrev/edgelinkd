@@ -2,7 +2,6 @@ use axum::{
     Router,
     routing::{get, post},
 };
-use tower_http::cors::{Any, CorsLayer};
 
 use crate::handlers::library::*;
 use crate::handlers::web_state::WebState;
@@ -49,6 +48,9 @@ fn create_node_red_api_routes() -> Router {
 /// Create editor routes (for frontend file service)
 fn create_editor_routes() -> Router {
     Router::new()
+        .route("/", get(get_editor_index))
+        .route("/index.html", get(get_editor_index))
+        .route("/auth/token", post(exchange_auth_code))
         .route("/icons/{module}/{icon}", get(get_icon_file))
         .route("/locales/nodes", get(get_nodes_locale))
         .route("/locales/editor", get(get_editor_locale))
@@ -78,8 +80,7 @@ pub fn create_all_routes(web_state: &WebState) -> Router {
     let router = Router::new()
         .merge(create_node_red_api_routes())
         .merge(create_editor_routes())
-        .nest("/api", create_debug_routes())
-        .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any));
+        .nest("/api", create_debug_routes());
 
     let wh = web_state.web_handlers.routes_handle();
     for desc in wh.lock().unwrap().iter() {
