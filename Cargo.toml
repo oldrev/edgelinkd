@@ -36,6 +36,7 @@ opt-level = 1 # Enables thin local LTO and some optimizations.
 
 [workspace.dependencies]
 tokio-serial = { version = "5.5.0", default-features = false }
+ciborium = "0.2.2"
 # `libc` is only used on Unix, to deliver the stop signal the exec node is asked for.
 libc = "0.2"
 bincode = { version = "^2.0", features = ["serde"] }
@@ -154,6 +155,7 @@ edgelink-core = { path = "crates/core", default-features = false }
 # Node plug-ins:
 edgelink-nodes-dummy = { path = "node-plugins/edgelink-nodes-dummy" }
 edgelink-nodes-serialport = { path = "node-plugins/edgelink-nodes-serialport", optional = true }
+edgelink-nodes-cbor = { path = "node-plugins/edgelink-nodes-cbor", optional = true }
 
 edgelink-web = { path = "crates/web", default-features = true }
 
@@ -174,8 +176,9 @@ identifier = "com.github.oldrev.edgelink"
 
 [features]
 full = ["default", "rqjs_bindgen", "file_encodings_legacy"]
-default = ["core", "metrics", "js", "jsonata", "nodes_network", "nodes_storage", "nodes_parser", "nodes_file_encodings", "nodes_serialport"]
+default = ["core", "metrics", "js", "jsonata", "nodes_network", "nodes_storage", "nodes_parser", "nodes_file_encodings", "nodes_serialport", "nodes_cbor"]
 nodes_serialport = ["dep:edgelink-nodes-serialport"]
+nodes_cbor = ["dep:edgelink-nodes-cbor"]
 core = ["edgelink-core/core"]
 metrics = ["edgelink-core/metrics"]
 js = ["edgelink-core/js"]

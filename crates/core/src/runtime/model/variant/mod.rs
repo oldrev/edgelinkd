@@ -132,6 +132,14 @@ impl Variant {
 
     pub fn bytes_from_json_value(jv: &serde_json::Value) -> crate::Result<Variant> {
         match jv {
+            serde_json::Value::Object(object)
+                if object.get("type").and_then(serde_json::Value::as_str) == Some("Buffer") =>
+            {
+                let data = object
+                    .get("data")
+                    .ok_or_else(|| EdgelinkError::NotSupported("Buffer object has no data".to_owned()))?;
+                Self::bytes_from_json_value(data)
+            }
             serde_json::Value::Array(array) => {
                 let mut bytes = Vec::with_capacity(array.len());
                 for e in array.iter() {

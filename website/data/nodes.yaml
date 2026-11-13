@@ -54,6 +54,10 @@ groups:
       - { name: "udp out", status: "verified" }
       - { name: "tls", status: "available" }
       - { name: "http proxy", status: "available" }
+      - { name: "serial in", status: "available" }
+      - { name: "serial out", status: "available" }
+      - { name: "serial request", status: "available" }
+      - { name: "serial control", status: "available" }
   - id: "sequence"
     nodes:
       - { name: "split", status: "available" }
@@ -67,6 +71,7 @@ groups:
       - { name: "csv", status: "verified" }
       - { name: "html", status: "verified" }
       - { name: "yaml", status: "verified" }
+      - { name: "cbor", status: "verified" }
   - id: "storage"
     nodes:
       - { name: "file", status: "verified" }

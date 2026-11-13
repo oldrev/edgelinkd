@@ -1,0 +1,16 @@
+[package]
+name = "edgelink-nodes-cbor"
+version.workspace = true
+edition = "2024"
+license = "Apache-2.0"
+
+[dependencies]
+ciborium.workspace = true
+serde_json.workspace = true
+edgelink-core = { path = "../../crates/core", default-features = false, features = ["core"] }
+edgelink-macro = { path = "../../crates/macro" }
+async-trait.workspace = true
+config.workspace = true
+inventory.workspace = true
+tokio-util.workspace = true
+log.workspace = true

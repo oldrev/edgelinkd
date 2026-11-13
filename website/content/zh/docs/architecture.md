@@ -72,6 +72,15 @@ impl FlowNodeBehavior for JunctionNode {
 
 ### 插件
 
+默认构建包含原生 Rust 串口和 CBOR 静态插件。编辑器 HTML、图标和许可文件从固定版本的
+`node-red-nodes` 子模块复制；节点和 HTTP handler 通过 inventory 注册，Web 公共代码
+不维护插件专属 handler 列表。CBOR 节点通过全部 5 项移植的上游 spec，支持配置消息属性。
+串口 CTS/DSR 输出控制会明确报错；目前尚未完成实体串口回环验证。
+
+Python 流程测试桥使用 `{"$__el_type":"Buffer","data":[0,127,255]}` 递归表示二进制值，
+保留 Buffer 与普通整数数组的区别。完整格式与校验规则见
+[Buffer bridge 契约](https://github.com/oldrev/edgelinkd/blob/master/tests/PYTHON-BUFFER-BRIDGE.md)。
+
 第三方节点放在 `node-plugins/` 中，并且**静态链接**。Tokio 的异步函数无法调用动态加载的库，因此不提供动态插件；基于 WebAssembly 或 JavaScript 的插件方案正在评估中。
 
 ## 脚本与表达式

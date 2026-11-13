@@ -49,6 +49,9 @@ fn gen_use_plugins_file() {
         if plugin_name == "edgelink_nodes_serialport" {
             file_content.push_str("#[cfg(feature = \"nodes_serialport\")]\n");
         }
+        if plugin_name == "edgelink_nodes_cbor" {
+            file_content.push_str("#[cfg(feature = \"nodes_cbor\")]\n");
+        }
         file_content.push_str(&format!("extern crate {plugin_name};\n"));
     }
 
@@ -212,6 +215,19 @@ fn build_static_files() {
             serial_icon_dir.join("serial.svg"),
         )
         .expect("copy serial icon");
+
+        let cbor_src = PathBuf::from("3rd-party/node-red-nodes/parsers/cbor");
+        println!("cargo:rerun-if-changed=3rd-party/node-red-nodes/parsers/cbor");
+        let cbor_dst = static_dir.join("nodes/node-red-node-cbor");
+        std::fs::create_dir_all(&cbor_dst).expect("create cbor editor asset directory");
+        for asset in ["70-cbor.html", "LICENSE"] {
+            std::fs::copy(cbor_src.join(asset), cbor_dst.join(asset))
+                .unwrap_or_else(|error| panic!("copy cbor {asset}: {error}"));
+        }
+        let cbor_icon_dst = static_dir.join("icons/node-red-node-cbor");
+        std::fs::create_dir_all(&cbor_icon_dst).expect("create cbor icon directory");
+        std::fs::copy(cbor_src.join("icons/parser-cbor.png"), cbor_icon_dst.join("parser-cbor.png"))
+            .expect("copy cbor icon");
         println!("cargo:warning=Static files build complete!");
     }
 

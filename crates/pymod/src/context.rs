@@ -28,10 +28,6 @@ fn to_py_err(err: anyhow::Error) -> PyErr {
     }
 }
 
-fn serde_err(err: serde_json::Error) -> PyErr {
-    PyRuntimeError::new_err(err.to_string())
-}
-
 /// Convert a Python value into the message model's [`Variant`].
 ///
 /// `None` becomes JSON `null`, which the stores keep as a real value; deleting a key goes
@@ -56,6 +52,14 @@ fn py_to_variant(obj: &Bound<'_, PyAny>) -> PyResult<Variant> {
         return Ok(Variant::Array(items));
     }
     if let Ok(dict) = obj.downcast::<PyDict>() {
+        if dict.len() == 2
+            && dict.get_item("$__el_type")?.and_then(|value| value.extract::<String>().ok()).as_deref()
+                == Some("Buffer")
+        {
+            let json = json::py_object_to_json_value(obj)?;
+            return serde_json::from_value(json)
+                .map_err(|error| PyTypeError::new_err(format!("Invalid tagged Buffer context value: {error}")));
+        }
         let mut map = edgelink_core::runtime::model::VariantObjectMap::new();
         for (key, value) in dict.iter() {
             map.insert(key.extract::<String>()?, py_to_variant(&value)?);
@@ -79,7 +83,7 @@ fn py_to_variant(obj: &Bound<'_, PyAny>) -> PyResult<Variant> {
 }
 
 fn variant_to_py(py: Python<'_>, value: &Variant) -> PyResult<PyObject> {
-    json::json_value_to_py_object(py, &serde_json::to_value(value).map_err(serde_err)?)
+    json::json_value_to_py_object(py, &json::variant_to_bridge_json(value))
 }
 
 /// A context store, constructible from a provider name and its options.

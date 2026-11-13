@@ -72,6 +72,19 @@ A small `build()` constructor, omitted here, is what the registry calls when a f
 
 ### Plug-ins
 
+Default builds include native Rust serial and CBOR plug-ins. Their editor HTML,
+icons and licenses come from the pinned `node-red-nodes` submodule. Node and HTTP
+handler registration use inventory; shared web code does not maintain a list of
+plug-in-specific handlers. The CBOR node passes all five ported upstream specs
+and supports a configurable message property. Serial CTS/DSR output control is
+explicitly rejected, and physical serial loopback testing remains outstanding.
+
+The Python flow-test bridge represents binary values as
+`{"$__el_type":"Buffer","data":[0,127,255]}` recursively, preserving their
+identity separately from ordinary integer arrays. See
+[the bridge contract](https://github.com/oldrev/edgelinkd/blob/master/tests/PYTHON-BUFFER-BRIDGE.md)
+for the full format and validation rules.
+
 Third-party nodes live in `node-plugins/` and are **statically linked**. Tokio async functions cannot call into dynamically loaded libraries, so dynamic plug-ins are not offered; plug-ins based on WebAssembly or JavaScript are being evaluated for the future.
 
 ## Scripting and expressions

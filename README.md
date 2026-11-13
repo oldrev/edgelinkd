@@ -221,6 +221,20 @@ python scripts/specs_diff.py 3rd-party/node-red \
 
 ## Roadmap
 
+### Static node plug-ins
+
+Default builds include the native Rust `serial in`, `serial out`, `serial request`,
+`serial control` and `cbor` plug-ins. Disable `nodes_serialport` or `nodes_cbor`
+when selecting features for a minimal build. Editor assets are copied from the
+pinned `3rd-party/node-red-nodes` submodule; Node.js is not needed at runtime.
+
+The CBOR plug-in passes all five ported upstream specs and supports a configurable
+message property. The Python test bridge preserves binary values with
+`{"$__el_type":"Buffer","data":[0,127,255]}`; see the
+[Buffer bridge contract](tests/PYTHON-BUFFER-BRIDGE.md) for validation and nested values.
+Serial CTS/DSR output control is explicitly unsupported; real-device serial
+loopback testing has not been performed on this development host.
+
 Check out our [milestones](https://github.com/oldrev/edgelinkd/milestones) to get a glimpse of the upcoming features and milestones.
 
 ## Contribution

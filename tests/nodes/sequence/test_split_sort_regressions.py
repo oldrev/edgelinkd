@@ -38,7 +38,8 @@ async def test_split_buffer_stream_handles_separator_across_chunks():
              {"id": "3", "z": "0", "type": "test-once"}]
     out = await run_flow_with_msgs_ntimes(flows,
         [{"payload": v} for v in [[128, 0], [255, 129, 0, 255], [130, 0], [255]]], 3)
-    assert [msg["payload"] for msg in out] == [[128], [129], [130]]
+    assert [msg["payload"] for msg in out] == [
+        {"$__el_type": "Buffer", "data": value} for value in [[128], [129], [130]]]
     assert [msg["parts"]["index"] for msg in out] == [0, 1, 2]
     assert all(msg["parts"]["type"] == "buffer" and msg["parts"]["ch"] == [0, 255] for msg in out)
 
@@ -52,7 +53,8 @@ async def test_split_buffer_length_stream_consumes_remainder_once():
               "stream": True, "wires": [["3"]]},
              {"id": "3", "z": "0", "type": "test-once"}]
     out = await run_flow_with_msgs_ntimes(flows, [{"payload": v} for v in [[1], [2], [3, 4], [5], [6]]], 3)
-    assert [msg["payload"] for msg in out] == [[1, 2], [3, 4], [5, 6]]
+    assert [msg["payload"] for msg in out] == [
+        {"$__el_type": "Buffer", "data": value} for value in [[1, 2], [3, 4], [5, 6]]]
     assert all("count" not in msg["parts"] for msg in out)
 
 

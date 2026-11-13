@@ -76,10 +76,14 @@ def extract_it_strings_js(red_dir, file_path) -> list[str]:
             )
         if os.path.exists(report_file_path) and os.path.getsize(report_file_path) > 0:
             report = load_json(report_file_path)
-            for test in report['tests']:
-                specs.append(test['fullTitle'].rstrip())
         else:
-            raise RuntimeError(f"mocha produced no JSON report for {file_path}")
+            # Older Mocha JSON reporters write to stdout and ignore the output option.
+            try:
+                report = json.loads(result.stdout)
+            except json.JSONDecodeError as error:
+                raise RuntimeError(f"mocha produced no JSON report for {file_path}") from error
+        for test in report['tests']:
+            specs.append(test['fullTitle'].rstrip())
     finally:
         os.chdir(original_cwd)
         # Clean up the temporary file

@@ -6,6 +6,7 @@ use pyo3::{prelude::*, wrap_pyfunction};
 use serde::Deserialize;
 
 // Keep statically linked node plugins in the binary so their inventory registrations are visible.
+use edgelink_nodes_cbor as _;
 use edgelink_nodes_serialport as _;
 
 use edgelink_core::runtime::debug_channel::DebugMessage;
@@ -240,8 +241,7 @@ fn run_flows_once<'a>(
         drain_status_messages(&mut status_msgs);
         let msgs = run_result.map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 
-        let result_value = serde_json::to_value(&msgs)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+        let result_value = serde_json::Value::Array(msgs.iter().map(json::message_to_bridge_json).collect());
 
         Python::with_gil(|py| {
             let pyo = json::json_value_to_py_object(py, &result_value)?;
@@ -284,8 +284,7 @@ fn run_flows_for_once<'a>(
 
         let mut out = Vec::with_capacity(msgs.len());
         for (msg, arrival_ms, since_start_ms) in msgs {
-            let mut val = serde_json::to_value(&msg)
-                .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+            let mut val = json::message_to_bridge_json(&msg);
             if let serde_json::Value::Object(ref mut map) = val {
                 map.insert("_arrival_ms".to_string(), serde_json::Value::from(arrival_ms));
                 map.insert("_since_start_ms".to_string(), serde_json::Value::from(since_start_ms));

@@ -176,7 +176,7 @@ class TestSplitNode:
             assert m["parts"]["count"] == 4
             assert m["parts"]["index"] == i
             assert m["parts"]["type"] == "buffer"
-            assert m["payload"] == list(vals[i])
+            assert m["payload"] == {"$__el_type": "Buffer", "data": list(vals[i])}
 
     @pytest.mark.asyncio
     @pytest.mark.it('should split a buffer on another buffer (streaming)')
@@ -189,7 +189,7 @@ class TestSplitNode:
         for i, m in enumerate(msgs):
             assert m["parts"]["type"] == "buffer"
             assert m["parts"]["index"] == i
-            assert m["payload"] == list(vals[i])
+            assert m["payload"] == {"$__el_type": "Buffer", "data": list(vals[i])}
 
     @pytest.mark.asyncio
     @pytest.mark.it('should handle invalid spltType (not an array)')
@@ -241,8 +241,8 @@ class TestSplitNode:
         b = b"123"
         msgs = await _split_buffers(node, [b], 2)
         assert msgs[0]["parts"]["count"] == 2
-        assert msgs[0]["payload"] == list(b"12")
-        assert msgs[1]["payload"] == list(b"3")
+        assert msgs[0]["payload"] == {"$__el_type": "Buffer", "data": list(b"12")}
+        assert msgs[1]["payload"] == {"$__el_type": "Buffer", "data": list(b"3")}
 
     @pytest.mark.asyncio
     @pytest.mark.it('should set msg.parts.ch when node.spltType is str')
@@ -252,8 +252,8 @@ class TestSplitNode:
         msgs = await _split_buffers(node, [b], 2)
         assert msgs[0]["parts"]["count"] == 2
         assert msgs[0]["parts"]["ch"] == "2"
-        assert msgs[0]["payload"] == list(b"1")
-        assert msgs[1]["payload"] == list(b"3")
+        assert msgs[0]["payload"] == {"$__el_type": "Buffer", "data": list(b"1")}
+        assert msgs[1]["payload"] == {"$__el_type": "Buffer", "data": list(b"3")}
 
 
 
@@ -385,7 +385,7 @@ class TestJoinNode:
         inputs = [{"payload": [ord(value)], "parts": {"id": 1, "type": "buffer", "ch": [45], "index": i, "count": 4}}
                   for i, value in enumerate("ABCD")]
         msgs = await _join_buffers(node, inputs)
-        assert msgs[0]["payload"] == list(b"A-B-C-D")
+        assert msgs[0]["payload"] == {"$__el_type": "Buffer", "data": list(b"A-B-C-D")}
 
     @pytest.mark.asyncio
     @pytest.mark.it('should join things into an array after a count')
@@ -451,7 +451,7 @@ class TestJoinNode:
         msgs = await run_single_node_with_msgs_ntimes(
             {"type": "join", "mode": "custom", "count": 2, "build": "buffer", "joinerType": "bin", "joiner": ""},
             [{"payload": "hello"}, {"payload": "world"}], 1)
-        assert msgs[0]["payload"] == list(b"helloworld")
+        assert msgs[0]["payload"] == {"$__el_type": "Buffer", "data": list(b"helloworld")}
 
     @pytest.mark.asyncio
     @pytest.mark.it('should join things into an object after a count')
@@ -862,7 +862,7 @@ class TestJoinNode:
         msgs = await _join_buffers({"type": "join", "mode": "auto", "build": "buffer", "joiner": ","},
             [{"payload": [ord(value)], "parts": {"id": 1, "type": "buffer", "index": i, "count": 3}}
              for i, value in enumerate("ABC")])
-        assert msgs[0]["payload"] == list(b"ABC")
+        assert msgs[0]["payload"] == {"$__el_type": "Buffer", "data": list(b"ABC")}
 
     @pytest.mark.asyncio
     @pytest.mark.it('should concat payload when group.type is string and group.joinChar is not string')
@@ -957,7 +957,7 @@ class TestJoinNode:
     @pytest.mark.it('should reduce messages with init types (bin)')
     async def test_0040(self):
         msgs = await _join_reduce(reduceExp="$A", reduceInit="[1,2,3]", reduceInitType="bin")
-        assert msgs[0]["payload"] == [1, 2, 3]
+        assert msgs[0]["payload"] == {"$__el_type": "Buffer", "data": [1, 2, 3]}
 
     @pytest.mark.asyncio
     @pytest.mark.it('should reduce messages with init types (JSONata)')

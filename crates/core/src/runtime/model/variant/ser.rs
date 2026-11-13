@@ -124,6 +124,13 @@ impl<'de> Deserialize<'de> for Variant {
                 while let Some((key, value)) = map.next_entry()? {
                     btreemap.insert(key, value);
                 }
+                if matches!(btreemap.get("type"), Some(Variant::String(kind)) if kind == "Buffer") {
+                    let data = btreemap.get("data").ok_or_else(|| de::Error::missing_field("data"))?;
+                    let Variant::Array(data) = data else {
+                        return Err(de::Error::custom("Buffer data must be an array"));
+                    };
+                    return Variant::bytes_from_vec(data).map_err(de::Error::custom);
+                }
                 Ok(Variant::Object(btreemap))
             }
         }
