@@ -68,7 +68,7 @@ jobs:
           target: x86_64-unknown-linux-gnu
           components: rustfmt
       - name: Cache Rust dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -131,7 +131,7 @@ jobs:
           cache-dependency-path: 3rd-party/node-red/package-lock.json
 
       - name: Cache Node.js dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: 3rd-party/node-red/node_modules
           key: ${{ runner.os }}-node-modules-${{ hashFiles('3rd-party/node-red/package-lock.json') }}
@@ -162,7 +162,7 @@ jobs:
           components: llvm-tools-preview
 
       - name: Cache Rust dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -213,7 +213,7 @@ jobs:
           cache-dependency-path: 3rd-party/node-red/package-lock.json
 
       - name: Cache Node.js dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: 3rd-party/node-red/node_modules
           key: ${{ runner.os }}-node-modules-${{ hashFiles('3rd-party/node-red/package-lock.json') }}
@@ -227,7 +227,7 @@ jobs:
           components: llvm-tools-preview
 
       - name: Cache Rust dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -361,7 +361,7 @@ jobs:
           components: llvm-tools-preview
 
       - name: Cache Rust dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -392,7 +392,7 @@ jobs:
           cache-dependency-path: 3rd-party/node-red/package-lock.json
 
       - name: Cache Node.js dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: 3rd-party/node-red/node_modules
           key: ${{ runner.os }}-node-modules-${{ hashFiles('3rd-party/node-red/package-lock.json') }}
@@ -469,7 +469,7 @@ jobs:
           target: x86_64-unknown-linux-gnu
           components: clippy
       - name: Cache Rust dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -505,7 +505,7 @@ jobs:
           override: true
 
       - name: Cache Rust dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
