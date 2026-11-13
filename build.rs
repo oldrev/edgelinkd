@@ -97,6 +97,7 @@ fn build_static_files() {
     println!("cargo:rerun-if-changed=3rd-party/node-red/packages");
     println!("cargo:rerun-if-changed=3rd-party/node-red/package.json");
     println!("cargo:rerun-if-changed=3rd-party/node-red/package-lock.json");
+    println!("cargo:rerun-if-env-changed=EDGELINK_NODE_RED_PREBUILT");
 
     let static_dir = PathBuf::from("target/ui_static");
     let public_dir = PathBuf::from("crates/web/public");
@@ -105,7 +106,18 @@ fn build_static_files() {
     let node_red_root = PathBuf::from("3rd-party/node-red");
 
     // Build Node-RED if needed
-    if node_red_root.exists() {
+    if env::var("EDGELINK_NODE_RED_PREBUILT").as_deref() == Ok("1") {
+        for resource in ["index.html", "red/red.min.js", "red/main.min.js", "red/style.min.css", "vendor/vendor.js"] {
+            assert!(
+                node_red_dir.join(resource).is_file(),
+                "Missing prebuilt editor resource: {resource}; run npm run build in 3rd-party/node-red on the host first"
+            );
+        }
+        // Refresh copied assets even when their timestamps match an older editor build.
+        if static_dir.exists() {
+            fs::remove_dir_all(&static_dir).expect("remove stale editor assets");
+        }
+    } else if node_red_root.exists() {
         // Check if Node-RED needs to be built
         let package_json = node_red_root.join("package.json");
         let node_modules = node_red_root.join("node_modules");

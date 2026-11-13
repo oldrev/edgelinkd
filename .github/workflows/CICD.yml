@@ -438,9 +438,13 @@ jobs:
 
       - name: Cross build
         run: cross build --workspace --profile ci --target ${{ matrix.target }} --features full --exclude edgelink-pymod
+        env:
+          EDGELINK_NODE_RED_PREBUILT: '1'
 
       - name: Cross build tests without running
         run: cross test --workspace --profile ci --target ${{ matrix.target }} --features full --exclude edgelink-pymod --no-run --message-format=json | tee ./target/${{ matrix.target }}/ci/cargo-build-test.json
+        env:
+          EDGELINK_NODE_RED_PREBUILT: '1'
 
       - name: Run unit tests in QEMU ARM
         run: python3 ./scripts/cross-unittest.py ${{ env.EDGELINK_QEMU_CMD }} ${{ env.EDGELINK_TOOLCHAIN_TRIPLE }} ./target/${{ matrix.target }}/ci/cargo-build-test.json --target-triple ${{ matrix.target }}
@@ -673,6 +677,7 @@ jobs:
         run: cross build --release --workspace --target ${{ matrix.target }} --features full --exclude edgelink-pymod
         env:
           GITHUB_RUN_NUMBER: ${{ github.run_number }}
+          EDGELINK_NODE_RED_PREBUILT: '1'
 
       - name: Install packaging dependencies
         run: pip install tomlkit
