@@ -43,10 +43,10 @@ pub async fn get_nodes_locale(
 async fn merge_static_node_locales(static_dir: &std::path::Path, language: &str, messages: &mut Value) {
     for provider in inventory::iter::<StaticNodeLocale> {
         let mut languages = vec![language.to_owned()];
-        if let Some(primary) = language.split('-').next() {
-            if primary != language {
-                languages.push(primary.to_owned());
-            }
+        if let Some(primary) = language.split('-').next()
+            && primary != language
+        {
+            languages.push(primary.to_owned());
         }
         if language != "en-US" {
             languages.push("en-US".to_owned());

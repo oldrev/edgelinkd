@@ -132,10 +132,10 @@ async fn process_plugin_node_directory_runtime(dir: &std::path::Path, module: &s
             let path = entry.path();
             if path.is_dir() {
                 pending.push(path);
-            } else if path.extension().and_then(|ext| ext.to_str()) == Some("html") {
-                if let Ok(content) = tokio::fs::read_to_string(&path).await {
-                    extract_node_html_with_module(&content, module, output);
-                }
+            } else if path.extension().and_then(|ext| ext.to_str()) == Some("html")
+                && let Ok(content) = tokio::fs::read_to_string(&path).await
+            {
+                extract_node_html_with_module(&content, module, output);
             }
         }
     }
