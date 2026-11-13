@@ -46,6 +46,90 @@ impl<'js> NodeClass {
         Ok(node.output_count)
     }
 
+    #[qjs(rename = "prepareJSONata")]
+    fn prepare_jsonata(&self, source: String, ctx: Ctx<'js>) -> rquickjs::Result<rquickjs::Object<'js>> {
+        crate::runtime::jsonata::JsonataExpression::compile(&source)
+            .map_err(|e| rquickjs::Exception::throw_message(&ctx, &e.to_string()))?;
+        let object = rquickjs::Object::new(ctx)?;
+        object.set("source", source.clone())?;
+        object.set("_legacyMode", source.contains("msg."))?;
+        Ok(object)
+    }
+
+    #[qjs(rename = "evaluateJSONata")]
+    fn evaluate_jsonata(&self, source: String, message: Value<'js>, ctx: Ctx<'js>) -> rquickjs::Result<Value<'js>> {
+        let node = self.node.upgrade().ok_or(rquickjs::Error::UnrelatedRuntime)?;
+        let expression = crate::runtime::jsonata::JsonataExpression::compile(&source)
+            .map_err(|e| rquickjs::Exception::throw_message(&ctx, &e.to_string()))?;
+        let msg = Msg::from_js(&ctx, message)?;
+        let host = crate::runtime::jsonata::JsonataHost::new(node.flow().as_ref(), Some(node.as_ref()));
+        let result = expression
+            .evaluate(Some(&msg), &host)
+            .map_err(|e| rquickjs::Exception::throw_message(&ctx, &e.to_string()))?;
+        match result {
+            Some(value) => value.into_js(&ctx),
+            None => Ok(Value::new_undefined(ctx)),
+        }
+    }
+
+    /// Dispatch through the same link-in/return stack used by link-call nodes.
+    #[qjs(rename = "linkcall")]
+    async fn linkcall(
+        &self,
+        target: Value<'js>,
+        message: Value<'js>,
+        options: Opt<Value<'js>>,
+        ctx: Ctx<'js>,
+    ) -> rquickjs::Result<Value<'js>> {
+        let error = |text: &str| rquickjs::Exception::throw_message(&ctx, text);
+        let target = target
+            .as_string()
+            .and_then(|s| s.to_string().ok())
+            .filter(|s| !s.trim().is_empty())
+            .ok_or_else(|| error("Error link call target parameter is not valid, expected a string"))?;
+        if !message.is_object() || message.is_null() {
+            return Err(error("Error link call msg parameter is not valid, expected an object"));
+        }
+        let node = self.node.upgrade().ok_or(rquickjs::Error::UnrelatedRuntime)?;
+        let engine = node.engine().ok_or_else(|| error("Engine unavailable"))?;
+        let flow = node.flow().ok_or_else(|| error("Flow unavailable"))?;
+        let destination = engine.resolve_function_link_target(&target, flow.id()).map_err(|e| error(&e.to_string()))?;
+        let timeout = options
+            .0
+            .as_ref()
+            .and_then(|o| o.as_object())
+            .and_then(|o| o.get::<_, f64>("timeout").ok())
+            .filter(|n| *n != 0.0)
+            .unwrap_or(5000.0);
+        let clone_message =
+            options.0.as_ref().and_then(|o| o.as_object()).and_then(|o| o.get::<_, bool>("clone").ok()) != Some(false);
+        let id = ElementId::with_u64(node.link_event_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+        let mut msg = Msg::from_js(&ctx, message.clone())?;
+        msg.push_link_source(LinkCallStackEntry { id, link_call_node_id: node.id() });
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        node.link_events.lock().unwrap().insert(id, sender);
+        let result = async {
+            destination
+                .inject_msg(MsgHandle::new(msg), CancellationToken::new())
+                .await
+                .map_err(|e| error(&e.to_string()))?;
+            tokio::time::timeout(std::time::Duration::from_millis(timeout.max(1.0) as u64), receiver)
+                .await
+                .map_err(|_| error("timeout"))?
+                .map_err(|_| error("Link call cancelled"))
+        }
+        .await;
+        node.link_events.lock().unwrap().remove(&id);
+        let returned = result?;
+        let returned = returned.read().await.clone().into_js(&ctx)?;
+        if !clone_message {
+            // Retain the caller's JavaScript object identity when cloning is disabled.
+            let assign: rquickjs::Function = ctx.globals().get("__edgelink_reconcileLinkReturn")?;
+            return assign.call((message, returned));
+        }
+        Ok(returned)
+    }
+
     #[qjs(rename = "status")]
     fn status(self, _status_obj: Value<'js>, _ctx: Ctx<'js>) -> rquickjs::Result<()> {
         // do nothing...
@@ -118,15 +202,23 @@ impl<'js> NodeClass {
             }
 
             rquickjs::Type::Object => {
-                let msg_to_send = MsgHandle::new(Msg::from_js(&ctx, msgs)?);
-                let envelope = Envelope { port: 0, msg: msg_to_send };
-                // FIXME
+                let immediate = if cloning { Some(MsgHandle::new(Msg::from_js(&ctx, msgs.clone())?)) } else { None };
                 let cancel = CancellationToken::new();
                 let async_node = node.clone();
+                let async_ctx = ctx.clone();
                 ctx.spawn(async move {
-                    match async_node.fan_out_one(envelope, cancel).await {
-                        Ok(_) => {}
-                        Err(err) => log::error!("Failed to send msg in function node: {err}"),
+                    let msg = match immediate {
+                        Some(msg) => msg,
+                        None => match Msg::from_js(&async_ctx, msgs) {
+                            Ok(msg) => MsgHandle::new(msg),
+                            Err(err) => {
+                                log::error!("Failed to convert function message: {err}");
+                                return;
+                            }
+                        },
+                    };
+                    if let Err(err) = async_node.fan_out_one(Envelope { port: 0, msg }, cancel).await {
+                        log::error!("Failed to send msg in function node: {err}");
                     }
                 });
             }

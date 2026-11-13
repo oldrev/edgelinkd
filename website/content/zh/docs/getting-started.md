@@ -6,7 +6,7 @@ weight: 10
 
 本指南从源码构建发布版二进制，带内置的 Node-RED 编辑器运行，然后介绍生产环境使用的 headless 部署方式。[GitHub Releases](https://github.com/oldrev/edgelinkd/releases) 上也提供预编译包。
 
-> **项目状态：** EdgeLinkd 4.1.16 是基于 Node-RED v4.1.16 的正式版本。
+> **项目状态：** EdgeLinkd 5.0.9 升级分支基于 Node-RED v5.0.9。
 
 ## 前置条件
 

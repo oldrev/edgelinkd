@@ -269,7 +269,7 @@ class TestTemplateNode:
         
         assert msgs[0]['topic'] == 'bar'
 
-    @pytest.mark.skip(reason="Missing node context test - intentionally has no z property")
+    @pytest.mark.skip(reason="Flow nodes without z are rejected at deploy: EdgeLinkd requires a parent flow")
     @pytest.mark.asyncio
     @pytest.mark.it('should handle missing node context')
     async def test_0015(self):
@@ -286,7 +286,7 @@ class TestTemplateNode:
         ], 1)
         
         assert msgs[0]['topic'] == 'bar'
-        # Should output 'payload=,' when context is missing
+        assert msgs[0]['payload'] == 'payload=,'
 
     @pytest.mark.asyncio
     @pytest.mark.it('should handle escape characters in Mustache format and JSON output mode')
@@ -450,7 +450,6 @@ class TestTemplateNode:
         
         assert msgs[0]['payload'] == 'AabcabcB'
 
-    @pytest.mark.skip(reason="Python script doesn't receive exception for bad template - timeout issue")
     @pytest.mark.asyncio
     @pytest.mark.it('should raise error if passed bad template')
     async def test_0025(self):
@@ -461,12 +460,9 @@ class TestTemplateNode:
         console_node = {"id": "2", "type": "test-once", "z": "0"}
         flows = [{"id": "0", "type": "tab"}, node, console_node]
         
-        # This test should handle template parsing errors
-        try:
-            msgs = await run_flow_with_msgs_ntimes(flows, [
-                {"payload": "foo"}
-            ], 1)
-            # If we get here, the error wasn't raised or was handled
-        except Exception as e:
-            # Expected for bad template
-            pass
+        flows.append({"id": "3", "z": "0", "type": "catch", "scope": ["1"], "uncaught": False, "wires": [["2"]]})
+        take_node_logs()
+        msgs = await run_flow_with_msgs_ntimes(flows, [{"nid": "1", "msg": {"payload": "foo"}}], 1)
+        assert "error" in msgs[0]
+        assert msgs[0]["error"]["source"]["type"] == "template"
+        assert "Template compilation error" in msgs[0]["error"]["message"]

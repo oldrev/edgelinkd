@@ -140,7 +140,13 @@ py.test
 
 ## 项目状态
 
-**4.1.16 正式版**：此版本基于 Node-RED v4.1.16，包含集成编辑器和 Rust 运行时。
+**5.0.9 升级分支**：此分支基于 Node-RED v5.0.9，包含集成编辑器和 Rust 运行时。
+
+File 节点内置支持 UTF-8、UTF-16、binary、hex 与 base64。Cargo feature
+`nodes_file_encodings`（默认构建启用）还会启用 `encoding_rs` 提供的传统文本编码；
+精简构建可以关闭该 feature。
+额外的单字节代码页由 `file_encodings_legacy` feature 提供（`full` 构建包含）。
+它使用从固定版本 iconv-lite 生成的纯 Rust 映射表，保留 MIT 许可证，运行时无需 Node.js 或系统 iconv。
 
 **Web UI 功能**：
 - ✅ 完整的 Node-RED 编辑器界面

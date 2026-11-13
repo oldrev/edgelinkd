@@ -4,6 +4,17 @@ import os
 
 from tests import *
 
+async def _non_number_dropped(payload):
+    node = {"type": "range", "minin": -5, "maxin": 45, "minout": -5,
+            "maxout": 45, "action": "drop", "round": False}
+    take_node_logs()
+    # A valid sentinel anchors the sampler's window even when the first message is dropped.
+    msgs = await run_single_node_for_seconds(node, [{"payload": payload}, {"payload": 10, "sentinel": True}], 0.1)
+    assert len(msgs) == 1 and msgs[0]['sentinel'] is True and msgs[0]['payload'] == 10
+    logs = take_node_logs()
+    assert any(event['type'] == 'range' and event['level'] == 'INFO'
+               and 'notnumber' in event['msg'] for event in logs)
+
 async def _generic_range_test(action, minin, maxin, minout, maxout, round, a_payload, expected_result):
     node = {"type": "range", "minin": minin, "maxin": maxin, "minout": minout,
             "maxout": maxout, "action": action, "round": round}
@@ -96,18 +107,7 @@ class TestRangeNode:
     @pytest.mark.asyncio
     @pytest.mark.it('reports if input is not a number')
     async def test_it_reports_if_input_is_not_a_number(self):
-        flows = [
-            {"id": "100", "type": "tab"},  # flow 1
-            {"id": "1", "z": "100", "type": "range", 
-             "minin": 0, "maxin": 0, "minout": 0, "maxout": 0, "action": "scale", "round": True, },
-            {"id": "2", "z": "100", "type": "catch", "wires": [["3"]]},
-            {"id": "3", "z": "100", "type": "test-once"},
-        ]
-        injections = [
-            {"nid": "1", "msg": {"payload": "NOT A NUMBER"}}
-        ]
-        msgs = await run_flow_with_msgs_ntimes(flows, injections, 1)
-        assert 'error' in msgs[0]
+        await _non_number_dropped('NOT A NUMBER')
 
     @pytest.mark.asyncio
     @pytest.mark.it('should load some defaults')
@@ -117,6 +117,58 @@ class TestRangeNode:
 # Node-RED 4.1.15 range edge cases
 @pytest.mark.describe('range Node')
 class TestRangeNodeAdditional:
+    @pytest.mark.asyncio
+    @pytest.mark.it('scales numbers given as strings')
+    async def test_numeric_string(self):
+        msgs = await run_single_node_with_msgs_ntimes(
+            {"type": "range", "minin": 0, "maxin": 100, "minout": 0, "maxout": 1000, "action": "scale"},
+            [{"payload": "50"}], 1)
+        assert msgs[0]['payload'] == 500
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('scales numeric strings with surrounding whitespace')
+    async def test_numeric_string_whitespace(self):
+        msgs = await run_single_node_with_msgs_ntimes(
+            {"type": "range", "minin": 0, "maxin": 100, "minout": 0, "maxout": 1000, "action": "scale"},
+            [{"payload": " 50 "}], 1)
+        assert msgs[0]['payload'] == 500
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('still scales true as 1 (existing flows rely on it)')
+    async def test_true(self):
+        msgs = await run_single_node_with_msgs_ntimes(
+            {"type": "range", "minin": 0, "maxin": 1, "minout": 0, "maxout": 100, "action": "scale"},
+            [{"payload": True}], 1)
+        assert msgs[0]['payload'] == 100
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('still scales false as 0 (existing flows rely on it)')
+    async def test_false(self):
+        msgs = await run_single_node_with_msgs_ntimes(
+            {"type": "range", "minin": 0, "maxin": 1, "minout": 0, "maxout": 100, "action": "scale"},
+            [{"payload": False}], 1)
+        assert msgs[0]['payload'] == 0
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('drops and reports null rather than scaling it as 0')
+    async def test_null(self):
+        await _non_number_dropped(None)
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('drops and reports an empty string rather than scaling it as 0')
+    async def test_empty_string(self):
+        await _non_number_dropped('')
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('drops and reports a whitespace-only string rather than scaling it as 0')
+    async def test_whitespace(self):
+        await _non_number_dropped('   ')
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('drops and reports an empty array rather than scaling it as 0')
+    async def test_empty_array(self):
+        await _non_number_dropped([])
+
     @pytest.mark.asyncio
     @pytest.mark.it('clamps numbers within a range - above max fp')
     async def test_additional_0001(self):

@@ -134,6 +134,12 @@ async def _action_flow(host, port, dynamic=False):
 @pytest.mark.describe("MQTT Nodes")
 @pytest.mark.timeout(20)
 class TestMqttNodes:
+    @pytest.mark.skip(reason="The upstream test invokes broker-config setOptions directly; EdgeLinkd broker config is immutable after deploy and dynamic broker reconfiguration is not implemented")
+    @pytest.mark.asyncio
+    @pytest.mark.it('should use the url from a repeated "connect" action')
+    async def test_repeated_connect_preserves_url(self):
+        pass
+
     @pytest.mark.asyncio
     async def test_explicit_client_id_is_shared_between_mqtt_nodes(self):
         async with mqtt_broker(port=0, with_instance=True) as (host, port, broker_server):

@@ -73,9 +73,11 @@ where
 
 #[derive(Debug)]
 #[flow_node("function", red_name = "function")]
-struct FunctionNode {
+pub(crate) struct FunctionNode {
     base: BaseFlowNodeState,
 
+    link_events: std::sync::Mutex<std::collections::HashMap<ElementId, tokio::sync::oneshot::Sender<MsgHandle>>>,
+    link_event_id: AtomicU64,
     output_count: usize,
     user_script: Vec<u8>,
 
@@ -97,6 +99,12 @@ fn now_ms() -> u64 {
 const JS_PRELUDE_SCRIPT: &str = include_str!("./function.prelude.js");
 
 impl FunctionNode {
+    pub(crate) fn return_link_msg(&self, id: ElementId, msg: MsgHandle) {
+        if let Some(sender) = self.link_events.lock().unwrap().remove(&id) {
+            let _ = sender.send(msg);
+        }
+    }
+
     /// Node-RED renders a logged or thrown value as text: a string as-is, anything else through
     /// `JSON.stringify` (so `throw 99` logs `99` and `throw {a:1}` logs `{"a":1}`).
     fn js_value_text<'js>(value: &js::Value<'js>, ctx: &js::Ctx<'js>) -> String {
@@ -223,6 +231,9 @@ impl FlowNodeBehavior for FunctionNode {
             if let Err(e) = cloned_this.finalize_async(ctx.clone()).await {
                 log::error!("[function:{}] Fatal error! Failed to finalize JavaScript environment: {:?}", cloned_this.name(), e);
             }
+            if let Ok(cleanup) = ctx.globals().get::<_, js::Function>("__edgelink_clearTimers") {
+                let _ = cleanup.call::<_, ()>(());
+            }
             while ctx.execute_pending_job() {}
         })
         .await;
@@ -278,6 +289,8 @@ impl FunctionNode {
 
         let node = FunctionNode {
             base: base_node,
+            link_events: Default::default(),
+            link_event_id: AtomicU64::new(1),
             output_count: function_config.output_count.max(1),
             user_script: user_script.as_bytes().to_vec(),
             script_timeout_ms: function_config.timeout.map(|seconds| (seconds * 1000.0).round() as u64),
@@ -347,7 +360,19 @@ impl FunctionNode {
                             if let Some(subarr) = ele.as_array() {
                                 for subele in subarr.iter() {
                                     let obj: js::Value = subele.unwrap();
-                                    if obj.is_null() {
+                                    if obj.is_null() || obj.is_undefined() {
+                                        continue;
+                                    }
+                                    if !obj.is_object()
+                                        || obj.is_array()
+                                        || obj
+                                            .as_object()
+                                            .is_some_and(|o| o.is_array_buffer() || o.is_typed_array::<u8>())
+                                    {
+                                        self.publish_node_log(
+                                            "ERROR",
+                                            "function.error.non-message-returned".to_owned(),
+                                        );
                                         continue;
                                     }
                                     let mut msg = Msg::from_js(ctx, obj)?;
@@ -377,6 +402,10 @@ impl FunctionNode {
 
             // Returns single Msg
             js::Type::Object => {
+                if js_result.as_object().is_some_and(|o| o.is_array_buffer() || o.is_typed_array::<u8>()) {
+                    self.publish_node_log("ERROR", "function.error.non-message-returned".to_owned());
+                    return Ok(items);
+                }
                 let item = (0, Msg::from_js(ctx, js_result)?);
                 items.push(item);
             }
@@ -390,11 +419,7 @@ impl FunctionNode {
             }
 
             _ => {
-                log::warn!(
-                    "[function:{}] Wrong type of the return values: Javascript type={}",
-                    self.name(),
-                    js_result.type_of()
-                );
+                self.publish_node_log("ERROR", "function.error.non-message-returned".to_owned());
             }
         }
         Ok(items)
@@ -526,31 +551,17 @@ mod tests {
         }
     }
 
-    /// The sandbox must expose Node-RED's whole `RED.util` module, and the two JSONata entries -
-    /// the Rust runtime owns JSONata and does not hand it to JavaScript - must fail loudly rather
-    /// than return a plausible-looking value.
-    ///
-    /// The ported spec (`tests/util/test_util.py`) covers the behaviour of every other entry; this
-    /// pins the exported surface and the deliberate gap, which upstream's spec only reaches through
-    /// the skipped JSONata cases.
+    /// The sandbox exposes Node-RED's utility surface, including the Rust-backed JSONata bridge.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn test_red_util_surface_and_unsupported_jsonata() {
+    async fn test_red_util_surface_and_jsonata_bridge() {
         const FUNC: &str = r#"
             var api = ['encodeObject','ensureString','ensureBuffer','cloneMessage','compareObjects','generateId',
                 'getMessageProperty','setMessageProperty','getObjectProperty','setObjectProperty','evaluateNodeProperty',
                 'normalisePropertyExpression','normaliseNodeTypeName','prepareJSONataExpression',
                 'evaluateJSONataExpression','parseContextStore','getSetting'];
             msg.missing = api.filter(function (name) { return typeof RED.util[name] !== 'function'; });
-            var codes = {};
-            ['prepareJSONataExpression','evaluateJSONataExpression'].forEach(function (name) {
-                try {
-                    RED.util[name]('a', {});
-                    codes[name] = 'did-not-throw';
-                } catch (err) {
-                    codes[name] = err.code;
-                }
-            });
-            msg.codes = JSON.stringify(codes);
+            msg.result = RED.util.evaluateJSONataExpression(
+                RED.util.prepareJSONataExpression('payload', node), {payload: 'jsonata'});
             return msg;
         "#;
 
@@ -568,12 +579,7 @@ mod tests {
 
         assert_eq!(msgs.len(), 1);
         assert_eq!(msgs[0]["missing"], Variant::Array(vec![]));
-        assert_eq!(
-            msgs[0]["codes"],
-            Variant::from(
-                r#"{"prepareJSONataExpression":"NOT_SUPPORTED","evaluateJSONataExpression":"NOT_SUPPORTED"}"#
-            )
-        );
+        assert_eq!(msgs[0]["result"], Variant::from("jsonata"));
     }
 
     /// The sandbox global `env.get(name)` is Node-RED's `RED.util.getSetting(node, name)` carried

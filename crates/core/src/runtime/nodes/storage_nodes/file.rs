@@ -89,27 +89,6 @@ impl<'de> Deserialize<'de> for OverwriteFile {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
-enum FileEncoding {
-    #[serde(rename = "none")]
-    #[default]
-    None,
-    #[serde(rename = "utf8")]
-    Utf8,
-    #[serde(rename = "base64")]
-    Base64,
-    #[serde(rename = "binary")]
-    Binary,
-    #[serde(rename = "hex")]
-    Hex,
-    #[serde(rename = "ucs2", alias = "utf16le", alias = "utf-16le")]
-    Ucs2,
-    #[serde(rename = "utf-16be")]
-    Utf16Be,
-    #[serde(rename = "setbymsg")]
-    SetByMsg,
-}
-
 #[derive(Debug, Clone, Deserialize)]
 struct FileNodeConfig {
     #[serde(default = "default_filename")]
@@ -131,8 +110,114 @@ struct FileNodeConfig {
     #[serde(rename = "createDir")]
     create_dir: RedBool,
 
-    #[serde(default)]
-    encoding: FileEncoding,
+    #[serde(default = "default_encoding")]
+    encoding: String,
+}
+
+fn default_encoding() -> String {
+    "none".to_owned()
+}
+
+#[cfg(feature = "nodes_file_encodings")]
+fn encoding_rs_label(label: &str) -> String {
+    let lower = label.to_ascii_lowercase();
+    if lower.starts_with("cp") && lower[2..].parse::<u16>().is_ok_and(|code| (1250..=1258).contains(&code)) {
+        return format!("windows-{}", &lower[2..]);
+    }
+    match lower.as_str() {
+        "windows-31j" | "windows932" | "cp932" => "shift_jis".into(),
+        "windows936" | "cp936" | "euc-cn" => "gbk".into(),
+        "windows949" | "cp949" | "ks_c_5601" => "euc-kr".into(),
+        "windows950" | "cp950" => "big5".into(),
+        "cp874" => "windows-874".into(),
+        "koi8-r" | "koi8-u" | "big5" | "euc-jp" | "euc-kr" | "gb18030" | "gb2312" | "gbk" | "shift_jis"
+        | "iso-8859-2" | "iso-8859-5" | "iso-8859-7" | "iso-8859-9" | "iso-8859-13" | "iso-8859-15" => lower,
+        _ => lower,
+    }
+}
+
+pub(crate) fn validate_encoding(label: &str) -> crate::Result<()> {
+    #[cfg(feature = "file_encodings_legacy")]
+    if super::file_encodings::supports(label) {
+        return Ok(());
+    }
+    if matches!(
+        label.to_ascii_lowercase().as_str(),
+        "none"
+            | "utf8"
+            | "utf-8"
+            | "base64"
+            | "binary"
+            | "hex"
+            | "ucs2"
+            | "utf16le"
+            | "utf-16le"
+            | "utf-16be"
+            | "setbymsg"
+    ) {
+        return Ok(());
+    }
+    #[cfg(feature = "nodes_file_encodings")]
+    if encoding_rs::Encoding::for_label(encoding_rs_label(label).as_bytes()).is_some() {
+        return Ok(());
+    }
+    Err(crate::EdgelinkError::NotSupported(format!("File encoding '{label}' is not supported")).into())
+}
+
+pub(crate) fn encode_file_text(data: &str, label: &str) -> crate::Result<Vec<u8>> {
+    #[cfg(feature = "file_encodings_legacy")]
+    if let Some(encoded) = super::file_encodings::encode(data, label) {
+        return Ok(encoded);
+    }
+    use base64::{Engine as _, engine::general_purpose};
+    match label.to_ascii_lowercase().as_str() {
+        "none" | "utf8" | "utf-8" | "setbymsg" => Ok(data.as_bytes().to_vec()),
+        "base64" => general_purpose::STANDARD.decode(data).map_err(|error| {
+            crate::EdgelinkError::InvalidOperation(format!("Invalid base64 file content: {error}")).into()
+        }),
+        "binary" => Ok(data.chars().map(|character| character as u8).collect()),
+        "hex" => hex::decode(data).map_err(|error| {
+            crate::EdgelinkError::InvalidOperation(format!("Invalid hex file content: {error}")).into()
+        }),
+        "ucs2" | "utf16le" | "utf-16le" => Ok(data.encode_utf16().flat_map(u16::to_le_bytes).collect()),
+        "utf-16be" => Ok(data.encode_utf16().flat_map(u16::to_be_bytes).collect()),
+        _ => {
+            #[cfg(feature = "nodes_file_encodings")]
+            if let Some(encoding) = encoding_rs::Encoding::for_label(encoding_rs_label(label).as_bytes()) {
+                return Ok(encoding.encode(data).0.into_owned());
+            }
+            Err(crate::EdgelinkError::NotSupported(format!("File encoding '{label}' is not supported")).into())
+        }
+    }
+}
+
+pub(crate) fn decode_file_bytes(data: &[u8], label: &str) -> crate::Result<String> {
+    #[cfg(feature = "file_encodings_legacy")]
+    if let Some(decoded) = super::file_encodings::decode(data, label) {
+        return Ok(decoded);
+    }
+    use base64::{Engine as _, engine::general_purpose};
+    match label.to_ascii_lowercase().as_str() {
+        "none" | "utf8" | "utf-8" => Ok(String::from_utf8_lossy(data).into_owned()),
+        "base64" => Ok(general_purpose::STANDARD.encode(data)),
+        "binary" => Ok(data.iter().map(|byte| char::from(*byte)).collect()),
+        "hex" => Ok(hex::encode(data)),
+        "ucs2" | "utf16le" | "utf-16le" => {
+            let units = data.as_chunks::<2>().0.iter().map(|pair| u16::from_le_bytes(*pair));
+            Ok(String::from_utf16_lossy(&units.collect::<Vec<_>>()))
+        }
+        "utf-16be" => {
+            let units = data.as_chunks::<2>().0.iter().map(|pair| u16::from_be_bytes(*pair));
+            Ok(String::from_utf16_lossy(&units.collect::<Vec<_>>()))
+        }
+        _ => {
+            #[cfg(feature = "nodes_file_encodings")]
+            if let Some(encoding) = encoding_rs::Encoding::for_label(encoding_rs_label(label).as_bytes()) {
+                return Ok(encoding.decode(data).0.into_owned());
+            }
+            Err(crate::EdgelinkError::NotSupported(format!("File encoding '{label}' is not supported")).into())
+        }
+    }
 }
 
 fn default_filename() -> String {
@@ -161,6 +246,7 @@ impl FileNode {
         settings: Option<&config::Config>,
     ) -> crate::Result<Box<dyn FlowNodeBehavior>> {
         let file_config = FileNodeConfig::deserialize(&config.rest)?;
+        validate_encoding(&file_config.encoding)?;
         let node = FileNode {
             base: base_node,
             config: file_config,
@@ -204,21 +290,6 @@ impl FileNode {
         })
     }
 
-    fn _encode_data(&self, data: &str, encoding: FileEncoding) -> Vec<u8> {
-        match encoding {
-            FileEncoding::None | FileEncoding::Utf8 => data.as_bytes().to_vec(),
-            FileEncoding::Base64 => {
-                use base64::{Engine as _, engine::general_purpose};
-                general_purpose::STANDARD.decode(data).unwrap_or_else(|_| data.as_bytes().to_vec())
-            }
-            FileEncoding::Binary => data.as_bytes().to_vec(),
-            FileEncoding::Hex => hex::decode(data).unwrap_or_else(|_| data.as_bytes().to_vec()),
-            FileEncoding::Ucs2 => data.encode_utf16().flat_map(u16::to_le_bytes).collect(),
-            FileEncoding::Utf16Be => encoding_rs::UTF_16BE.encode(data).0.into_owned(),
-            FileEncoding::SetByMsg => data.as_bytes().to_vec(), // 如果消息没有指定编码，默认使用 UTF-8
-        }
-    }
-
     /// `file.errors.*` are the i18n keys Node-RED reports; the specs assert on those keys, so the
     /// same text is published as a node log event.
     fn warn_event(&self, key: &str) {
@@ -226,14 +297,14 @@ impl FileNode {
         self.publish_node_log("WARN", key.to_string());
     }
 
-    fn error_event(&self, key: &str, err: &std::io::Error) {
+    fn error_event(&self, key: &str, err: &dyn std::fmt::Display) {
         let message = format!("{key}: {err}");
         log::error!("[file:{}] {message}", self.name());
         self.publish_node_log("ERROR", message);
     }
 
     /// Write (or append) one message's payload, without any of the node's own bookkeeping.
-    async fn write_payload(&self, filename: &str, payload: &Variant, append: bool, msg: &Msg) -> std::io::Result<()> {
+    async fn write_payload(&self, filename: &str, payload: &Variant, append: bool, msg: &Msg) -> crate::Result<()> {
         // Prepare data (Node-RED: object/array -> JSON, bool/number -> string, bytes -> as-is)
         let data_bytes: Vec<u8> = match payload {
             Variant::String(s) => s.as_bytes().to_vec(),
@@ -247,47 +318,27 @@ impl FileNode {
         };
 
         // Encoding (Node-RED: encoding can be set by msg or config)
-        let encoding = if matches!(self.config.encoding, FileEncoding::SetByMsg) {
-            if let Some(Variant::String(enc)) = msg.get("encoding") {
-                match enc.as_str() {
-                    "utf8" => FileEncoding::Utf8,
-                    "base64" => FileEncoding::Base64,
-                    "binary" => FileEncoding::Binary,
-                    _ => FileEncoding::None,
-                }
-            } else {
-                FileEncoding::None
-            }
+        let encoding = if self.config.encoding == "setbymsg" {
+            msg.get("encoding").and_then(Variant::as_str).unwrap_or("none")
         } else {
-            self.config.encoding
+            self.config.encoding.as_str()
         };
-
-        // If encoding is not none, encode accordingly
-        let mut final_bytes = match encoding {
-            FileEncoding::None | FileEncoding::Utf8 => data_bytes.clone(),
-            FileEncoding::Base64 => {
-                use base64::{Engine as _, engine::general_purpose};
-                general_purpose::STANDARD.decode(&data_bytes).unwrap_or(data_bytes.clone())
-            }
-            FileEncoding::Binary => data_bytes.clone(),
-            FileEncoding::Hex => {
-                hex::decode(String::from_utf8_lossy(&data_bytes).as_bytes()).unwrap_or(data_bytes.clone())
-            }
-            FileEncoding::Ucs2 => {
-                String::from_utf8_lossy(&data_bytes).encode_utf16().flat_map(u16::to_le_bytes).collect()
-            }
-            FileEncoding::Utf16Be => encoding_rs::UTF_16BE.encode(&String::from_utf8_lossy(&data_bytes)).0.into_owned(),
-            FileEncoding::SetByMsg => data_bytes.clone(),
-        };
-
-        // `appendNewline` adds the platform line ending, except for the last part of a string
-        // multipart message (`aflg` upstream).
-        if *self.config.append_newline && !matches!(payload, Variant::Bytes(_)) && self.appends_newline(msg) {
-            #[cfg(target_os = "windows")]
-            final_bytes.extend_from_slice(b"\r\n");
-            #[cfg(not(target_os = "windows"))]
-            final_bytes.push(b'\n');
+        validate_encoding(encoding)
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error.to_string()))?;
+        let mut text = String::from_utf8_lossy(&data_bytes).into_owned();
+        let append_newline =
+            *self.config.append_newline && !matches!(payload, Variant::Bytes(_)) && self.appends_newline(msg);
+        if append_newline {
+            text.push_str(if cfg!(target_os = "windows") { "\r\n" } else { "\n" });
         }
+        let final_bytes = if matches!(encoding.to_ascii_lowercase().as_str(), "none" | "utf8" | "utf-8")
+            && matches!(payload, Variant::Bytes(_))
+        {
+            data_bytes.clone()
+        } else {
+            encode_file_text(&text, encoding)
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error.to_string()))?
+        };
 
         let mut options = tokio::fs::OpenOptions::new();
         options.write(true).create(true);
@@ -299,7 +350,8 @@ impl FileNode {
 
         let mut file = options.open(filename).await?;
         file.write_all(&final_bytes).await?;
-        file.flush().await
+        file.flush().await?;
+        Ok(())
     }
 
     /// Whether `appendNewline` applies to this message: upstream skips the newline for the last
@@ -395,6 +447,51 @@ impl FlowNodeBehavior for FileNode {
                 node.fan_out_one(Envelope { port: 0, msg }, CancellationToken::new()).await
             })
             .await;
+        }
+    }
+}
+
+#[cfg(all(test, feature = "nodes_file_encodings"))]
+mod encoding_label_tests {
+    use super::*;
+
+    #[test]
+    fn reports_whatwg_legacy_label_support() {
+        for label in [
+            "Big5-HKSCS",
+            "EUC-CN",
+            "KS_C_5601",
+            "Windows-31j",
+            "Windows932",
+            "Windows936",
+            "Windows949",
+            "Windows950",
+            "armscii8",
+            "cp437",
+            "cp866",
+            "cp874",
+            "cp1250",
+            "cp1251",
+            "cp1252",
+            "cp1253",
+            "cp1254",
+            "cp1255",
+            "cp1256",
+            "cp1257",
+            "cp1258",
+            "georgianacademy",
+            "koi8-r",
+            "koi8-u",
+            "macintosh",
+            "tis620",
+            "iso-8859-2",
+            "iso-8859-5",
+            "iso-8859-7",
+            "iso-8859-9",
+            "iso-8859-13",
+            "iso-8859-15",
+        ] {
+            eprintln!("{label}: {}", validate_encoding(label).is_ok());
         }
     }
 }

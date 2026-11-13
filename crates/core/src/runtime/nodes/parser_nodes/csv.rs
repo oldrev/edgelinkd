@@ -522,7 +522,12 @@ impl CsvNode {
         // `70-CSV.js`): the lines before `skip` are dropped, and the header line is whichever line
         // ends up at position `skip`, which for a part-based sequence is the part with that index.
         let skip = self.config.skip.unwrap_or(0);
-        let part_index = msg.parts().and_then(|p| p.get("index").and_then(|v| v.as_number()).and_then(|n| n.as_u64()));
+        let csv_parts =
+            msg.parts().filter(|parts| !matches!(parts.get("type").and_then(|v| v.as_str()), Some("array" | "object")));
+        let part_index = msg
+            .parts()
+            .filter(|_| self.config.multi == CsvOutputMode::One || csv_parts.is_some())
+            .and_then(|p| p.get("index").and_then(|v| v.as_number()).and_then(|n| n.as_u64()));
 
         let carries_header = match part_index {
             Some(index) => index == skip as u64,
@@ -607,8 +612,8 @@ impl CsvNode {
         // `mult` collects the parts of one sequence: everything but the last part only fills the
         // store (upstream only accumulates when the part carries at most one line break).
         let mut send = true;
-        if self.config.multi == CsvOutputMode::Mult
-            && let Some(parts) = msg.parts()
+        if self.config.multi != CsvOutputMode::One
+            && let Some(parts) = csv_parts
         {
             let index = parts.get("index").and_then(|v| v.as_number()).and_then(|n| n.as_u64()).unwrap_or(0);
             let count = parts.get("count").and_then(|v| v.as_number()).and_then(|n| n.as_u64()).unwrap_or(1);
@@ -665,11 +670,11 @@ impl CsvNode {
                 }
             } else if !in_quotes && c == sep {
                 // An empty field (nothing between two separators) is a null value.
-                let empty = prev == Some(sep);
+                let empty = prev.is_none() || matches!(prev, Some(p) if p == sep || p == '\n' || p == '\r');
                 fields.push(if empty { Variant::Null } else { self.parse_field_value(&current) });
                 current.clear();
             } else if !in_quotes && (c == '\n' || c == '\r') {
-                let empty = matches!(prev, Some(p) if p == sep || p == '\n' || p == '\r');
+                let empty = prev == Some(sep);
                 fields.push(if empty { Variant::Null } else { self.parse_field_value(&current) });
                 current.clear();
                 rows.push(std::mem::take(&mut fields));
@@ -680,11 +685,7 @@ impl CsvNode {
         }
 
         // The last field/row is not terminated by a separator or a line break.
-        fields.push(if current.is_empty() && prev.is_none() {
-            Variant::String(String::new())
-        } else {
-            self.parse_field_value(&current)
-        });
+        fields.push(if prev == Some(sep) { Variant::Null } else { self.parse_field_value(&current) });
         rows.push(fields);
         (rows, in_quotes)
     }
@@ -696,11 +697,7 @@ impl CsvNode {
     /// decide whether an empty value becomes `null` or stays an empty string.
     fn parse_field_value(&self, field: &str) -> Variant {
         if field.is_empty() {
-            return if self.config.include_empty_strings.unwrap_or(false) {
-                Variant::String(String::new())
-            } else {
-                Variant::Null
-            };
+            return Variant::String(String::new());
         }
         let trimmed = field.trim();
 
@@ -753,6 +750,12 @@ impl CsvNode {
                             // Store needed values before dropping msg_guard
                             let msg_id = msg_guard.id().unwrap_or_default().to_string();
                             let input_parts = msg_guard.parts().cloned();
+                            let aggregates_csv_parts = input_parts.as_ref().is_some_and(|parts| {
+                                !matches!(parts.get("type").and_then(|v| v.as_str()), Some("array" | "object"))
+                            }) && msg_guard
+                                .get("payload")
+                                .and_then(|v| v.as_str())
+                                .is_some_and(|text| text.chars().filter(|c| *c == '\n' || *c == '\r').count() <= 1);
                             let is_last_part = input_parts
                                 .as_ref()
                                 .map(|parts| {
@@ -828,16 +831,15 @@ impl CsvNode {
                                 return Ok(());
                             }
 
-                            // `yes`/`mult`: one message carrying the whole array. A `mult` sequence
-                            // that has just been completed drops its `parts`; a `yes` message keeps
-                            // whatever the input carried.
+                            // Array output drops the metadata only when CSV row parts were aggregated.
+                            // Array/object parts describe independent CSV inputs and retain their metadata.
                             let mut response_msg = response_msg;
                             response_msg.set("payload".to_string(), Variant::Array(objects));
 
                             if let Some(cols) = columns {
                                 response_msg.set("columns".to_string(), Variant::String(cols));
                             }
-                            if self.config.multi == CsvOutputMode::Mult {
+                            if aggregates_csv_parts {
                                 response_msg.remove("parts");
                             }
 
@@ -1083,18 +1085,22 @@ impl CsvNode {
 
         let (input, input_parts, msg_id) = {
             let msg_guard = msg.read().await;
+            let text = msg_guard.get("payload").and_then(|value| value.as_str()).unwrap_or_default();
             (
-                msg_guard.get("payload").and_then(|value| value.as_str()).unwrap_or_default().to_string(),
+                text.strip_prefix('\u{feff}').unwrap_or(text).to_string(),
                 msg_guard.parts().cloned(),
                 msg_guard.id().unwrap_or_default().to_string(),
             )
         };
 
         let has_parts = input_parts.is_some();
+        let has_csv_parts = input_parts
+            .as_ref()
+            .is_some_and(|parts| !matches!(parts.get("type").and_then(|v| v.as_str()), Some("array" | "object")));
         let mut first_line = true;
         let mut last = false;
         let mut linecount = 0usize;
-        if let Some(parts) = &input_parts {
+        if let Some(parts) = input_parts.as_ref().filter(|_| self.config.multi == CsvOutputMode::One || has_csv_parts) {
             linecount = parts.get("index").and_then(number_as_u64).unwrap_or(0) as usize;
             if linecount > skip {
                 first_line = false;
@@ -1189,7 +1195,7 @@ impl CsvNode {
         }
 
         if self.config.multi != CsvOutputMode::One {
-            if has_parts && line_breaks <= 1 {
+            if has_csv_parts && line_breaks <= 1 {
                 let mut state = self.parse_state.lock().await;
                 if !data.is_empty() {
                     state.store.extend(data);

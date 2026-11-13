@@ -1,5 +1,5 @@
 use crate::handlers::WebState;
-use crate::models::RedSystemSettings;
+use crate::models::{CodeEditorLibrary, RedSystemSettings};
 use axum::extract::{Path, Query};
 use axum::{
     Extension,
@@ -122,9 +122,9 @@ async fn generate_plugins_html() -> String {
     "".to_string()
 }
 
-pub async fn get_theme() -> Result<Json<Value>, StatusCode> {
+pub async fn get_theme(Extension(state): Extension<Arc<WebState>>) -> Result<Json<Value>, StatusCode> {
     // Return Node-RED compatible theme list
-    let jd = serde_json::json!({
+    let mut jd = serde_json::json!({
         "page": {
             "title": "EdgeLinkd",
             "favicon": "favicon.ico",
@@ -140,11 +140,45 @@ pub async fn get_theme() -> Result<Json<Value>, StatusCode> {
         "asset": {
             "red": "red/red.min.js",
             "main": "red/main.min.js",
-            "vendorMonaco": "vendor/monaco/monaco-bootstrap.js"
+            "vendorMonaco": "",
+            "vendorAce": ""
         },
         "themes": []
     });
+    match state.red_settings.editor_theme.code_editor.lib {
+        CodeEditorLibrary::Monaco => jd["asset"]["vendorMonaco"] = "vendor/monaco/monaco-bootstrap.js".into(),
+        CodeEditorLibrary::Ace => jd["asset"]["vendorAce"] = "vendor/ace/ace-bootstrap.js".into(),
+        CodeEditorLibrary::Basic => {}
+    }
     Ok(Json(jd))
+}
+
+/// Third-party login is not offered by EdgeLinkd; never fabricate an access token.
+pub async fn exchange_auth_code() -> (StatusCode, Json<Value>) {
+    (
+        StatusCode::NOT_IMPLEMENTED,
+        Json(serde_json::json!({
+            "error": "not_supported",
+            "message": "Third-party authentication code exchange is not supported by EdgeLinkd"
+        })),
+    )
+}
+
+/// Select the bootstrap matching the code editor advertised in /settings.
+pub async fn get_editor_index(Extension(state): Extension<Arc<WebState>>) -> Result<Html<String>, StatusCode> {
+    let mut html = tokio::fs::read_to_string(state.static_dir.join("index.html"))
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if !matches!(state.red_settings.editor_theme.code_editor.lib, CodeEditorLibrary::Monaco) {
+        html = html.replace("<link rel=\"stylesheet\" href=\"vendor/monaco/style.css\">", "");
+        let bootstrap = match state.red_settings.editor_theme.code_editor.lib {
+            CodeEditorLibrary::Ace => "<script id=\"ace-bootstrap\" src=\"vendor/ace/ace-bootstrap.js\"></script>",
+            _ => "",
+        };
+        html = html
+            .replace("<script id=\"monaco-bootstrap\" src=\"vendor/monaco/monaco-bootstrap.js\"></script>", bootstrap);
+    }
+    Ok(Html(html))
 }
 /// Get plugin messages
 pub async fn get_plugin_messages(Query(params): Query<HashMap<String, String>>) -> Result<Json<Value>, StatusCode> {

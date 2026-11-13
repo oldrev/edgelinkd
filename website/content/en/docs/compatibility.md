@@ -8,7 +8,7 @@ EdgeLinkd is a Node-RED **compatible** runtime, not a Node-RED clone. It targets
 
 ## The contract
 
-**What EdgeLinkd ships behaves like Node-RED.** For every node, option and property type it offers, the observable behaviour — message semantics, errors and status, the editor contract — must match Node-RED **v4.0.9**, the pinned upstream release. The ported spec tests assert exactly that.
+**What EdgeLinkd ships behaves like Node-RED.** For every node, option and property type it offers, the observable behaviour — message semantics, errors and status, the editor contract — must match Node-RED **v5.0.9**, the pinned upstream release. The ported spec tests assert exactly that.
 
 **What does not fit the budget is not offered.** A feature whose memory or binary-size cost is too high for the target hardware, or that depends on the Node.js ecosystem, is out of scope by design. That is a decision, not a bug and not a pending TODO.
 
@@ -34,4 +34,4 @@ EdgeLinkd is a Node-RED **compatible** runtime, not a Node-RED clone. It targets
 
 ## Reporting gaps
 
-If a supported node behaves differently from Node-RED v4.1.16, that is a bug. Please [open an issue](https://github.com/oldrev/edgelinkd/issues) with a minimal `flows.json` that reproduces it.
+If a supported node behaves differently from Node-RED v5.0.9, that is a bug. Please [open an issue](https://github.com/oldrev/edgelinkd/issues) with a minimal `flows.json` that reproduces it.

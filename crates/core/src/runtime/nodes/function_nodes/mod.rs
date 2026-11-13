@@ -8,4 +8,4 @@ mod template;
 mod trigger;
 
 #[cfg(feature = "js")]
-mod function;
+pub(crate) mod function;

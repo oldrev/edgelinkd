@@ -73,8 +73,35 @@ impl JsonNode {
         let mut msg_guard = msg.write().await;
 
         // Check if there's a schema in the message for validation
-        let has_schema = msg_guard.contains("schema");
-        let schema_value = if has_schema { msg_guard.get("schema").cloned() } else { None };
+        let schema_value = msg_guard
+            .get("schema")
+            .filter(|value| {
+                !matches!(value, Variant::Null | Variant::Bool(false))
+                    && !matches!(value, Variant::String(s) if s.is_empty())
+                    && !matches!(value, Variant::Number(n) if n.as_f64() == Some(0.0))
+            })
+            .cloned();
+        let validator = schema_value
+            .as_ref()
+            .map(|schema| {
+                let schema_json = variant_to_json_value(schema);
+                check_schema_scope(&schema_json)?;
+                let draft = if schema_json
+                    .get("$schema")
+                    .and_then(JsonValue::as_str)
+                    .is_some_and(|uri| uri.contains("draft-06"))
+                {
+                    jsonschema::Draft::Draft6
+                } else {
+                    jsonschema::Draft::Draft7
+                };
+                jsonschema::options()
+                    .with_draft(draft)
+                    .should_validate_formats(true)
+                    .build(&variant_to_json_value(schema))
+                    .map_err(|_| crate::EdgelinkError::InvalidOperation("json.errors.schema-error-compile".into()))
+            })
+            .transpose()?;
 
         // Get the value from the specified property
         if !msg_guard.contains_nav(&self.config.property) {
@@ -86,6 +113,43 @@ impl JsonNode {
         let property_value = msg_guard.get_nav(&self.config.property).cloned();
 
         if let Some(value) = property_value {
+            if let Some(validator) = &validator {
+                let instance = match &value {
+                    Variant::String(text) => variant_to_json_value(&self.parse_json_string(text)?),
+                    Variant::Bytes(bytes) => serde_json::from_slice(bytes).map_err(|error| {
+                        crate::EdgelinkError::InvalidOperation(format!("JSON parse error: {error}"))
+                    })?,
+                    _ => variant_to_json_value(&value),
+                };
+                let errors: Vec<_> = validator
+                    .iter_errors(&instance)
+                    .flat_map(|error| {
+                        schema_errors_to_ajv(&error, &variant_to_json_value(schema_value.as_ref().unwrap()), &instance)
+                    })
+                    .collect();
+                if !errors.is_empty() {
+                    if matches!(value, Variant::String(_)) && self.config.action != JsonAction::Stringify {
+                        msg_guard.set_nav(&self.config.property, json_value_to_variant(instance), true)?;
+                    }
+                    let details = errors
+                        .iter()
+                        .map(|error| {
+                            format!(
+                                "data{} {}",
+                                error["dataPath"].as_str().unwrap_or(""),
+                                error["message"].as_str().unwrap_or("")
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    msg_guard.set("schemaError".into(), json_value_to_variant(JsonValue::Array(errors)));
+                    return Err(
+                        crate::EdgelinkError::InvalidOperation(format!("json.errors.schema-error: {details}")).into()
+                    );
+                }
+                msg_guard.remove("schema");
+            }
+
             // Check if this value should be processed
             if !self.should_process(&value) {
                 // Just pass through without processing
@@ -179,13 +243,6 @@ impl JsonNode {
 
             match result {
                 Ok(new_value) => {
-                    // Validate against schema if present
-                    if let Some(_schema) = schema_value {
-                        // TODO: Implement JSON schema validation
-                        // For now, just remove the schema property and continue
-                        msg_guard.remove("schema");
-                    }
-
                     let _ = msg_guard.set_nav(&self.config.property, new_value, true);
                 }
                 Err(e) => {
@@ -207,9 +264,7 @@ impl JsonNode {
     }
 
     fn stringify_value(&self, value: &Variant) -> crate::Result<Variant> {
-        if let Variant::String(s) = value
-            && serde_json::from_str::<serde_json::Value>(s).is_ok()
-        {
+        if let Variant::String(s) = value {
             return Ok(Variant::String(s.clone()));
         }
         let json_value = variant_to_json_value(value);
@@ -259,6 +314,252 @@ impl JsonNode {
             _ => false,
         })
     }
+}
+
+/// Local Draft 6/7 schemas fit the embedded runtime; external resolution does not.
+fn check_schema_scope(schema: &JsonValue) -> Result<(), crate::EdgelinkError> {
+    if let JsonValue::Object(properties) = schema {
+        if let Some(JsonValue::String(uri)) = properties.get("$schema")
+            && !matches!(
+                uri.trim_end_matches('#'),
+                "http://json-schema.org/draft-06/schema" | "http://json-schema.org/draft-07/schema"
+            )
+        {
+            return Err(crate::EdgelinkError::NotSupported(format!("JSON schema draft: {uri}")));
+        }
+        if let Some(JsonValue::String(reference)) = properties.get("$ref")
+            && !reference.starts_with('#')
+        {
+            return Err(crate::EdgelinkError::NotSupported(
+                "External JSON schema references require an unavailable resolver".into(),
+            ));
+        }
+        for keyword in ["properties", "patternProperties", "definitions", "dependencies"] {
+            if let Some(JsonValue::Object(map)) = properties.get(keyword) {
+                for child in map.values() {
+                    // Draft 6/7 dependencies may also be arrays of property names.
+                    if !child.is_array() {
+                        check_schema_scope(child)?;
+                    }
+                }
+            }
+        }
+        for keyword in
+            ["additionalProperties", "additionalItems", "propertyNames", "contains", "not", "if", "then", "else"]
+        {
+            if let Some(child) = properties.get(keyword) {
+                check_schema_scope(child)?;
+            }
+        }
+        for keyword in ["allOf", "anyOf", "oneOf"] {
+            if let Some(JsonValue::Array(children)) = properties.get(keyword) {
+                for child in children {
+                    check_schema_scope(child)?;
+                }
+            }
+        }
+        if let Some(items) = properties.get("items") {
+            match items {
+                JsonValue::Array(children) => {
+                    for child in children {
+                        check_schema_scope(child)?;
+                    }
+                }
+                child => check_schema_scope(child)?,
+            }
+        }
+    }
+    Ok(())
+}
+
+fn schema_errors_to_ajv(
+    error: &jsonschema::ValidationError<'_>,
+    schema: &JsonValue,
+    instance: &JsonValue,
+) -> Vec<JsonValue> {
+    use jsonschema::error::ValidationErrorKind as K;
+    let mut summary = schema_error_to_ajv(error, schema);
+    match &error.kind {
+        K::FalseSchema if error.schema_path.to_string().ends_with("/additionalProperties") => instance
+            .pointer(&error.instance_path.to_string())
+            .and_then(JsonValue::as_object)
+            .into_iter()
+            .flatten()
+            .map(|(property, _)| {
+                let mut item = summary.clone();
+                item["keyword"] = JsonValue::String("additionalProperties".into());
+                item["params"] = serde_json::json!({"additionalProperty": property});
+                item["message"] = JsonValue::String("should NOT have additional properties".into());
+                item
+            })
+            .collect(),
+        K::AdditionalProperties { unexpected } => unexpected
+            .iter()
+            .map(|property| {
+                let mut item = summary.clone();
+                item["params"]["additionalProperty"] = JsonValue::String(property.clone());
+                item
+            })
+            .collect(),
+        K::PropertyNames { error: child } => {
+            summary["keyword"] = JsonValue::String("propertyNames".into());
+            let path = error.schema_path.to_string();
+            let prefix = path.split("/propertyNames").next().unwrap_or("");
+            summary["schemaPath"] = JsonValue::String(format!("#{prefix}/propertyNames"));
+            let mut details = schema_error_to_ajv(child, schema);
+            details["propertyName"] = JsonValue::String(child.instance.as_str().unwrap_or("").into());
+            vec![details, summary]
+        }
+        K::OneOfNotValid => {
+            let mut details = Vec::new();
+            if let Some(branches) = schema.pointer(&error.schema_path.to_string()).and_then(JsonValue::as_array) {
+                for (index, branch) in branches.iter().enumerate() {
+                    let mut branch = branch.clone();
+                    if let Some(object) = branch.as_object_mut()
+                        && let Some(definitions) = schema.get("definitions")
+                    {
+                        object.insert("definitions".into(), definitions.clone());
+                    }
+                    if let Ok(validator) = jsonschema::draft7::new(&branch) {
+                        for child in validator.iter_errors(&error.instance) {
+                            let mut item = schema_error_to_ajv(&child, &branch);
+                            item["schemaPath"] =
+                                JsonValue::String(format!("#{}/{index}{}", error.schema_path, child.schema_path));
+                            item["dataPath"] = JsonValue::String(format!(
+                                "{}{}",
+                                summary["dataPath"].as_str().unwrap_or(""),
+                                item["dataPath"].as_str().unwrap_or("")
+                            ));
+                            details.push(item);
+                        }
+                    }
+                }
+            }
+            details.push(summary);
+            details
+        }
+        _ => vec![summary],
+    }
+}
+
+/// Adapt the Draft 7 validator diagnostics to the editor's Ajv 6 error contract.
+fn schema_error_to_ajv(error: &jsonschema::ValidationError<'_>, schema: &JsonValue) -> JsonValue {
+    use jsonschema::error::{TypeKind, ValidationErrorKind as K};
+    use serde_json::json;
+    let keyword = error.schema_path.to_string().rsplit('/').next().unwrap_or("").to_owned();
+    let (params, message) = match &error.kind {
+        K::Type { kind } => {
+            let name = match kind {
+                TypeKind::Single(value) => value.to_string(),
+                TypeKind::Multiple(values) => {
+                    values.into_iter().map(|value| value.to_string()).collect::<Vec<_>>().join(",")
+                }
+            };
+            (json!({"type": name}), format!("should be {name}"))
+        }
+        K::Required { property } => (
+            json!({"missingProperty": property}),
+            format!("should have required property '{}'", property.as_str().unwrap_or("")),
+        ),
+        K::Minimum { limit } | K::Maximum { limit } | K::ExclusiveMinimum { limit } | K::ExclusiveMaximum { limit } => {
+            let comparison = match &error.kind {
+                K::Minimum { .. } => ">=",
+                K::Maximum { .. } => "<=",
+                K::ExclusiveMinimum { .. } => ">",
+                _ => "<",
+            };
+            (
+                json!({"comparison": comparison, "limit": limit, "exclusive": comparison == ">" || comparison == "<"}),
+                format!("should be {comparison} {limit}"),
+            )
+        }
+        K::MinLength { limit }
+        | K::MaxLength { limit }
+        | K::MinItems { limit }
+        | K::MaxItems { limit }
+        | K::MinProperties { limit }
+        | K::MaxProperties { limit } => {
+            let comparison = if keyword.starts_with("min") { "fewer" } else { "more" };
+            let unit = if keyword.ends_with("Length") {
+                "characters"
+            } else if keyword.ends_with("Items") {
+                "items"
+            } else {
+                "properties"
+            };
+            (json!({"limit": limit}), format!("should NOT have {comparison} than {limit} {unit}"))
+        }
+        K::Enum { options } => {
+            (json!({"allowedValues": options}), "should be equal to one of the allowed values".into())
+        }
+        K::Constant { expected_value } => {
+            (json!({"allowedValue": expected_value}), "should be equal to constant".into())
+        }
+        K::Pattern { pattern } => (json!({"pattern": pattern}), format!("should match pattern \"{pattern}\"")),
+        K::Format { format } => (json!({"format": format}), format!("should match format \"{format}\"")),
+        K::MultipleOf { multiple_of } => {
+            (json!({"multipleOf": multiple_of}), format!("should be multiple of {multiple_of}"))
+        }
+        K::UniqueItems => {
+            let items = error.instance.as_array().expect("uniqueItems applies to arrays");
+            let mut pair = (0, 0);
+            'outer: for i in (0..items.len()).rev() {
+                for j in (0..i).rev() {
+                    if items[i] == items[j] {
+                        pair = (i, j);
+                        break 'outer;
+                    }
+                }
+            }
+            (
+                json!({"i": pair.0, "j": pair.1}),
+                format!("should NOT have duplicate items (items ## {} and {} are identical)", pair.1, pair.0),
+            )
+        }
+        K::AdditionalItems { limit } => (json!({"limit": limit}), format!("should NOT have more than {limit} items")),
+        K::AdditionalProperties { unexpected } => {
+            (json!({"additionalProperty": unexpected.first()}), "should NOT have additional properties".into())
+        }
+        K::OneOfNotValid => (json!({"passingSchemas": null}), "should match exactly one schema in oneOf".into()),
+        K::OneOfMultipleValid => {
+            let path = error.schema_path.to_string();
+            let passing: Vec<_> = schema
+                .pointer(&path)
+                .and_then(JsonValue::as_array)
+                .into_iter()
+                .flatten()
+                .enumerate()
+                .filter_map(|(index, branch)| {
+                    jsonschema::draft7::new(branch)
+                        .ok()
+                        .filter(|validator| validator.is_valid(&error.instance))
+                        .map(|_| index)
+                })
+                .collect();
+            (json!({"passingSchemas": passing}), "should match exactly one schema in oneOf".into())
+        }
+        K::PropertyNames { error } => {
+            (json!({"propertyName": error.instance.as_str()}), "property name is invalid".into())
+        }
+        K::AnyOf => (json!({}), "should match some schema in anyOf".into()),
+        K::Contains => (json!({}), "should contain a valid item".into()),
+        K::Not { .. } => (json!({}), "should NOT be valid".into()),
+        K::FalseSchema => (json!({}), "boolean schema is false".into()),
+        _ => (json!({}), error.to_string()),
+    };
+    let mut data_path = String::new();
+    for segment in error.instance_path.to_string().split('/').skip(1) {
+        let segment = segment.replace("~1", "/").replace("~0", "~");
+        if segment.parse::<usize>().is_ok() {
+            data_path.push_str(&format!("[{segment}]"));
+        } else if segment.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$') {
+            data_path.push('.');
+            data_path.push_str(&segment);
+        } else {
+            data_path.push_str(&format!("['{}']", segment.replace('\\', "\\\\").replace('\'', "\\'")));
+        }
+    }
+    json!({"keyword": keyword, "dataPath": data_path, "schemaPath": format!("#{}", error.schema_path), "params": params, "message": message})
 }
 
 /// Convert a JSON value to a Variant

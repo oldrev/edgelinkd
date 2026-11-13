@@ -71,6 +71,14 @@ struct DelayNode {
     /// before the whole backlog is dropped and `delay.errors.too-many` is reported. `0` means
     /// no limit.
     max_kept_msgs: usize,
+    burst_state: Mutex<BurstState>,
+}
+
+#[derive(Debug, Default)]
+struct BurstState {
+    generation: u64,
+    inflight: usize,
+    timers: tokio::task::JoinSet<()>,
 }
 
 #[derive(Debug, Clone)]
@@ -131,6 +139,8 @@ enum DelayPauseType {
     Random,
     #[serde(rename = "rate")]
     Rate,
+    #[serde(rename = "burst")]
+    Burst,
     #[serde(rename = "queue")]
     Queue,
     #[serde(rename = "timed")]
@@ -340,6 +350,7 @@ impl DelayNode {
             current_rate: Mutex::new(config.rate),
             current_timeout: Mutex::new(config.timeout),
             max_kept_msgs: flow_settings.node_message_buffer_max_length,
+            burst_state: Mutex::new(BurstState::default()),
         };
 
         Ok(Box::new(node))
@@ -490,10 +501,77 @@ impl DelayNode {
             DelayPauseType::DelayVariable => self.handle_delay_variable_mode(msg, cancel, completion).await,
             DelayPauseType::Random => self.handle_random_mode(msg, cancel, completion).await,
             DelayPauseType::Rate => self.handle_rate_mode(msg, cancel, completion).await,
+            DelayPauseType::Burst => self.handle_burst_mode(msg, cancel, completion).await,
             DelayPauseType::Queue | DelayPauseType::Timed => {
                 self.handle_queue_and_timed_modes(msg, cancel, completion).await
             }
         }
+    }
+
+    async fn report_burst_status(&self, blocked: bool, cancel: CancellationToken) {
+        self.report_status(
+            StatusObject {
+                fill: Some(if blocked { StatusFill::Red } else { StatusFill::Green }),
+                shape: Some(if blocked { StatusShape::Dot } else { StatusShape::Ring }),
+                text: Some(String::new()),
+            },
+            cancel,
+        )
+        .await;
+    }
+
+    async fn handle_burst_mode(
+        self: &Arc<Self>,
+        msg: MsgHandle,
+        cancel: CancellationToken,
+        completion: Arc<DelayCompletion>,
+    ) -> crate::Result<()> {
+        let reset = msg.read().await.contains("reset");
+        let mut state = self.burst_state.lock().await;
+        while state.timers.try_join_next().is_some() {}
+        if reset {
+            state.timers.abort_all();
+            state.generation = state.generation.wrapping_add(1);
+            state.inflight = 0;
+            self.report_burst_status(false, cancel.clone()).await;
+        } else if (state.inflight as f64) < self.config.rate {
+            state.inflight += 1;
+            let generation = state.generation;
+            let seconds = self.config.nb_rate_units as f64
+                * match self.config.rate_units {
+                    RateUnits::Second => 1.0,
+                    RateUnits::Minute => 60.0,
+                    RateUnits::Hour => 3600.0,
+                    RateUnits::Day => 86400.0,
+                };
+            let weak = Arc::downgrade(self);
+            let timer_cancel = cancel.clone();
+            state.timers.spawn(async move {
+                tokio::select! {
+                    _ = timer_cancel.cancelled() => return,
+                    _ = tokio::time::sleep(Duration::from_secs_f64(seconds)) => {}
+                }
+                if let Some(node) = weak.upgrade() {
+                    let mut state = node.burst_state.lock().await;
+                    if state.generation == generation {
+                        if state.inflight as f64 == node.config.rate {
+                            node.report_burst_status(false, timer_cancel).await;
+                        }
+                        state.inflight = state.inflight.saturating_sub(1);
+                    }
+                }
+            });
+            drop(state);
+            self.fan_out_one(Envelope { port: 0, msg }, cancel.clone()).await?;
+        } else {
+            drop(state);
+            if self.config.outputs == 2 {
+                self.fan_out_one(Envelope { port: 1, msg }, cancel.clone()).await?;
+            }
+            self.report_burst_status(true, cancel.clone()).await;
+        }
+        completion.complete(self).await;
+        Ok(())
     }
 
     async fn handle_delay_mode(
@@ -1055,6 +1133,9 @@ impl FlowNodeBehavior for DelayNode {
     }
 
     async fn run(self: Arc<Self>, stop_token: CancellationToken) {
+        if self.config.pause_type == DelayPauseType::Burst {
+            self.report_burst_status(false, stop_token.clone()).await;
+        }
         // Every mode owns its completion: Node-RED calls `done()` when the message is actually
         // emitted (or when a reset/flush consumes the entry holding it), which can be long after
         // the message was received. `with_uow` would raise it as soon as the handler returns.
@@ -1066,7 +1147,7 @@ impl FlowNodeBehavior for DelayNode {
                 Ok(msg) => msg,
                 Err(ref err) => {
                     if let Some(EdgelinkError::TaskCancelled) = err.downcast_ref::<EdgelinkError>() {
-                        return;
+                        break;
                     }
                     log::warn!("[{}:{}] {}", self.type_str(), self.name(), err);
                     continue;
@@ -1089,6 +1170,10 @@ impl FlowNodeBehavior for DelayNode {
                 // double-notifying a message the handler already completed.
                 completion.complete(&arc_self).await;
             }
+        }
+        if self.config.pause_type == DelayPauseType::Burst {
+            self.burst_state.lock().await.timers.abort_all();
+            self.report_status(StatusObject { fill: None, shape: None, text: None }, CancellationToken::new()).await;
         }
     }
 }

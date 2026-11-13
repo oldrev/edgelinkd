@@ -110,9 +110,23 @@ fn build_static_files() {
         let package_json = node_red_root.join("package.json");
         let node_modules = node_red_root.join("node_modules");
 
-        if package_json.exists() && (!node_modules.exists() || !node_red_dir.exists()) {
+        let inputs = ["package.json", "package-lock.json"]
+            .iter()
+            .flat_map(|name| fs::read(node_red_root.join(name)).expect("read Node-RED build input"))
+            .collect::<Vec<_>>();
+        let build_stamp = PathBuf::from("target/node-red-build-inputs");
+        if package_json.exists()
+            && (!node_modules.exists()
+                || !node_red_dir.exists()
+                || fs::read(&build_stamp).ok().as_deref() != Some(inputs.as_slice()))
+        {
             println!("cargo:warning=Building Node-RED editor...");
             build_node_red(&node_red_root);
+            fs::write(build_stamp, inputs).expect("record Node-RED build inputs");
+            // A version switch can remove or rename assets (for example Monaco locales).
+            if static_dir.exists() {
+                fs::remove_dir_all(&static_dir).expect("remove stale editor assets");
+            }
         }
     }
 
@@ -222,7 +236,7 @@ fn build_node_red(node_red_root: &Path) {
 
     // Install dependencies
     println!("cargo:warning=Installing Node-RED dependencies...");
-    let install_result = Command::new(npm_cmd).arg("install").current_dir(node_red_root).status();
+    let install_result = Command::new(npm_cmd).arg("ci").current_dir(node_red_root).status();
 
     if let Err(e) = install_result {
         panic!("Failed to install Node-RED dependencies: {e}");

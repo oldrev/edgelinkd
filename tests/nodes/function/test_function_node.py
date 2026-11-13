@@ -129,7 +129,6 @@ class TestFunctionNode:
         assert msgs[0]["topic"] == "bar"
         assert msgs[0]["payload"] == "foo"
 
-    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should clone single message sent using send()')
     async def test_it_should_clone_single_message_sent_using_send_2(self):
@@ -137,7 +136,6 @@ class TestFunctionNode:
 
     # Not supported, yet
 
-    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should not clone single message sent using send(,false)')
     async def test_it_should_not_clone_single_message_sent_using_send_false(self):
@@ -225,19 +223,11 @@ class TestFunctionNode:
 
     # TODO the testing frame has no way to handle time-out for now
 
-    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should allow input to be discarded by returning null')
     async def test_it_should_allow_input_to_be_discarded_by_returning_null(self):
-        flows = [
-            {"id": "100", "type": "tab"},  # flow 1
-            {"id": "1", "type": "function", "z": "100", "wires": [["2"]], "func": "return null;"},
-            {"id": "2", "z": "100", "type": "test-once"}
-        ]
-        injections = [
-            {"nid": "1", "msg": {'payload': 'foo', 'topic': 'bar'}},
-        ]
-        msgs = await run_flow_with_msgs_ntimes(flows, injections, 0)
+        logs = await _run_function_and_get_logs({"type":"function", "func":"return null;"})
+        assert logs == []
 
     @pytest.mark.asyncio
     @pytest.mark.it('should handle null amongst valid messages')
@@ -274,46 +264,30 @@ class TestFunctionNode:
         assert msgs[0]["payload"] == ['count']
 
     async def _test_non_object_message(self, function_text):
-        flows = [
-            {"id": "100", "type": "tab"},  # flow 1
-            {"id": "2", "type": "function", "z": "100", "wires": [
-                ["3"]], "func": function_text},
-            {"id": "3", "z": "100", "type": "test-once"},
-        ]
-        injections = [
-            {"nid": "1", "msg": {}}
-        ]
-        msgs = await run_flow_with_msgs_ntimes(flows, injections, 1)
-        # assert msgs[0]["level"] == "ERROR"
-        # assert msgs[0]["id"] == '0000000000000001'
-        # assert msgs[0]["type"] == 'function'
-        # assert msgs[0]["msg"] == 'function.error.non-message-returned'
+        logs = await _run_function_and_get_logs({"type":"function", "func":function_text})
+        assert len(logs) == 1
+        _assert_function_log(logs[0], "ERROR", "function.error.non-message-returned")
 
-    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should drop and log non-object message types - string')
     async def test_it_should_drop_and_log_non_object_message_types_string(self):
         await self._test_non_object_message('return "foo"')
 
-    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should drop and log non-object message types - buffer')
     async def test_it_should_drop_and_log_non_object_message_types_buffer(self):
-        await self._test_non_object_message('return Buffer.from("hello")')
+        await self._test_non_object_message('return new Uint8Array([104,101,108,108,111])')
 
-    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should drop and log non-object message types - array')
     async def test_it_should_drop_and_log_non_object_message_types_array(self):
         await self._test_non_object_message('return [[[1,2,3]]]')
 
-    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should drop and log non-object message types - boolean')
     async def test_it_should_drop_and_log_non_object_message_types_boolean(self):
         await self._test_non_object_message('return true')
 
-    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should drop and log non-object message types - number')
     async def test_it_should_drop_and_log_non_object_message_types_number(self):
@@ -937,7 +911,6 @@ class TestFunctionNode:
         assert msgs[0]["payload"] == "0"
 
     # Not finished, yet
-    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should handle setTimeout()')
     async def test_it_should_handle_settimeout(self):
@@ -954,7 +927,6 @@ class TestFunctionNode:
         assert msgs[0]["topic"] == "bar"
         assert msgs[0]["payload"] == "foo"
 
-    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should handle setInterval()')
     async def test_it_should_handle_setinterval(self):
@@ -971,7 +943,6 @@ class TestFunctionNode:
         assert msgs[0]["topic"] == "bar"
         assert msgs[0]["payload"] == "foo"
 
-    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should handle clearInterval()')
     async def test_it_should_handle_clearinterval(self):
@@ -1119,12 +1090,12 @@ class TestFunctionNode:
         assert len(logs) == 1
         _assert_function_log(logs[0], "ERROR", "Script execution timed out after 10ms")
 
-    @pytest.mark.skip(reason="the spec asserts on the deployed node's own properties, which the "
-                             "pytest bridge cannot read back: it only observes messages and node logs")
     @pytest.mark.asyncio
     @pytest.mark.it('should be loaded')
     async def test_it_should_be_loaded(self):
-        pass
+        msgs = await run_flow_with_msgs_ntimes(_function_flow({"type":"function", "name":"loaded", "func":"return {payload:node.name, kind:typeof node.send};"}), [{"nid":"1", "msg":{}}], 1)
+        assert msgs[0]['payload'] == 'loaded'
+        assert msgs[0]['kind'] == 'function'
 
     @pytest.mark.skip(reason="the sandbox `node` object has no event API (`node.on`), so the "
                              "upstream close-handler case cannot be expressed here")
@@ -1411,3 +1382,111 @@ class TestAdditional2:
             {"type": "function", "timeout": 0.01, "func": "while(1==1){};\nreturn msg;"}, timeout=1.0)
         assert len(logs) == 1
         _assert_function_log(logs[0], "ERROR", "Script execution timed out after 10ms")
+
+
+async def _linkcall_flow(target="subroutine", other_tab=False, extra=None, script=None, subscript=None, mode="return", payload="original"):
+    flow = [
+        {"id": "100", "type": "tab"}, {"id": "200", "type": "tab"}, {"id": "300", "type": "tab"},
+        {"id": "1", "z": "100", "type": "function", "func": script or f"return await node.linkcall('{target}', msg, {{timeout: 50}});", "wires": [["2"]]},
+        {"id": "2", "z": "100", "type": "test-once"},
+        {"id": "3", "z": "200" if other_tab else "100", "type": "link in", "name": "subroutine", "wires": [["4"]]},
+        {"id": "4", "z": "200" if other_tab else "100", "type": "function", "func": subscript or "msg._payload=msg.payload; msg.payload='set-in-function'; return msg;", "wires": [["5"]]},
+        {"id": "5", "z": "200" if other_tab else "100", "type": "link out", "mode": mode},
+        {"id": "6", "z": "100", "type": "catch", "scope": ["1"], "uncaught": True, "wires": [["2"]]},
+    ]
+    flow.extend(extra or [])
+    return (await run_flow_with_msgs_ntimes(flow, [{"nid": "1", "msg": {"payload": payload, "topic": "test"}}], 1))[0]
+
+
+@pytest.mark.describe('function node')
+@pytest.mark.describe('link call from function')
+class TestFunctionLinkCall:
+    @pytest.mark.asyncio
+    @pytest.mark.it('should call subroutine on same tab by name and get response')
+    async def test_linkcall_0001(self):
+        msg = await _linkcall_flow()
+        assert msg['payload'] == 'set-in-function'
+        assert msg['_payload'] == 'original'
+        assert '_linkSource' not in msg
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('should call subroutine on different tab by name and get response')
+    async def test_linkcall_0002(self):
+        msg = await _linkcall_flow(other_tab=True)
+        assert msg['payload'] == 'set-in-function'
+        assert msg['_payload'] == 'original'
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('should call subroutine on same tab by node id and get response')
+    async def test_linkcall_0003(self):
+        msg = await _linkcall_flow(target='3')
+        assert msg['payload'] == 'set-in-function'
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('should call subroutine on different tab by node id and get response')
+    async def test_linkcall_0004(self):
+        msg = await _linkcall_flow(target='3', other_tab=True)
+        assert msg['payload'] == 'set-in-function'
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('should clone the message by default')
+    async def test_linkcall_0005(self):
+        msg = await _linkcall_flow(target='3', payload={'prop': 'original'}, subscript="msg.payload.prop='modified'; return msg;", script="const before=msg.payload.prop; const m=await node.linkcall('3',msg); msg.testData={before,after:msg.payload.prop,result:m.payload.prop}; return msg;")
+        assert msg['payload']['prop'] == 'original'
+        assert msg['testData'] == {'before':'original','after':'original','result':'modified'}
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('should not clone the message when clone option=false')
+    async def test_linkcall_0006(self):
+        msg = await _linkcall_flow(target='3', payload={'prop': 'original'}, subscript="msg.payload.prop='modified'; return msg;", script="const before=msg.payload.prop; const m=await node.linkcall('3',msg,{clone:false}); msg.testData={before,after:msg.payload.prop,result:m.payload.prop}; return msg;")
+        assert msg['payload']['prop'] == 'modified'
+        assert msg['testData'] == {'before':'original','after':'modified','result':'modified'}
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('should call subroutine on same tab even when there are same named targets on other tabs')
+    async def test_linkcall_0007(self):
+        msg = await _linkcall_flow(extra=[{'id':'7','z':'200','type':'link in','name':'subroutine','wires':[]}])
+        assert msg['payload'] == 'set-in-function'
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('should call nested subroutines')
+    async def test_linkcall_0008(self):
+        msg = await _linkcall_flow(subscript="return await node.linkcall('nested',msg,{timeout:100});", extra=[{'id':'7','z':'100','type':'link in','name':'nested','wires':[['8']]},{'id':'8','z':'100','type':'function','func':"msg._payload=msg.payload;msg.payload='nested-result';return msg;",'wires':[['9']]},{'id':'9','z':'100','type':'link out','mode':'return'}])
+        assert msg['payload'] == 'nested-result'
+        assert msg['_payload'] == 'original'
+        assert '_linkSource' not in msg
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('should timeout waiting for link return')
+    async def test_linkcall_0009(self):
+        msg = await _linkcall_flow(mode='')
+        assert 'timeout' in msg['error']['message'].lower()
+        assert msg['error']['source']['id'] == '0000000000000001'
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('should raise error for non-existent target subroutine')
+    async def test_linkcall_0010(self):
+        msg = await _linkcall_flow(target='missing-subroutine')
+        assert 'not found' in msg['error']['message'].lower()
+        assert msg['error']['source']['id'] == '0000000000000001'
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('should allow function code to catch linkcall errors via try/catch')
+    async def test_linkcall_0011(self):
+        msg = await _linkcall_flow(script="try {await node.linkcall('missing',msg,{timeout:50});} catch(e) {msg.caught=e.message;} return msg;")
+        assert 'not found' in msg['caught'].lower()
+        assert 'error' not in msg
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('should raise error due to multiple targets on same tab')
+    async def test_linkcall_0012(self):
+        msg = await _linkcall_flow(extra=[{'id':'7','z':'100','type':'link in','name':'subroutine','wires':[]}])
+        assert "Multiple link-in nodes named 'subroutine' found" in msg['error']['message']
+        assert msg['error']['source']['id'] == '0000000000000001'
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('should raise error due to multiple targets on different tabs')
+    async def test_linkcall_0013(self):
+        msg = await _linkcall_flow(other_tab=True, extra=[{'id':'7','z':'300','type':'link in','name':'subroutine','wires':[]}])
+        assert "Multiple link-in nodes named 'subroutine' found" in msg['error']['message']
+        assert msg['error']['source']['id'] == '0000000000000001'

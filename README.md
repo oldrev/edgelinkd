@@ -171,7 +171,26 @@ port = 1888
 
 ## Project Status
 
-**Release 4.1.16**: This release is based on Node-RED v4.1.16 and includes the integrated editor and Rust runtime.
+The `5.0.9` upgrade branch bundles the Node-RED 5.0.9 editor. Building it requires
+Node.js 22.9 or later. The admin API does not grant cross-origin access by default.
+The editor supports Monaco (default), Ace, and the basic editor through
+`web.editorTheme.codeEditor.lib`; an unknown editor name falls back to `basic`.
+Theme schemes are declared through `web.editorTheme.schemes` (`light` and `dark`).
+Third-party login and authentication code exchange are outside the current runtime
+scope: `POST /auth/token` returns HTTP 501 with `error: "not_supported"`.
+File nodes support the built-in UTF-8, UTF-16, binary, hex and base64 encodings. The
+`nodes_file_encodings` Cargo feature (enabled in default builds) also enables the
+legacy text encodings provided by `encoding_rs`; minimal builds can disable it.
+For additional single-byte code pages, enable `file_encodings_legacy` (included in
+`full`). Its pure Rust tables are generated from the pinned iconv-lite version,
+with the MIT attribution retained. Regenerate using
+`node scripts/generate_file_encodings.cjs`; no Node.js library is needed at runtime.
+To run the optional encoding oracle tests, build the Python extension with
+`cargo build -p edgelink-pymod --features edgelink-core/file_encodings_legacy`, set
+`EDGELINK_FILE_ENCODINGS_LEGACY=1`, and run the file-node pytest suites. Use the same
+environment variable when generating the spec report for a build with this feature.
+
+**Release 5.0.9**: This branch is based on Node-RED v5.0.9 and includes the integrated editor and Rust runtime.
 
 **New: Integrated Web UI**: EdgeLinkd now includes a complete Node-RED web interface for flow design and management. The web UI is fully compatible with Node-RED's editor and provides the same user experience while running on the high-performance Rust runtime.
 

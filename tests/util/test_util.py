@@ -29,6 +29,25 @@ async def _js(body: str):
     return json.loads(msgs[0]["result"])
 
 
+async def _jsonata_with_setup(setup: str, expr: str):
+    return await _js(setup + "\nvar __e=RED.util.prepareJSONataExpression(" + JQ(expr) + ",node); "
+                     "var __result=RED.util.evaluateJSONataExpression(__e,msg); "
+                     "msg.result=JSON.stringify(__result === undefined ? null : __result);")
+
+
+async def _jsonata_with_flow_env(env, expr: str):
+    flows = [
+        {"id": "100", "type": "tab", "env": env},
+        {"id": "1", "z": "100", "type": "function",
+         "func": "msg.result=JSON.stringify(RED.util.evaluateJSONataExpression(" +
+                 "RED.util.prepareJSONataExpression(" + JQ(expr) + ",node),msg)); return msg;",
+         "wires": [["2"]]},
+        {"id": "2", "z": "100", "type": "test-once"},
+    ]
+    msgs = await run_flow_with_msgs_ntimes(flows, [{"nid": "1", "msg": {}}], 1)
+    return json.loads(msgs[0]["result"])
+
+
 async def _eval(expr: str):
     """Evaluate `expr` against the ported `RED.util`; return `("ok", value)` or `("error", code)`."""
     raw = await _js(
@@ -175,6 +194,17 @@ class TestCompareObjects:
             RED.util.compareObjects(RED.util.ensureBuffer("hello"),RED.util.ensureBuffer("hello ")),
             RED.util.compareObjects(RED.util.ensureBuffer("hello"),"hello"),
         ]""") == [True, False, False]
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('Date')
+    async def test_0006(self):
+        assert await _value("""[
+            RED.util.compareObjects(new Date(1000), new Date(1000)),
+            RED.util.compareObjects(new Date(1000), new Date(2000)),
+            RED.util.compareObjects(new Date(1000), {}),
+            RED.util.compareObjects({}, new Date(1000)),
+            RED.util.compareObjects({a:new Date(1000)}, {a:new Date(2000)})
+        ]""") == [True, False, False, False, False]
 
 
 @pytest.mark.describe('@node-red/util/util')
@@ -374,6 +404,27 @@ class TestSetObjectProperty:
         assert await _set_object_property("{}", "msg.a", "'bar'") == {
             "result": True,
             "message": {"msg": {"a": "bar"}},
+        }
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('does not set a property beneath a null array element')
+    async def test_0002(self):
+        assert await _set_object_property("{a:[null]}", "a[0].b.c", "'bar'") == {
+            "result": False, "message": {"a": [None]},
+        }
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('does not set a property beneath a primitive array element')
+    async def test_0003(self):
+        assert await _set_object_property("{a:[123]}", "a[0].b.c", "'bar'") == {
+            "result": False, "message": {"a": [123]},
+        }
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('does not delete a property beneath a null array element')
+    async def test_0004(self):
+        assert await _set_object_property("{a:[null]}", "a[0].b", "undefined") == {
+            "result": False, "message": {"a": [None]},
         }
 
 
@@ -660,13 +711,12 @@ class TestEvaluateNodeProperty:
             }}
         },{})""") == "123"
 
-    @pytest.mark.skip(reason="JSONata is implemented by the EdgeLinkd Rust runtime and is not exposed "
-                             "to the function node sandbox, so evaluateNodeProperty('jsonata') fails "
-                             "loudly instead of returning a result")
     @pytest.mark.asyncio
     @pytest.mark.it('returns jsonata result')
     async def test_0014(self):
-        pass
+        result = await _js("RED.util.evaluateNodeProperty('$abs(-1)','jsonata',node,{}, function(err,value){ "
+                           "msg.result=JSON.stringify({error:err && err.message,value:value}); });")
+        assert result == {"error": None, "value": 1}
 
     @pytest.mark.asyncio
     @pytest.mark.it('returns null')
@@ -1031,117 +1081,96 @@ class TestNormaliseNodeTypeName:
 @pytest.mark.describe('@node-red/util/util')
 @pytest.mark.describe('prepareJSONataExpression')
 class TestPrepareJSONataExpression:
-
-    @pytest.mark.skip(reason="JSONata is implemented by the EdgeLinkd Rust runtime and is not exposed "
-                             "to the function node sandbox: prepareJSONataExpression fails loudly "
-                             "instead of returning an expression object")
     @pytest.mark.asyncio
     @pytest.mark.it('prepares an expression')
     async def test_0001(self):
-        pass
+        assert await _value("(function(){var e=RED.util.prepareJSONataExpression('payload',node);return typeof e.evaluate==='function' && typeof e.assign==='function' && e._legacyMode===false;})()") is True
 
-    @pytest.mark.skip(reason="JSONata is implemented by the EdgeLinkd Rust runtime and is not exposed "
-                             "to the function node sandbox: prepareJSONataExpression fails loudly "
-                             "instead of returning an expression object")
     @pytest.mark.asyncio
     @pytest.mark.it('prepares a legacyMode expression')
     async def test_0002(self):
-        pass
+        assert await _value("(function(){var e=RED.util.prepareJSONataExpression('msg.payload',node);return e._legacyMode===true;})()") is True
 
 
 @pytest.mark.describe('@node-red/util/util')
 @pytest.mark.describe('evaluateJSONataExpression')
 class TestEvaluateJSONataExpression:
-    """Every upstream case needs a JSONata engine inside the sandbox; EdgeLinkd evaluates JSONata
-    in Rust (`runtime/jsonata`) and does not expose that engine to JavaScript, so the whole
-    describe is out of scope and the port fails loudly (`NOT_SUPPORTED`) instead."""
-
-    _REASON = ("JSONata is implemented by the EdgeLinkd Rust runtime and is not exposed to the "
-               "function node sandbox")
-
-    @pytest.mark.skip(reason=_REASON)
     @pytest.mark.asyncio
     @pytest.mark.it('evaluates an expression')
     async def test_0001(self):
-        pass
+        assert await _value("RED.util.evaluateJSONataExpression(RED.util.prepareJSONataExpression('payload',node),{payload:'hello'})") == 'hello'
 
-    @pytest.mark.skip(reason=_REASON)
     @pytest.mark.asyncio
     @pytest.mark.it('evaluates a legacyMode expression')
     async def test_0002(self):
-        pass
+        assert await _value("RED.util.evaluateJSONataExpression(RED.util.prepareJSONataExpression('msg.payload',node),{payload:'hello'})") == 'hello'
 
-    @pytest.mark.skip(reason=_REASON)
     @pytest.mark.asyncio
     @pytest.mark.it('accesses flow context from an expression')
     async def test_0003(self):
-        pass
+        assert await _jsonata_with_setup("context.flow.set('foo','bar');", '$flowContext("foo")') == 'bar'
 
-    @pytest.mark.skip(reason=_REASON)
     @pytest.mark.asyncio
     @pytest.mark.it('accesses undefined environment variable from an expression')
     async def test_0004(self):
-        pass
+        assert await _value("RED.util.evaluateJSONataExpression(RED.util.prepareJSONataExpression('$env(\"UTIL_NOT_SET\")',node),{})") == ''
 
-    @pytest.mark.skip(reason=_REASON)
     @pytest.mark.asyncio
     @pytest.mark.it('accesses environment variable from an expression')
     async def test_0005(self):
-        pass
+        assert await _jsonata_with_flow_env(
+            [{"name": "UTIL_TEST_ENV", "value": "configured", "type": "str"}],
+            '$env("UTIL_TEST_ENV")') == 'configured'
 
-    @pytest.mark.skip(reason=_REASON)
+    @pytest.mark.skip(reason="$moment requires a Node.js moment package absent from the embedded runtime")
     @pytest.mark.asyncio
     @pytest.mark.it('accesses moment from an expression')
     async def test_0006(self):
         pass
 
-    @pytest.mark.skip(reason=_REASON)
+    @pytest.mark.skip(reason="$moment-timezone requires Node.js moment-timezone absent from the embedded runtime")
     @pytest.mark.asyncio
     @pytest.mark.it('accesses moment-timezone from an expression')
     async def test_0007(self):
         pass
 
-    @pytest.mark.skip(reason=_REASON)
     @pytest.mark.asyncio
     @pytest.mark.it('handles non-existant flow context variable')
     async def test_0008(self):
-        pass
+        assert await _jsonata_with_setup("", '$flowContext("missing")') is None
 
-    @pytest.mark.skip(reason=_REASON)
     @pytest.mark.asyncio
     @pytest.mark.it('handles non-existant global context variable')
     async def test_0009(self):
-        pass
+        assert await _jsonata_with_setup("", '$globalContext("missing")') is None
 
-    @pytest.mark.skip(reason=_REASON)
     @pytest.mark.asyncio
     @pytest.mark.it('handles async flow context access')
     async def test_0010(self):
-        pass
+        assert await _jsonata_with_setup("context.flow.set('foo','bar');", '$flowContext("foo")') == 'bar'
 
-    @pytest.mark.skip(reason=_REASON)
     @pytest.mark.asyncio
     @pytest.mark.it('handles async global context access')
     async def test_0011(self):
-        pass
+        assert await _jsonata_with_setup("context.global.set('foo','bar');", '$globalContext("foo")') == 'bar'
 
-    @pytest.mark.skip(reason=_REASON)
+    @pytest.mark.skip(reason="This upstream spec asserts the mock store name passed to a JavaScript context mock")
     @pytest.mark.asyncio
     @pytest.mark.it('handles persistable store in flow context access')
     async def test_0012(self):
         pass
 
-    @pytest.mark.skip(reason=_REASON)
+    @pytest.mark.skip(reason="This upstream spec asserts the mock store name passed to a JavaScript context mock")
     @pytest.mark.asyncio
     @pytest.mark.it('handles persistable store in global context access')
     async def test_0013(self):
         pass
 
-    @pytest.mark.skip(reason=_REASON)
     @pytest.mark.asyncio
     @pytest.mark.it('callbacks with error when invalid expression was specified')
     async def test_0014(self):
-        pass
+        result = await _value("(function(){var e=RED.util.prepareJSONataExpression('$abc(1)',node);try{RED.util.evaluateJSONataExpression(e,{payload:'hello'});return false;}catch(err){return true;}})()")
+        assert result is True
 
 
 @pytest.mark.describe('@node-red/util/util')
@@ -1175,6 +1204,13 @@ class TestEncodeObject:
         result = await _encode("new Uint8Array([97, 98, 99])", max_length=4)
         assert result["format"] == "buffer[3]"
         assert result["msg"] == "6162"
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('encodes long Buffer without converting all of it')
+    async def test_0013(self):
+        result = await _encode("new Uint8Array(100).fill(171)", max_length=5)
+        assert result["format"] == "buffer[100]"
+        assert result["msg"] == "ababa"
 
     @pytest.mark.asyncio
     @pytest.mark.it('encodes function')
@@ -1254,6 +1290,27 @@ class TestEncodeObjectOfObject:
         result = await _encode("{'foo':'bar'}")
         assert result["format"] == "Object"
         assert json.loads(result["msg"])["foo"] == 'bar'
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('long Buffer in msg is not converted in full')
+    async def test_0023(self):
+        result = await _encode("({file:{buffer:new Uint8Array(100).fill(7)}})", max_length=10)
+        assert result["format"] == "Object"
+        assert json.loads(result["msg"])["file"]["buffer"] == {
+            "type": "Buffer", "data": [7] * 10, "__enc__": True, "length": 100,
+        }
+
+    @pytest.mark.skip(reason="EdgeLinkd's binary bridge uses Uint8Array and has no Node.js Buffer.prototype.toJSON to restore")
+    @pytest.mark.asyncio
+    @pytest.mark.it('restores Buffer toJSON after encoding')
+    async def test_buffer_to_json_restored_after_encoding(self):
+        pass
+
+    @pytest.mark.skip(reason="EdgeLinkd's binary bridge uses Uint8Array and has no Node.js Buffer.prototype.toJSON to restore")
+    @pytest.mark.asyncio
+    @pytest.mark.it('restores Buffer toJSON when encoding is terminated')
+    async def test_buffer_to_json_restored_after_termination(self):
+        pass
 
     @pytest.mark.asyncio
     @pytest.mark.it('object whose name includes error')
@@ -1622,120 +1679,107 @@ class TestEncodeTypedArrayUint8Clamped:
 
 @pytest.mark.describe('@node-red/util/util evaluateJSONataExpression null prototype results')
 class TestAdditional1:
-    @pytest.mark.skip(reason='JavaScript object prototypes are not observable across the pytest bridge')
+    @pytest.mark.skip(reason="Msg/Variant is a JSON tree and cannot represent circular references")
     @pytest.mark.asyncio
     @pytest.mark.it('handles a circular reference in the result')
     async def test_additional_0001(self):
-        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+        pass
 
 @pytest.mark.describe('@node-red/util/util evaluateJSONataExpression null prototype results')
 class TestAdditional2:
-    @pytest.mark.skip(reason='JavaScript object prototypes are not observable across the pytest bridge')
+    @pytest.mark.skip(reason="Node.js Buffer identity cannot cross the Msg/Variant bridge; EdgeLinkd uses Uint8Array bytes")
     @pytest.mark.asyncio
     @pytest.mark.it('leaves a Buffer in the result untouched')
     async def test_additional_0002(self):
-        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+        pass
 
 @pytest.mark.describe('@node-red/util/util evaluateJSONataExpression null prototype results')
 class TestAdditional3:
-    @pytest.mark.skip(reason='JavaScript object prototypes are not observable across the pytest bridge')
     @pytest.mark.asyncio
     @pytest.mark.it('passes a primitive result through unchanged')
     async def test_additional_0003(self):
-        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+        assert await _value("(function(){var r=RED.util.evaluateJSONataExpression(RED.util.prepareJSONataExpression('payload.a',node),{payload:{a:1,b:2},items:[{n:1},{n:2}]});function ok(v,seen){if(v===null||typeof v!=='object'||seen.has(v))return true;seen.add(v);if(Array.isArray(v))return v.every(x=>ok(x,seen));if(Object.getPrototypeOf(v)!==Object.prototype)return false;return Object.keys(v).every(k=>ok(v[k],seen));}return ok(r,new WeakSet()) && (r==null || typeof r!=='object' || r.hasOwnProperty(Object.keys(r)[0]||'x'));})()") is True
 
 @pytest.mark.describe('@node-red/util/util evaluateJSONataExpression null prototype results')
 class TestAdditional4:
-    @pytest.mark.skip(reason='JavaScript object prototypes are not observable across the pytest bridge')
     @pytest.mark.asyncio
     @pytest.mark.it('restores the Object prototype on a deeply nested object')
     async def test_additional_0004(self):
-        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+        assert await _value('(function(){var r=RED.util.evaluateJSONataExpression(RED.util.prepareJSONataExpression(\'{"a":{"b":{"c":{"d":1}}}}\',node),{payload:{a:1,b:2},items:[{n:1},{n:2}]});function ok(v,seen){if(v===null||typeof v!==\'object\'||seen.has(v))return true;seen.add(v);if(Array.isArray(v))return v.every(x=>ok(x,seen));if(Object.getPrototypeOf(v)!==Object.prototype)return false;return Object.keys(v).every(k=>ok(v[k],seen));}return ok(r,new WeakSet()) && (r==null || typeof r!==\'object\' || r.hasOwnProperty(Object.keys(r)[0]||\'x\'));})()') is True
 
 @pytest.mark.describe('@node-red/util/util evaluateJSONataExpression null prototype results')
 class TestAdditional5:
-    @pytest.mark.skip(reason='JavaScript object prototypes are not observable across the pytest bridge')
     @pytest.mark.asyncio
     @pytest.mark.it('restores the Object prototype on a nested object')
     async def test_additional_0005(self):
-        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+        assert await _value('(function(){var r=RED.util.evaluateJSONataExpression(RED.util.prepareJSONataExpression(\'{"outer":{"inner":payload.a}}\',node),{payload:{a:1,b:2},items:[{n:1},{n:2}]});function ok(v,seen){if(v===null||typeof v!==\'object\'||seen.has(v))return true;seen.add(v);if(Array.isArray(v))return v.every(x=>ok(x,seen));if(Object.getPrototypeOf(v)!==Object.prototype)return false;return Object.keys(v).every(k=>ok(v[k],seen));}return ok(r,new WeakSet()) && (r==null || typeof r!==\'object\' || r.hasOwnProperty(Object.keys(r)[0]||\'x\'));})()') is True
 
 @pytest.mark.describe('@node-red/util/util evaluateJSONataExpression null prototype results')
 class TestAdditional6:
-    @pytest.mark.skip(reason='JavaScript object prototypes are not observable across the pytest bridge')
     @pytest.mark.asyncio
     @pytest.mark.it('restores the Object prototype on an array literal of objects')
     async def test_additional_0006(self):
-        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+        assert await _value('(function(){var r=RED.util.evaluateJSONataExpression(RED.util.prepareJSONataExpression(\'[{"a":1}]\',node),{payload:{a:1,b:2},items:[{n:1},{n:2}]});function ok(v,seen){if(v===null||typeof v!==\'object\'||seen.has(v))return true;seen.add(v);if(Array.isArray(v))return v.every(x=>ok(x,seen));if(Object.getPrototypeOf(v)!==Object.prototype)return false;return Object.keys(v).every(k=>ok(v[k],seen));}return ok(r,new WeakSet()) && (r==null || typeof r!==\'object\' || r.hasOwnProperty(Object.keys(r)[0]||\'x\'));})()') is True
 
 @pytest.mark.describe('@node-red/util/util evaluateJSONataExpression null prototype results')
 class TestAdditional7:
-    @pytest.mark.skip(reason='JavaScript object prototypes are not observable across the pytest bridge')
     @pytest.mark.asyncio
     @pytest.mark.it('restores the Object prototype on an array of objects')
     async def test_additional_0007(self):
-        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+        assert await _value('(function(){var r=RED.util.evaluateJSONataExpression(RED.util.prepareJSONataExpression(\'items.{"v": n}\',node),{payload:{a:1,b:2},items:[{n:1},{n:2}]});function ok(v,seen){if(v===null||typeof v!==\'object\'||seen.has(v))return true;seen.add(v);if(Array.isArray(v))return v.every(x=>ok(x,seen));if(Object.getPrototypeOf(v)!==Object.prototype)return false;return Object.keys(v).every(k=>ok(v[k],seen));}return ok(r,new WeakSet()) && (r==null || typeof r!==\'object\' || r.hasOwnProperty(Object.keys(r)[0]||\'x\'));})()') is True
 
 @pytest.mark.describe('@node-red/util/util evaluateJSONataExpression null prototype results')
 class TestAdditional8:
-    @pytest.mark.skip(reason='JavaScript object prototypes are not observable across the pytest bridge')
     @pytest.mark.asyncio
     @pytest.mark.it('restores the Object prototype on an array of objects inside an object')
     async def test_additional_0008(self):
-        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+        assert await _value('(function(){var r=RED.util.evaluateJSONataExpression(RED.util.prepareJSONataExpression(\'{"list":items.{"v":n}}\',node),{payload:{a:1,b:2},items:[{n:1},{n:2}]});function ok(v,seen){if(v===null||typeof v!==\'object\'||seen.has(v))return true;seen.add(v);if(Array.isArray(v))return v.every(x=>ok(x,seen));if(Object.getPrototypeOf(v)!==Object.prototype)return false;return Object.keys(v).every(k=>ok(v[k],seen));}return ok(r,new WeakSet()) && (r==null || typeof r!==\'object\' || r.hasOwnProperty(Object.keys(r)[0]||\'x\'));})()') is True
 
 @pytest.mark.describe('@node-red/util/util evaluateJSONataExpression null prototype results')
 class TestAdditional9:
-    @pytest.mark.skip(reason='JavaScript object prototypes are not observable across the pytest bridge')
     @pytest.mark.asyncio
     @pytest.mark.it('restores the Object prototype on an object')
     async def test_additional_0009(self):
-        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+        assert await _value('(function(){var r=RED.util.evaluateJSONataExpression(RED.util.prepareJSONataExpression(\'{"x":payload.a}\',node),{payload:{a:1,b:2},items:[{n:1},{n:2}]});function ok(v,seen){if(v===null||typeof v!==\'object\'||seen.has(v))return true;seen.add(v);if(Array.isArray(v))return v.every(x=>ok(x,seen));if(Object.getPrototypeOf(v)!==Object.prototype)return false;return Object.keys(v).every(k=>ok(v[k],seen));}return ok(r,new WeakSet()) && (r==null || typeof r!==\'object\' || r.hasOwnProperty(Object.keys(r)[0]||\'x\'));})()') is True
 
 @pytest.mark.describe('@node-red/util/util evaluateJSONataExpression null prototype results')
 class TestAdditional10:
-    @pytest.mark.skip(reason='JavaScript object prototypes are not observable across the pytest bridge')
     @pytest.mark.asyncio
     @pytest.mark.it('restores the Object prototype on an object from $merge')
     async def test_additional_0010(self):
-        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+        assert await _value('(function(){var r=RED.util.evaluateJSONataExpression(RED.util.prepareJSONataExpression(\'$merge([{"a":1},{"b":2}])\',node),{payload:{a:1,b:2},items:[{n:1},{n:2}]});function ok(v,seen){if(v===null||typeof v!==\'object\'||seen.has(v))return true;seen.add(v);if(Array.isArray(v))return v.every(x=>ok(x,seen));if(Object.getPrototypeOf(v)!==Object.prototype)return false;return Object.keys(v).every(k=>ok(v[k],seen));}return ok(r,new WeakSet()) && (r==null || typeof r!==\'object\' || r.hasOwnProperty(Object.keys(r)[0]||\'x\'));})()') is True
 
 @pytest.mark.describe('@node-red/util/util evaluateJSONataExpression null prototype results')
 class TestAdditional11:
-    @pytest.mark.skip(reason='JavaScript object prototypes are not observable across the pytest bridge')
     @pytest.mark.asyncio
     @pytest.mark.it('restores the Object prototype on an object merged by the transform operator')
     async def test_additional_0011(self):
-        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+        assert await _value('(function(){var r=RED.util.evaluateJSONataExpression(RED.util.prepareJSONataExpression(\'payload ~> |$|{"added":{"x":1}}|\',node),{payload:{a:1,b:2},items:[{n:1},{n:2}]});function ok(v,seen){if(v===null||typeof v!==\'object\'||seen.has(v))return true;seen.add(v);if(Array.isArray(v))return v.every(x=>ok(x,seen));if(Object.getPrototypeOf(v)!==Object.prototype)return false;return Object.keys(v).every(k=>ok(v[k],seen));}return ok(r,new WeakSet()) && (r==null || typeof r!==\'object\' || r.hasOwnProperty(Object.keys(r)[0]||\'x\'));})()') is True
 
 @pytest.mark.describe('@node-red/util/util evaluateJSONataExpression null prototype results')
 class TestAdditional12:
-    @pytest.mark.skip(reason='JavaScript object prototypes are not observable across the pytest bridge')
     @pytest.mark.asyncio
     @pytest.mark.it('restores the Object prototype on objects appended to an array')
     async def test_additional_0012(self):
-        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+        assert await _value('(function(){var r=RED.util.evaluateJSONataExpression(RED.util.prepareJSONataExpression(\'$append(items,[{"z":1}])\',node),{payload:{a:1,b:2},items:[{n:1},{n:2}]});function ok(v,seen){if(v===null||typeof v!==\'object\'||seen.has(v))return true;seen.add(v);if(Array.isArray(v))return v.every(x=>ok(x,seen));if(Object.getPrototypeOf(v)!==Object.prototype)return false;return Object.keys(v).every(k=>ok(v[k],seen));}return ok(r,new WeakSet()) && (r==null || typeof r!==\'object\' || r.hasOwnProperty(Object.keys(r)[0]||\'x\'));})()') is True
 
 @pytest.mark.describe('@node-red/util/util evaluateJSONataExpression null prototype results')
 class TestAdditional13:
-    @pytest.mark.skip(reason='JavaScript object prototypes are not observable across the pytest bridge')
     @pytest.mark.asyncio
     @pytest.mark.it('restores the Object prototype on objects from $each')
     async def test_additional_0013(self):
-        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+        assert await _value("(function(){var r=RED.util.evaluateJSONataExpression(RED.util.prepareJSONataExpression('$each(payload,function($v,$k){{$k:$v}})',node),{payload:{a:1,b:2},items:[{n:1},{n:2}]});function ok(v,seen){if(v===null||typeof v!=='object'||seen.has(v))return true;seen.add(v);if(Array.isArray(v))return v.every(x=>ok(x,seen));if(Object.getPrototypeOf(v)!==Object.prototype)return false;return Object.keys(v).every(k=>ok(v[k],seen));}return ok(r,new WeakSet()) && (r==null || typeof r!=='object' || r.hasOwnProperty(Object.keys(r)[0]||'x'));})()") is True
 
 @pytest.mark.describe('@node-red/util/util evaluateJSONataExpression null prototype results')
 class TestAdditional14:
-    @pytest.mark.skip(reason='JavaScript object prototypes are not observable across the pytest bridge')
     @pytest.mark.asyncio
     @pytest.mark.it('restores the Object prototype on objects from $map')
     async def test_additional_0014(self):
-        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+        assert await _value('(function(){var r=RED.util.evaluateJSONataExpression(RED.util.prepareJSONataExpression(\'$map(items,function($i){{"v":$i.n}})\',node),{payload:{a:1,b:2},items:[{n:1},{n:2}]});function ok(v,seen){if(v===null||typeof v!==\'object\'||seen.has(v))return true;seen.add(v);if(Array.isArray(v))return v.every(x=>ok(x,seen));if(Object.getPrototypeOf(v)!==Object.prototype)return false;return Object.keys(v).every(k=>ok(v[k],seen));}return ok(r,new WeakSet()) && (r==null || typeof r!==\'object\' || r.hasOwnProperty(Object.keys(r)[0]||\'x\'));})()') is True
 
 @pytest.mark.describe('@node-red/util/util evaluateJSONataExpression null prototype results')
 class TestAdditional15:
-    @pytest.mark.skip(reason='JavaScript object prototypes are not observable across the pytest bridge')
     @pytest.mark.asyncio
     @pytest.mark.it('returns a result that downstream code can call hasOwnProperty on')
     async def test_additional_0015(self):
-        pytest.skip("This upstream case requires runtime capabilities outside the current implementation")
+        assert await _value('(function(){var r=RED.util.evaluateJSONataExpression(RED.util.prepareJSONataExpression(\'{"list":items.{"v":n}}\',node),{payload:{a:1,b:2},items:[{n:1},{n:2}]});function ok(v,seen){if(v===null||typeof v!==\'object\'||seen.has(v))return true;seen.add(v);if(Array.isArray(v))return v.every(x=>ok(x,seen));if(Object.getPrototypeOf(v)!==Object.prototype)return false;return Object.keys(v).every(k=>ok(v[k],seen));}return ok(r,new WeakSet()) && (r==null || typeof r!==\'object\' || r.hasOwnProperty(Object.keys(r)[0]||\'x\'));})()') is True

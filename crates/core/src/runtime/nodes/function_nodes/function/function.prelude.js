@@ -10,9 +10,6 @@
 //    `ArrayBuffer`/`Uint8Array` (see `Variant::Bytes` in `model/variant/js_support.rs`), so the
 //    byte helpers below work on that type: `ensureBuffer` yields a `Uint8Array` and
 //    `ensureString` decodes one as UTF-8.
-//  * JSONata is implemented by the Rust runtime (`runtime/jsonata`) and is not exposed to
-//    JavaScript, so `prepareJSONataExpression`/`evaluateJSONataExpression` throw instead of
-//    returning a plausible-looking value.
 const RED = (function () {
     const hasOwnProperty = Object.prototype.hasOwnProperty;
 
@@ -415,6 +412,15 @@ const RED = (function () {
             return true;
         }
 
+        var isDate1 = obj1 instanceof Date;
+        var isDate2 = obj2 instanceof Date;
+        if (isDate1 !== isDate2) {
+            return false;
+        }
+        if (isDate1) {
+            return obj1.getTime() === obj2.getTime();
+        }
+
         var isBuffer1 = isBytes(obj1);
         var isBuffer2 = isBytes(obj2);
         if (isBuffer1 != isBuffer2) {
@@ -683,6 +689,9 @@ const RED = (function () {
         var obj = msg;
         var key;
         for (var i = 0; i < length - 1; i++) {
+            if (obj === null || (typeof obj !== 'object' && typeof obj !== 'function')) {
+                return false;
+            }
             key = msgPropParts[i];
             if (typeof key === 'string' || (typeof key === 'number' && !Array.isArray(obj))) {
                 if (hasOwnProperty.call(obj, key)) {
@@ -721,6 +730,9 @@ const RED = (function () {
             }
         }
         key = msgPropParts[length - 1];
+        if (obj === null || (typeof obj !== 'object' && typeof obj !== 'function')) {
+            return false;
+        }
         if (typeof value === "undefined") {
             if (typeof key === 'number' && Array.isArray(obj)) {
                 obj.splice(key, 1);
@@ -872,22 +884,24 @@ const RED = (function () {
         }
     }
 
-    /**
-     * Prepares a JSONata expression for evaluation.
-     *
-     * NOT SUPPORTED: Node-RED's JSONata lives in the `jsonata` npm package; EdgeLinkd evaluates
-     * JSONata in Rust (`runtime/jsonata`) and does not expose the engine to JavaScript. Rather than
-     * returning a plausible-looking value, this fails loudly.
-     */
     function prepareJSONataExpression(value, node) {
-        throw createError("NOT_SUPPORTED", "RED.util.prepareJSONataExpression is not supported: JSONata is implemented by the EdgeLinkd Rust runtime and is not available inside the function node sandbox");
+        const expr = node.prepareJSONata(value);
+        expr.node = node;
+        expr.evaluate = function (message, callback) { return evaluateJSONataExpression(expr, message, callback); };
+        expr.assign = function () { throw createError("NOT_SUPPORTED", "JSONata assignment is not supported by the embedded evaluator"); };
+        expr._legacyMode = /(^|[^A-Za-z0-9_])msg\./.test(value);
+        return expr;
     }
 
-    /**
-     * Evaluates a JSONata expression. See `prepareJSONataExpression` - not supported.
-     */
     function evaluateJSONataExpression(expr, msg, callback) {
-        throw createError("NOT_SUPPORTED", "RED.util.evaluateJSONataExpression is not supported: JSONata is implemented by the EdgeLinkd Rust runtime and is not available inside the function node sandbox");
+        try {
+            const result = expr.node.evaluateJSONata(expr.source, msg);
+            if (callback) { callback(null, result); return; }
+            return result;
+        } catch (err) {
+            if (callback) { callback(err); return; }
+            throw err;
+        }
     }
 
     /**
@@ -959,7 +973,7 @@ const RED = (function () {
             } else if (isBytes(msg.msg)) {
                 var rawBytes = toU8(msg.msg);
                 msg.format = "buffer[" + rawBytes.length + "]";
-                msg.msg = hexEncode(rawBytes);
+                msg.msg = hexEncode(rawBytes.subarray(0, debuglength >= 0 ? Math.ceil(debuglength / 2) : undefined));
                 if (msg.msg.length > debuglength) {
                     msg.msg = msg.msg.substring(0, debuglength);
                 }
@@ -1070,11 +1084,9 @@ const RED = (function () {
                                 // the sandbox's bytes are a Uint8Array with no `toJSON`, so build
                                 // the same object - in the same key order, so that the encoded
                                 // string is byte-identical to Node-RED's.
-                                var encodedBytes = Array.from(toU8(value));
-                                var byteLength = encodedBytes.length;
-                                if (byteLength > debuglength) {
-                                    encodedBytes = encodedBytes.slice(0, debuglength);
-                                }
+                                var byteView = toU8(value);
+                                var byteLength = byteView.length;
+                                var encodedBytes = Array.from(byteView.subarray(0, debuglength >= 0 ? debuglength : undefined));
                                 value = {
                                     type: "Buffer",
                                     data: encodedBytes,
@@ -1189,4 +1201,46 @@ const RED = (function () {
             getSetting: getSetting
         }
     };
+})();
+
+
+// Reuse the caller's message and nested objects for node.linkcall(..., { clone: false }).
+// Install once per sandbox so returning a link call only looks up and invokes the helper.
+Object.defineProperty(globalThis, '__edgelink_reconcileLinkReturn', {
+    value: function reconcile(target, source) {
+        for (const key of Object.keys(target)) {
+            if (!(key in source)) delete target[key];
+        }
+        for (const key of Object.keys(source)) {
+            const a = target[key], b = source[key];
+            if (a && b && typeof a === 'object' && typeof b === 'object' &&
+                Array.isArray(a) === Array.isArray(b) &&
+                (Array.isArray(a) || (Object.getPrototypeOf(a) === Object.prototype &&
+                    Object.getPrototypeOf(b) === Object.prototype))) {
+                reconcile(a, b);
+            } else {
+                target[key] = b;
+            }
+        }
+        if (Array.isArray(target)) target.length = source.length;
+        return target;
+    }
+});
+
+// Stop repeating timers when the sandbox shuts down; otherwise runtime.idle waits forever.
+(function () {
+    const intervals = new Set();
+    const originalSet = globalThis.setInterval;
+    const originalClear = globalThis.clearInterval;
+    globalThis.setInterval = function (callback, delay, ...args) {
+        // Node-RED permits null here (including its clearInterval spec).
+        const id = originalSet(typeof callback === 'function' ? callback : function () {}, delay, ...args);
+        intervals.add(id);
+        return id;
+    };
+    globalThis.clearInterval = function (id) { intervals.delete(id); return originalClear(id); };
+    Object.defineProperty(globalThis, '__edgelink_clearTimers', { value: function () {
+        for (const id of intervals) originalClear(id);
+        intervals.clear();
+    }});
 })();

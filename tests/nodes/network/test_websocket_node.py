@@ -258,6 +258,13 @@ def _add(describe, titles):
             async def test(_self):
                 await _no_feedback()
             test = pytest.mark.asyncio(pytest.mark.it(title)(test))
+        elif describe == "websocket-client" and title in (
+            "should keep a single connection when in and out share a client",
+            "should not add a connection when the client flow is redeployed",
+        ):
+            async def test(_self, case=title):
+                await _shared_client_connection(case)
+            test = pytest.mark.asyncio(pytest.mark.it(title)(test))
         else:
             raise AssertionError(f"Missing spec implementation: {describe}: {title}")
         setattr(cls, f"test_{index:04d}", test)
@@ -276,9 +283,55 @@ _add("websocket-client", [
     "should connect to server", "should initiate with subprotocol", "should close on delete", "should receive data",
     "should receive wholemsg data ", "should receive wholemsg when data not JSON", "should send", "should send buffer",
     "should send wholemsg", "should NOT feedback more than once",
+    "should keep a single connection when in and out share a client",
+    "should not add a connection when the client flow is redeployed",
 ])
 _add("websocket in node", ["should report error if no server config"])
 _add("websocket out node", ["should report error if no server config"])
+
+
+async def _shared_client_connection(case):
+    active = set()
+    opened = 0
+    async def handler(socket):
+        nonlocal opened
+        opened += 1
+        active.add(socket)
+        try:
+            await socket.wait_closed()
+        finally:
+            active.discard(socket)
+
+    async with websockets.serve(handler, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        flow = [
+            {"id": "a", "type": "tab"},
+            {"id": "1", "type": "websocket-client", "path": f"ws://127.0.0.1:{port}/ws"},
+            {"id": "2", "z": "a", "type": "websocket out", "client": "1"},
+            {"id": "3", "z": "a", "type": "websocket in", "client": "1", "wires": [[]]},
+        ]
+        async with websocket_runtime(flow) as runtime:
+            for _ in range(100):
+                if len(active) == 1:
+                    break
+                await asyncio.sleep(.02)
+            assert len(active) == 1
+            if case.endswith("redeployed"):
+                from urllib.request import Request, urlopen
+                body = json.dumps({"flows": flow, "rev": "1"}).encode()
+                request = Request(runtime.replace("ws://", "http://") + "/flows", data=body,
+                                  headers={"Content-Type": "application/json"}, method="POST")
+                await asyncio.to_thread(lambda: urlopen(request, timeout=2).read())
+                for _ in range(100):
+                    if len(active) == 1:
+                        break
+                    await asyncio.sleep(.02)
+                assert 1 <= opened <= 2
+                assert len(active) == 1, "\n".join(runtime.logs[-40:])
+            else:
+                await asyncio.sleep(.2)
+                assert opened == 1
+                assert len(active) == 1
 
 
 

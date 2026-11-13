@@ -13,12 +13,17 @@ impl Engine {
         }
 
         self.inner.request_sessions.reopen();
+        let stop_token = {
+            let mut token = self.inner.stop_token.write().await;
+            *token = CancellationToken::new();
+            token.clone()
+        };
         self.publish_event(EngineEvent::EngineStarted);
         self.inner.context_manager.open_all().await?;
 
         for node in self.inner.global_nodes.iter().map(|entry| entry.value().clone()).collect::<Vec<_>>() {
             if !node.get_base().disabled {
-                node.clone().start(self.inner.stop_token.child_token()).await?;
+                node.clone().start(stop_token.child_token()).await?;
             }
         }
 
@@ -38,7 +43,7 @@ impl Engine {
         }
         log::info!("-- Stopping engine...");
 
-        self.inner.stop_token.cancel();
+        self.inner.stop_token.read().await.cancel();
         self.inner.request_sessions.close_all();
         for flow in self.inner.flows.iter() {
             flow.value().stop().await?;

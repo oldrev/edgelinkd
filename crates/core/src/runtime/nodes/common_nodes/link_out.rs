@@ -96,6 +96,14 @@ impl LinkOutNode {
                                 .return_msg(msg.clone(), source_link.id, self.id(), flow.id(), cancel.clone())
                                 .await?;
                         } else {
+                            #[cfg(feature = "js")]
+                            if let Some(function) = target_node
+                                .as_any()
+                                .downcast_ref::<crate::runtime::nodes::function_nodes::function::FunctionNode>(
+                            ) {
+                                function.return_link_msg(source_link.id, msg.clone());
+                                return Ok(());
+                            }
                             return Err(EdgelinkError::InvalidOperation(format!(
                                 "The node(id='{}') is not a `link call` node!",
                                 source_link.link_call_node_id
