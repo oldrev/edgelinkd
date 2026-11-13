@@ -395,7 +395,7 @@ jobs:
       - name: Install QEMU user emulators
         run: |
           sudo apt-get update
-          sudo apt-get install -y sudo apt-get install -y qemu-user-binfmt
+          sudo apt-get install -y qemu-user-binfmt
 
       - name: Setup cross-compilation tools for ARM 64
         if: matrix.target == 'aarch64-unknown-linux-gnu'
