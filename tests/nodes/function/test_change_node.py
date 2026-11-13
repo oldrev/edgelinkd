@@ -28,7 +28,14 @@ class TestChangeNode:
     @pytest.mark.asyncio
     @pytest.mark.it('should no-op if there are no rules')
     async def test_it_should_no_op_if_there_are_no_rules(self):
-        pass
+        flows = [
+            {"id": "100", "type": "tab"},
+            {"id": "1", "type": "change", "z": "100", "rules": [], "wires": [["2"]]},
+            {"id": "2", "type": "test-once", "z": "100"},
+        ]
+        original = {"payload": "leaveMeAlong"}
+        msgs = await run_flow_with_msgs_ntimes(flows, [{"nid": "1", "msg": original}], 1)
+        assert msgs == [original]
 
     @pytest.mark.describe('#set')
     class TestSet:

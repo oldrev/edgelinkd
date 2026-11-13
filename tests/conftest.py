@@ -1,6 +1,48 @@
 import pytest
+import ast
+import inspect
+import textwrap
 import json
 import pytest_jsonreport.serialize
+
+
+def _is_placeholder_test(function):
+    """Detect empty test bodies without mistaking pass in real logic for a stub."""
+    source = textwrap.dedent(inspect.getsource(inspect.unwrap(function)))
+    tree = ast.parse(source)
+    function_node = next(
+        node for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    )
+    body = function_node.body
+    if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+        if isinstance(body[0].value.value, str):
+            body = body[1:]
+    return all(
+        isinstance(node, ast.Pass)
+        or (isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant)
+            and node.value.value is Ellipsis)
+        or (isinstance(node, ast.Return) and node.value is None)
+        for node in body
+    )
+
+
+def pytest_collection_modifyitems(items):
+    """Reject placeholder specs even during collect-only coverage audits."""
+    placeholders = []
+    for item in items:
+        if not isinstance(item, pytest.Function) or item.get_closest_marker("skip") is not None:
+            continue
+        if item.get_closest_marker("it") and item.get_closest_marker("it").args == ("should be loaded",):
+            continue
+        if _is_placeholder_test(item.obj):
+            placeholders.append(item.nodeid)
+    if placeholders:
+        raise pytest.UsageError(
+            "Placeholder tests without @pytest.mark.skip:\n"
+            + "\n".join(f"  {nodeid}" for nodeid in placeholders)
+            + "\nImplement supported specs; mark only deliberately unsupported specs skip with a scope reason."
+        )
 
 
 def _make_collectitem(item):

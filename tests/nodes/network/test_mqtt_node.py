@@ -711,8 +711,3 @@ class TestMqttNodes:
             assert messages[0]["correlationData"] == list(b"abc")
             assert messages[0]["messageExpiryInterval"] == 2000
             assert messages[0]["payloadFormatIndicator"] is True
-
-    @pytest.mark.asyncio
-    @pytest.mark.it('skipping MQTT tests. Set env var "NR_MQTT_TESTS=true" to enable. Requires a v5 capable broker running on localhost:1883.')
-    async def test_upstream_skip_notice(self):
-        pass
