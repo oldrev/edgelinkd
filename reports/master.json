@@ -1,19 +1,19 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-11-12T17:23:10.212196Z",
+  "generated_at": "2026-11-13T05:36:56.716837Z",
   "ref": "master",
-  "commit": "0e97bd354d43c667f90bbe8f80aead8e8744e294",
+  "commit": "b0348f90376f58418675e47f215480219d5f46a4",
   "node_red": {
-    "version": "4.1.16"
+    "version": "5.0.9"
   },
   "totals": {
-    "covered": 1309,
-    "missing": 82,
+    "covered": 1602,
+    "missing": 0,
     "extra": 0,
-    "skipped": 173,
-    "js": 1564,
-    "python": 1482,
-    "coverage": 0.8369565217391305
+    "skipped": 35,
+    "js": 1637,
+    "python": 1637,
+    "coverage": 0.9786194257788637
   },
   "categories": [
     {
@@ -517,10 +517,10 @@
           "python_spec_file": "nodes/function/test_function_node.py",
           "node_red_spec_file": "test/nodes/core/function/10-function_spec.js",
           "totals": {
-            "covered": 82,
+            "covered": 107,
             "missing": 0,
             "extra": 0,
-            "skipped": 16
+            "skipped": 4
           },
           "specs": [
             {
@@ -621,6 +621,58 @@
             },
             {
               "status": "covered",
+              "title": "function node link call from function should allow function code to catch linkcall errors via try/catch"
+            },
+            {
+              "status": "covered",
+              "title": "function node link call from function should call nested subroutines"
+            },
+            {
+              "status": "covered",
+              "title": "function node link call from function should call subroutine on different tab by name and get response"
+            },
+            {
+              "status": "covered",
+              "title": "function node link call from function should call subroutine on different tab by node id and get response"
+            },
+            {
+              "status": "covered",
+              "title": "function node link call from function should call subroutine on same tab by name and get response"
+            },
+            {
+              "status": "covered",
+              "title": "function node link call from function should call subroutine on same tab by node id and get response"
+            },
+            {
+              "status": "covered",
+              "title": "function node link call from function should call subroutine on same tab even when there are same named targets on other tabs"
+            },
+            {
+              "status": "covered",
+              "title": "function node link call from function should clone the message by default"
+            },
+            {
+              "status": "covered",
+              "title": "function node link call from function should not clone the message when clone option=false"
+            },
+            {
+              "status": "covered",
+              "title": "function node link call from function should raise error due to multiple targets on different tabs"
+            },
+            {
+              "status": "covered",
+              "title": "function node link call from function should raise error due to multiple targets on same tab"
+            },
+            {
+              "status": "covered",
+              "title": "function node link call from function should raise error for non-existent target subroutine"
+            },
+            {
+              "status": "covered",
+              "title": "function node link call from function should timeout waiting for link return"
+            },
+            {
+              "status": "covered",
               "title": "function node should allow accessing env vars"
             },
             {
@@ -636,11 +688,11 @@
               "title": "function node should allow accessing node.name"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "function node should allow input to be discarded by returning null"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "function node should be loaded"
             },
             {
@@ -660,7 +712,7 @@
               "title": "function node should clone first message sent using send() - array 3"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "function node should clone single message sent using send()"
             },
             {
@@ -668,23 +720,23 @@
               "title": "function node should do something with the catch node"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "function node should drop and log non-object message types - array"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "function node should drop and log non-object message types - boolean"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "function node should drop and log non-object message types - buffer"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "function node should drop and log non-object message types - number"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "function node should drop and log non-object message types - string"
             },
             {
@@ -780,7 +832,7 @@
               "title": "function node should handle and log script error"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "function node should handle clearInterval()"
             },
             {
@@ -804,15 +856,15 @@
               "title": "function node should handle null amongst valid messages"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "function node should handle setInterval()"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "function node should handle setTimeout()"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "function node should not clone single message sent using send(,false)"
             },
             {
@@ -922,10 +974,10 @@
           "python_spec_file": "nodes/function/test_switch_node.py",
           "node_red_spec_file": "test/nodes/core/function/10-switch_spec.js",
           "totals": {
-            "covered": 97,
+            "covered": 110,
             "missing": 0,
             "extra": 0,
-            "skipped": 15
+            "skipped": 2
           },
           "specs": [
             {
@@ -1021,7 +1073,7 @@
               "title": "switch Node should check if payload if of type boolean true"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "switch Node should check if payload if of type buffer"
             },
             {
@@ -1077,7 +1129,7 @@
               "title": "switch Node should check if payload is empty (array)"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "switch Node should check if payload is empty (buffer)"
             },
             {
@@ -1213,7 +1265,7 @@
               "title": "switch Node should handle global context"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "switch Node should handle invalid jsonata expression"
             },
             {
@@ -1229,7 +1281,7 @@
               "title": "switch Node should handle persistable global context"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "switch Node should handle too many pending messages"
             },
             {
@@ -1277,7 +1329,7 @@
               "title": "switch Node should repair message sequence for each port"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "switch Node should repair message sequence for each port (overlap)"
             },
             {
@@ -1321,35 +1373,35 @@
               "title": "switch Node should return nothing when the payload is not less than desired string"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "switch Node should take head of message sequence (no repair)"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "switch Node should take head of message sequence (repair)"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "switch Node should take head of message sequence (w. JSONata)"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "switch Node should take head of message sequence (w. context)"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "switch Node should take slice of message sequence (no repair)"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "switch Node should take slice of message sequence (repair)"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "switch Node should take tail of message sequence (no repair)"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "switch Node should take tail of message sequence (repair)"
             },
             {
@@ -1768,7 +1820,7 @@
           "python_spec_file": "nodes/function/test_range_node.py",
           "node_red_spec_file": "test/nodes/core/function/16-range_spec.js",
           "totals": {
-            "covered": 17,
+            "covered": 25,
             "missing": 0,
             "extra": 0,
             "skipped": 0
@@ -1789,6 +1841,22 @@
             {
               "status": "covered",
               "title": "range Node clamps numbers within a range - over max"
+            },
+            {
+              "status": "covered",
+              "title": "range Node drops and reports a whitespace-only string rather than scaling it as 0"
+            },
+            {
+              "status": "covered",
+              "title": "range Node drops and reports an empty array rather than scaling it as 0"
+            },
+            {
+              "status": "covered",
+              "title": "range Node drops and reports an empty string rather than scaling it as 0"
+            },
+            {
+              "status": "covered",
+              "title": "range Node drops and reports null rather than scaling it as 0"
             },
             {
               "status": "covered",
@@ -1820,7 +1888,23 @@
             },
             {
               "status": "covered",
+              "title": "range Node scales numbers given as strings"
+            },
+            {
+              "status": "covered",
+              "title": "range Node scales numeric strings with surrounding whitespace"
+            },
+            {
+              "status": "covered",
               "title": "range Node should load some defaults"
+            },
+            {
+              "status": "covered",
+              "title": "range Node still scales false as 0 (existing flows rely on it)"
+            },
+            {
+              "status": "covered",
+              "title": "range Node still scales true as 1 (existing flows rely on it)"
             },
             {
               "status": "covered",
@@ -1849,10 +1933,10 @@
           "python_spec_file": "nodes/function/test_template_node.py",
           "node_red_spec_file": "test/nodes/core/function/80-template_spec.js",
           "totals": {
-            "covered": 23,
+            "covered": 24,
             "missing": 0,
             "extra": 0,
-            "skipped": 2
+            "skipped": 1
           },
           "specs": [
             {
@@ -1952,7 +2036,7 @@
               "title": "template node should modify the configured property using msg.template"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "template node should raise error if passed bad template"
             }
           ]
@@ -1962,7 +2046,7 @@
           "python_spec_file": "nodes/function/test_delay_node.py",
           "node_red_spec_file": "test/nodes/core/function/89-delay_spec.js",
           "totals": {
-            "covered": 54,
+            "covered": 56,
             "missing": 0,
             "extra": 0,
             "skipped": 0
@@ -2046,6 +2130,10 @@
             },
             {
               "status": "covered",
+              "title": "delay Node can handle a burst in burst mode"
+            },
+            {
+              "status": "covered",
               "title": "delay Node can part flush and reset rate limit queue"
             },
             {
@@ -2059,6 +2147,10 @@
             {
               "status": "covered",
               "title": "delay Node can part push to front of rate limit queue"
+            },
+            {
+              "status": "covered",
+              "title": "delay Node can reset a burst in burst mode"
             },
             {
               "status": "covered",
@@ -2416,10 +2508,10 @@
           "python_spec_file": "nodes/function/test_rbe_node.py",
           "node_red_spec_file": "test/nodes/core/function/rbe_spec.js",
           "totals": {
-            "covered": 13,
+            "covered": 15,
             "missing": 0,
             "extra": 0,
-            "skipped": 1
+            "skipped": 0
           },
           "specs": [
             {
@@ -2441,6 +2533,10 @@
             {
               "status": "covered",
               "title": "rbe node should not send output if x away or greater from original value (narrowbandEq)"
+            },
+            {
+              "status": "covered",
+              "title": "rbe node should only send output if a Date payload changes (rbe)"
             },
             {
               "status": "covered",
@@ -2475,7 +2571,7 @@
               "title": "rbe node should send output if queue is reset (rbe)"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "rbe node should warn if no number found in deadband mode"
             }
           ]
@@ -3441,7 +3537,7 @@
             "covered": 31,
             "missing": 0,
             "extra": 0,
-            "skipped": 0
+            "skipped": 1
           },
           "specs": [
             {
@@ -3565,6 +3661,10 @@
               "title": "MQTT Nodes should subscribe dynamically via action"
             },
             {
+              "status": "skipped",
+              "title": "MQTT Nodes should use the url from a repeated \"connect\" action"
+            },
+            {
               "status": "covered",
               "title": "MQTT Nodes skipping MQTT tests. Set env var \"NR_MQTT_TESTS=true\" to enable. Requires a v5 capable broker running on localhost:1883."
             }
@@ -3575,7 +3675,7 @@
           "python_spec_file": "nodes/network/test_httprequest_node.py",
           "node_red_spec_file": "test/nodes/core/network/21-httprequest_spec.js",
           "totals": {
-            "covered": 93,
+            "covered": 94,
             "missing": 0,
             "extra": 0,
             "skipped": 0
@@ -3748,6 +3848,10 @@
             {
               "status": "covered",
               "title": "HTTP Request Node protocol should use no_proxy"
+            },
+            {
+              "status": "covered",
+              "title": "HTTP Request Node protocol should use pfx tls file"
             },
             {
               "status": "covered",
@@ -3960,7 +4064,7 @@
           "python_spec_file": "nodes/network/test_websocket_node.py",
           "node_red_spec_file": "test/nodes/core/network/22-websocket_spec.js",
           "totals": {
-            "covered": 31,
+            "covered": 33,
             "missing": 0,
             "extra": 0,
             "skipped": 0
@@ -4000,7 +4104,15 @@
             },
             {
               "status": "covered",
+              "title": "websocket Node websocket-client should keep a single connection when in and out share a client"
+            },
+            {
+              "status": "covered",
               "title": "websocket Node websocket-client should load"
+            },
+            {
+              "status": "covered",
+              "title": "websocket Node websocket-client should not add a connection when the client flow is redeployed"
             },
             {
               "status": "covered",
@@ -4102,10 +4214,10 @@
           "python_spec_file": "nodes/parsers/test_json_node.py",
           "node_red_spec_file": "test/nodes/core/parsers/70-JSON_spec.js",
           "totals": {
-            "covered": 19,
+            "covered": 26,
             "missing": 0,
             "extra": 0,
-            "skipped": 7
+            "skipped": 1
           },
           "specs": [
             {
@@ -4165,7 +4277,7 @@
               "title": "JSON node should handle any msg property - receive existing string"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "JSON node should log an error if asked to parse an invalid json string"
             },
             {
@@ -4173,24 +4285,28 @@
               "title": "JSON node should log an error if asked to parse an invalid json string in a buffer"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "JSON node should log an error if passed a valid object and invalid schema"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "JSON node should log an error if passed an invalid JSON string and valid schema"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "JSON node should log an error if passed an invalid JSON string and valid schema and action is string"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "JSON node should log an error if passed an invalid object and valid schema"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "JSON node should log an error if passed an invalid object and valid schema and action is object"
+            },
+            {
+              "status": "covered",
+              "title": "JSON node should log an error, not throw, if passed a malformed JSON string, a schema, and action is string"
             },
             {
               "status": "covered",
@@ -4268,7 +4384,7 @@
           "python_spec_file": "nodes/parsers/test_csv_node.py",
           "node_red_spec_file": "test/nodes/core/parsers/70-CSV_spec.js",
           "totals": {
-            "covered": 107,
+            "covered": 125,
             "missing": 0,
             "extra": 0,
             "skipped": 2
@@ -4709,6 +4825,159 @@
             {
               "status": "covered",
               "title": "CSV node (RFC Mode) should warn if provided a number or boolean"
+            },
+            {
+              "status": "covered",
+              "title": "CSV node sequence metadata should aggregate newline-terminated CSV parts with buffer type in Legacy mode"
+            },
+            {
+              "status": "covered",
+              "title": "CSV node sequence metadata should aggregate newline-terminated CSV parts with buffer type in RFC4180 mode"
+            },
+            {
+              "status": "covered",
+              "title": "CSV node sequence metadata should aggregate newline-terminated CSV parts with string type in Legacy mode"
+            },
+            {
+              "status": "covered",
+              "title": "CSV node sequence metadata should aggregate newline-terminated CSV parts with string type in RFC4180 mode"
+            },
+            {
+              "status": "covered",
+              "title": "CSV node sequence metadata should aggregate newline-terminated CSV parts with unspecified type in Legacy mode"
+            },
+            {
+              "status": "covered",
+              "title": "CSV node sequence metadata should aggregate newline-terminated CSV parts with unspecified type in RFC4180 mode"
+            },
+            {
+              "status": "covered",
+              "title": "CSV node sequence metadata should parse an independent array part with a skipped line in Legacy mode"
+            },
+            {
+              "status": "covered",
+              "title": "CSV node sequence metadata should parse an independent array part with a skipped line in RFC4180 mode"
+            },
+            {
+              "status": "covered",
+              "title": "CSV node sequence metadata should parse an independent array part with its own header in Legacy mode"
+            },
+            {
+              "status": "covered",
+              "title": "CSV node sequence metadata should parse an independent array part with its own header in RFC4180 mode"
+            },
+            {
+              "status": "covered",
+              "title": "CSV node sequence metadata should parse an independent array part with trailing newline in Legacy mode"
+            },
+            {
+              "status": "covered",
+              "title": "CSV node sequence metadata should parse an independent array part with trailing newline in RFC4180 mode"
+            },
+            {
+              "status": "covered",
+              "title": "CSV node sequence metadata should parse an independent array part without trailing newline in Legacy mode"
+            },
+            {
+              "status": "covered",
+              "title": "CSV node sequence metadata should parse an independent array part without trailing newline in RFC4180 mode"
+            },
+            {
+              "status": "covered",
+              "title": "CSV node sequence metadata should parse an independent object part in Legacy mode"
+            },
+            {
+              "status": "covered",
+              "title": "CSV node sequence metadata should parse an independent object part in RFC4180 mode"
+            },
+            {
+              "status": "covered",
+              "title": "CSV node sequence metadata should parse an independent single-item array part in Legacy mode"
+            },
+            {
+              "status": "covered",
+              "title": "CSV node sequence metadata should parse an independent single-item array part in RFC4180 mode"
+            }
+          ]
+        },
+        {
+          "node": "csv leading empty",
+          "python_spec_file": "nodes/parsers/test_csv_leading_empty_node.py",
+          "node_red_spec_file": "test/nodes/core/parsers/70-CSV-leading-empty_spec.js",
+          "totals": {
+            "covered": 17,
+            "missing": 0,
+            "extra": 0,
+            "skipped": 0
+          },
+          "specs": [
+            {
+              "status": "covered",
+              "title": "CSV leading empty columns (Legacy Mode) does not turn a missing first field into an empty string"
+            },
+            {
+              "status": "covered",
+              "title": "CSV leading empty columns (Legacy Mode) handles a leading \",\" with line ending \"\\n\" and include_null_values=false"
+            },
+            {
+              "status": "covered",
+              "title": "CSV leading empty columns (Legacy Mode) handles a leading \",\" with line ending \"\\n\" and include_null_values=true"
+            },
+            {
+              "status": "covered",
+              "title": "CSV leading empty columns (Legacy Mode) handles a leading \",\" with line ending \"\\r\" and include_null_values=false"
+            },
+            {
+              "status": "covered",
+              "title": "CSV leading empty columns (Legacy Mode) handles a leading \",\" with line ending \"\\r\" and include_null_values=true"
+            },
+            {
+              "status": "covered",
+              "title": "CSV leading empty columns (Legacy Mode) handles a leading \",\" with line ending \"\\r\\n\" and include_null_values=false"
+            },
+            {
+              "status": "covered",
+              "title": "CSV leading empty columns (Legacy Mode) handles a leading \",\" with line ending \"\\r\\n\" and include_null_values=true"
+            },
+            {
+              "status": "covered",
+              "title": "CSV leading empty columns (Legacy Mode) handles a leading \"\\t\" with line ending \"\\n\" and include_null_values=false"
+            },
+            {
+              "status": "covered",
+              "title": "CSV leading empty columns (Legacy Mode) handles a leading \"\\t\" with line ending \"\\n\" and include_null_values=true"
+            },
+            {
+              "status": "covered",
+              "title": "CSV leading empty columns (Legacy Mode) handles a leading \"\\t\" with line ending \"\\r\" and include_null_values=false"
+            },
+            {
+              "status": "covered",
+              "title": "CSV leading empty columns (Legacy Mode) handles a leading \"\\t\" with line ending \"\\r\" and include_null_values=true"
+            },
+            {
+              "status": "covered",
+              "title": "CSV leading empty columns (Legacy Mode) handles a leading \"\\t\" with line ending \"\\r\\n\" and include_null_values=false"
+            },
+            {
+              "status": "covered",
+              "title": "CSV leading empty columns (Legacy Mode) handles a leading \"\\t\" with line ending \"\\r\\n\" and include_null_values=true"
+            },
+            {
+              "status": "covered",
+              "title": "CSV leading empty columns (Legacy Mode) handles a leading delimiter without a final newline"
+            },
+            {
+              "status": "covered",
+              "title": "CSV leading empty columns (Legacy Mode) handles consecutive empty columns"
+            },
+            {
+              "status": "covered",
+              "title": "CSV leading empty columns (Legacy Mode) keeps a quoted empty first field as an empty string"
+            },
+            {
+              "status": "covered",
+              "title": "CSV leading empty columns (Legacy Mode) omits a quoted empty field when empty strings are disabled"
             }
           ]
         },
@@ -4852,338 +5121,338 @@
           "python_spec_file": "nodes/storage/test_file_node.py",
           "node_red_spec_file": "test/nodes/core/storage/10-file_spec.js",
           "totals": {
-            "covered": 37,
-            "missing": 82,
+            "covered": 202,
+            "missing": 0,
             "extra": 0,
-            "skipped": 82
+            "skipped": 0
           },
           "specs": [
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"Big5\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"Big5-HKSCS\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"EUC-CN\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"EUC-JP\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"EUC-KR\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"GB18030\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"GB2312\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"GBK\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"KS_C_5601\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"Shift_JIS\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"Windows-31j\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"Windows932\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"Windows936\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"Windows949\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"Windows950\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"armscii8\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"base64\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"binary\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"cp1046\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"cp1124\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"cp1125\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"cp1129\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"cp1133\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"cp1161\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"cp1162\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"cp1163\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"cp1250\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"cp1251\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"cp1252\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"cp1253\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"cp1254\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"cp1255\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"cp1256\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"cp1257\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"cp1258\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"cp437\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"cp737\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"cp775\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"cp808\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"cp850\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"cp852\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"cp855\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"cp856\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"cp857\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"cp858\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"cp860\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"cp861\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"cp866\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"cp869\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"cp874\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"cp922\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"georgianacademy\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"georgianps\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"hex\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"hproman8\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"iso646cn\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"iso646jp\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"koi8-r\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"koi8-ru\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"koi8-t\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"koi8-u\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"maccenteuro\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"maccroatian\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"maccyrillic\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"macgreek\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"maciceland\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"macintosh\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"macroman\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"macromania\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"macthai\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"macturkish\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"macukraine\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"none\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"pt154\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"rk1048\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"tcvn\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"tis620\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"ucs2\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"utf-16be\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"utf-16le\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"utf8\" encoding"
             },
             {
-              "status": "missing",
+              "status": "covered",
               "title": "file Nodes file in Node encodings should read in a file with \"viscii\" encoding"
             },
             {
@@ -5193,6 +5462,10 @@
             {
               "status": "covered",
               "title": "file Nodes file in Node should handle a file read error"
+            },
+            {
+              "status": "covered",
+              "title": "file Nodes file in Node should handle a filename JSONata evaluation error and call done"
             },
             {
               "status": "covered",
@@ -5235,331 +5508,331 @@
               "title": "file Nodes file in Node should warn if no filename set"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"Big5\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"Big5-HKSCS\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"EUC-CN\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"EUC-JP\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"EUC-KR\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"GB18030\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"GB2312\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"GBK\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"KS_C_5601\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"Shift_JIS\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"Windows-31j\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"Windows932\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"Windows936\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"Windows949\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"Windows950\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"armscii8\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"base64\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"binary\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"cp1046\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"cp1124\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"cp1125\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"cp1129\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"cp1133\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"cp1161\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"cp1162\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"cp1163\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"cp1250\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"cp1251\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"cp1252\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"cp1253\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"cp1254\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"cp1255\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"cp1256\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"cp1257\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"cp1258\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"cp437\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"cp737\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"cp775\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"cp808\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"cp850\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"cp852\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"cp855\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"cp856\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"cp857\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"cp858\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"cp860\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"cp861\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"cp866\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"cp869\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"cp874\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"cp922\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"georgianacademy\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"georgianps\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"hex\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"hproman8\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"iso646cn\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"iso646jp\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"koi8-r\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"koi8-ru\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"koi8-t\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"koi8-u\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"maccenteuro\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"maccroatian\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"maccyrillic\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"macgreek\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"maciceland\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"macintosh\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"macroman\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"macromania\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"macthai\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"macturkish\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"macukraine\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"none\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"pt154\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"rk1048\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"tcvn\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"tis620\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"ucs2\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"utf-16be\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"utf-16le\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"utf8\" encoding"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "file Nodes file out Node encodings should write to a file with \"viscii\" encoding"
             },
             {
@@ -5938,10 +6211,10 @@
           "python_spec_file": "util/test_util.py",
           "node_red_spec_file": "test/unit/@node-red/util/lib/util_spec.js",
           "totals": {
-            "covered": 174,
+            "covered": 206,
             "missing": 0,
             "extra": 0,
-            "skipped": 32
+            "skipped": 8
           },
           "specs": [
             {
@@ -5959,6 +6232,10 @@
             {
               "status": "covered",
               "title": "@node-red/util/util compareObjects Buffer"
+            },
+            {
+              "status": "covered",
+              "title": "@node-red/util/util compareObjects Date"
             },
             {
               "status": "covered",
@@ -6026,6 +6303,10 @@
             },
             {
               "status": "covered",
+              "title": "@node-red/util/util encodeObject encode object long Buffer in msg is not converted in full"
+            },
+            {
+              "status": "covered",
               "title": "@node-red/util/util encodeObject encode object long array in msg"
             },
             {
@@ -6071,6 +6352,14 @@
             {
               "status": "covered",
               "title": "@node-red/util/util encodeObject encode object object with undefined property"
+            },
+            {
+              "status": "skipped",
+              "title": "@node-red/util/util encodeObject encode object restores Buffer toJSON after encoding"
+            },
+            {
+              "status": "skipped",
+              "title": "@node-red/util/util encodeObject encode object restores Buffer toJSON when encoding is terminated"
             },
             {
               "status": "covered",
@@ -6154,6 +6443,10 @@
             },
             {
               "status": "covered",
+              "title": "@node-red/util/util encodeObject encodes long Buffer without converting all of it"
+            },
+            {
+              "status": "covered",
               "title": "@node-red/util/util encodeObject encodes null"
             },
             {
@@ -6201,11 +6494,11 @@
               "title": "@node-red/util/util ensureString strings are preserved"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "@node-red/util/util evaluateJSONataExpression accesses environment variable from an expression"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "@node-red/util/util evaluateJSONataExpression accesses flow context from an expression"
             },
             {
@@ -6217,35 +6510,35 @@
               "title": "@node-red/util/util evaluateJSONataExpression accesses moment-timezone from an expression"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "@node-red/util/util evaluateJSONataExpression accesses undefined environment variable from an expression"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "@node-red/util/util evaluateJSONataExpression callbacks with error when invalid expression was specified"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "@node-red/util/util evaluateJSONataExpression evaluates a legacyMode expression"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "@node-red/util/util evaluateJSONataExpression evaluates an expression"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "@node-red/util/util evaluateJSONataExpression handles async flow context access"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "@node-red/util/util evaluateJSONataExpression handles async global context access"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "@node-red/util/util evaluateJSONataExpression handles non-existant flow context variable"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "@node-red/util/util evaluateJSONataExpression handles non-existant global context variable"
             },
             {
@@ -6265,55 +6558,55 @@
               "title": "@node-red/util/util evaluateJSONataExpression null prototype results leaves a Buffer in the result untouched"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "@node-red/util/util evaluateJSONataExpression null prototype results passes a primitive result through unchanged"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "@node-red/util/util evaluateJSONataExpression null prototype results restores the Object prototype on a deeply nested object"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "@node-red/util/util evaluateJSONataExpression null prototype results restores the Object prototype on a nested object"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "@node-red/util/util evaluateJSONataExpression null prototype results restores the Object prototype on an array literal of objects"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "@node-red/util/util evaluateJSONataExpression null prototype results restores the Object prototype on an array of objects"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "@node-red/util/util evaluateJSONataExpression null prototype results restores the Object prototype on an array of objects inside an object"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "@node-red/util/util evaluateJSONataExpression null prototype results restores the Object prototype on an object"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "@node-red/util/util evaluateJSONataExpression null prototype results restores the Object prototype on an object from $merge"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "@node-red/util/util evaluateJSONataExpression null prototype results restores the Object prototype on an object merged by the transform operator"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "@node-red/util/util evaluateJSONataExpression null prototype results restores the Object prototype on objects appended to an array"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "@node-red/util/util evaluateJSONataExpression null prototype results restores the Object prototype on objects from $each"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "@node-red/util/util evaluateJSONataExpression null prototype results restores the Object prototype on objects from $map"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "@node-red/util/util evaluateJSONataExpression null prototype results returns a result that downstream code can call hasOwnProperty on"
             },
             {
@@ -6365,7 +6658,7 @@
               "title": "@node-red/util/util evaluateNodeProperty returns global property"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "@node-red/util/util evaluateNodeProperty returns jsonata result"
             },
             {
@@ -6669,11 +6962,11 @@
               "title": "@node-red/util/util normalisePropertyExpression pass b[msg.a][2] (with message)"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "@node-red/util/util prepareJSONataExpression prepares a legacyMode expression"
             },
             {
-              "status": "skipped",
+              "status": "covered",
               "title": "@node-red/util/util prepareJSONataExpression prepares an expression"
             },
             {
@@ -6763,6 +7056,18 @@
             {
               "status": "covered",
               "title": "@node-red/util/util setMessageProperty sets a property with array syntax"
+            },
+            {
+              "status": "covered",
+              "title": "@node-red/util/util setObjectProperty does not delete a property beneath a null array element"
+            },
+            {
+              "status": "covered",
+              "title": "@node-red/util/util setObjectProperty does not set a property beneath a null array element"
+            },
+            {
+              "status": "covered",
+              "title": "@node-red/util/util setObjectProperty does not set a property beneath a primitive array element"
             },
             {
               "status": "covered",
