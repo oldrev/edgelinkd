@@ -12,3 +12,6 @@ __pycache__
 
 # Scratch directory the context-storage specs create and remove
 /tests/resources/context
+
+# Local AI planning artifacts
+/docs/superpowers/

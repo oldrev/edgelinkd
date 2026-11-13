@@ -1,0 +1,21 @@
+[package]
+name = "edgelink-nodes-serialport"
+version.workspace = true
+edition = "2024"
+license = "Apache-2.0"
+
+[dependencies]
+tokio-serial.workspace = true
+axum.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["io-util", "sync", "time", "rt", "macros"] }
+tokio-util.workspace = true
+async-trait.workspace = true
+config.workspace = true
+inventory.workspace = true
+log.workspace = true
+edgelink-core = { path = "../../crates/core", default-features = false, features = ["core"] }
+edgelink-macro = { path = "../../crates/macro" }
+
+[dev-dependencies]
+edgelink-core = { path = "../../crates/core", default-features = false, features = ["core", "pymod"] }

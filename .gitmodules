@@ -2,3 +2,6 @@
 	path = 3rd-party/node-red
 	url = https://github.com/node-red/node-red.git
 	shallow = true
+[submodule "3rd-party/node-red-nodes"]
+	path = 3rd-party/node-red-nodes
+	url = https://github.com/node-red/node-red-nodes.git

@@ -46,6 +46,9 @@ fn gen_use_plugins_file() {
 
     let mut file_content = String::new();
     for plugin_name in plugin_names {
+        if plugin_name == "edgelink_nodes_serialport" {
+            file_content.push_str("#[cfg(feature = \"nodes_serialport\")]\n");
+        }
         file_content.push_str(&format!("extern crate {plugin_name};\n"));
     }
 
@@ -97,6 +100,7 @@ fn build_static_files() {
     println!("cargo:rerun-if-changed=3rd-party/node-red/packages");
     println!("cargo:rerun-if-changed=3rd-party/node-red/package.json");
     println!("cargo:rerun-if-changed=3rd-party/node-red/package-lock.json");
+    println!("cargo:rerun-if-changed=3rd-party/node-red-nodes/io/serialport");
     println!("cargo:rerun-if-env-changed=EDGELINK_NODE_RED_PREBUILT");
 
     let static_dir = PathBuf::from("target/ui_static");
@@ -182,6 +186,32 @@ fn build_static_files() {
         // Copy Node-RED locales for i18n support
         copy_node_red_locales(&static_dir).expect("Failed to copy node-red locales");
 
+        let serialport_src = PathBuf::from("3rd-party/node-red-nodes/io/serialport");
+        let serialport_dst = static_dir.join("nodes/node-red-node-serialport");
+        std::fs::create_dir_all(&serialport_dst).expect("create serial editor asset directory");
+        for asset in ["25-serial.html", "LICENSE"] {
+            std::fs::copy(serialport_src.join(asset), serialport_dst.join(asset))
+                .unwrap_or_else(|error| panic!("copy serialport {asset}: {error}"));
+        }
+        let serial_editor_html = serialport_dst.join("25-serial.html");
+        let html = fs::read_to_string(&serial_editor_html).expect("read serial editor HTML");
+        fs::write(serial_editor_html, html.replace("serial.png", "serial.svg")).expect("write serial editor HTML");
+        for locale in ["en-US", "de", "ja"] {
+            let serial_locale = serialport_src.join(format!("locales/{locale}/25-serial.json"));
+            if serial_locale.is_file() {
+                let serial_locale_dst =
+                    static_dir.join(format!("locales/{locale}/node-red-node-serialport/serial.json"));
+                std::fs::create_dir_all(serial_locale_dst.parent().unwrap()).expect("create serial locale directory");
+                std::fs::copy(serial_locale, serial_locale_dst).expect("copy serial locale");
+            }
+        }
+        let serial_icon_dir = static_dir.join("icons/node-red-node-serialport");
+        std::fs::create_dir_all(&serial_icon_dir).expect("create serial icon directory");
+        std::fs::copy(
+            "3rd-party/node-red/packages/node_modules/@node-red/nodes/icons/serial.svg",
+            serial_icon_dir.join("serial.svg"),
+        )
+        .expect("copy serial icon");
         println!("cargo:warning=Static files build complete!");
     }
 

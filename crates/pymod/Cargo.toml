@@ -23,3 +23,4 @@ edgelink-core = { path = "../../crates/core", default-features = true, features 
 ] }
 # Node plug-ins:
 edgelink-nodes-dummy = { path = "../../node-plugins/edgelink-nodes-dummy" }
+edgelink-nodes-serialport = { path = "../../node-plugins/edgelink-nodes-serialport" }

@@ -5,6 +5,7 @@ use axum::{
     http::StatusCode,
     response::Json,
 };
+use edgelink_core::web::StaticNodeLocale;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -24,17 +25,46 @@ pub async fn get_nodes_locale(
     // Try to load the locale file from the new structure
     let locale_path = static_dir.join("locales").join(&lang).join("messages.json");
 
-    match tokio::fs::read_to_string(&locale_path).await {
+    let mut messages = match tokio::fs::read_to_string(&locale_path).await {
         Ok(content) => match serde_json::from_str::<Value>(&content) {
-            Ok(json) => Ok(Json(json)),
+            Ok(json) => json,
             Err(_) => {
                 log::warn!("Invalid JSON in locale file: {}", locale_path.display());
-                get_fallback_locale(&state, &lang).await
+                get_fallback_locale(&state, &lang).await?.0
             }
         },
-        Err(_) => {
-            // If the specific locale isn't found, try fallback strategies
-            get_fallback_locale(&state, &lang).await
+        Err(_) => get_fallback_locale(&state, &lang).await?.0,
+    };
+
+    merge_static_node_locales(static_dir, &lang, &mut messages).await;
+    Ok(Json(messages))
+}
+
+async fn merge_static_node_locales(static_dir: &std::path::Path, language: &str, messages: &mut Value) {
+    for provider in inventory::iter::<StaticNodeLocale> {
+        let mut languages = vec![language.to_owned()];
+        if let Some(primary) = language.split('-').next() {
+            if primary != language {
+                languages.push(primary.to_owned());
+            }
+        }
+        if language != "en-US" {
+            languages.push("en-US".to_owned());
+        }
+        for fallback_language in languages {
+            let path = static_dir.join("locales").join(fallback_language).join(provider.relative_path);
+            let Ok(content) = tokio::fs::read_to_string(path).await else {
+                continue;
+            };
+            let Ok(locale) = serde_json::from_str::<Value>(&content) else {
+                continue;
+            };
+            if let Some(namespace) = locale.get(provider.namespace) {
+                if let Some(target) = messages.as_object_mut() {
+                    target.insert(provider.namespace.to_owned(), namespace.clone());
+                }
+                break;
+            }
         }
     }
 }

@@ -12,6 +12,14 @@ pub struct StaticWebHandler {
     pub router: fn() -> MethodRouter,
 }
 
+/// Locale file contributed by a statically linked node plugin.
+#[derive(Debug)]
+pub struct StaticNodeLocale {
+    pub namespace: &'static str,
+    /// Path relative to `locales/{language}/` in the generated static directory.
+    pub relative_path: &'static str,
+}
+
 #[derive(Debug, Clone)]
 pub struct WebHandlerDescriptor {
     pub path: String,
@@ -19,6 +27,7 @@ pub struct WebHandlerDescriptor {
 }
 
 inventory::collect!(StaticWebHandler);
+inventory::collect!(StaticNodeLocale);
 
 /// Registry for dynamic web handlers.
 pub struct WebHandlerRegistry {

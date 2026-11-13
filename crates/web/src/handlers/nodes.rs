@@ -102,11 +102,43 @@ async fn generate_nodes_html() -> String {
         process_node_directory_runtime(&examples_dir, &mut html_content).await;
     }
 
+    if let Ok(mut entries) = tokio::fs::read_dir(&node_red_nodes_dir).await {
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let path = entry.path();
+            if !path.is_dir() || matches!(entry.file_name().to_str(), Some("core" | "examples")) {
+                continue;
+            }
+            let Some(module) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            process_plugin_node_directory_runtime(&path, module, &mut html_content).await;
+        }
+    }
+
     if html_content.is_empty() {
         return get_fallback_nodes_html();
     }
 
     html_content
+}
+
+async fn process_plugin_node_directory_runtime(dir: &std::path::Path, module: &str, output: &mut String) {
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(current) = pending.pop() {
+        let Ok(mut entries) = tokio::fs::read_dir(&current).await else {
+            continue;
+        };
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if path.extension().and_then(|ext| ext.to_str()) == Some("html") {
+                if let Ok(content) = tokio::fs::read_to_string(&path).await {
+                    extract_node_html_with_module(&content, module, output);
+                }
+            }
+        }
+    }
 }
 
 /// Recursively process node directory at runtime
@@ -151,7 +183,10 @@ fn extract_node_html_content_runtime(file_content: &str, file_path: &std::path::
     // Extract module name from file path
     let module_name = extract_module_name_runtime(file_path);
 
-    // Add red-module separator
+    extract_node_html_with_module(file_content, &module_name, output);
+}
+
+fn extract_node_html_with_module(file_content: &str, module_name: &str, output: &mut String) {
     output.push_str(&format!("<!-- --- [red-module:{module_name}] --- -->\n"));
 
     // Add original file content
@@ -544,4 +579,17 @@ fn get_hardcoded_fallback_node_set_messages(module_name: &str, set_name: &str) -
             "description": "Node set description"
         }
     })
+}
+
+#[cfg(test)]
+mod serial_plugin_palette_tests {
+    use super::extract_node_html_with_module;
+
+    #[test]
+    fn static_plugin_editor_html_uses_plugin_module_marker() {
+        let mut output = String::new();
+        extract_node_html_with_module("<script></script>", "node-red-node-serialport", &mut output);
+        assert!(output.starts_with("<!-- --- [red-module:node-red-node-serialport] --- -->"));
+        assert!(output.contains("<script></script>"));
+    }
 }

@@ -5,6 +5,9 @@ use pyo3::types::PyModule;
 use pyo3::{prelude::*, wrap_pyfunction};
 use serde::Deserialize;
 
+// Keep statically linked node plugins in the binary so their inventory registrations are visible.
+use edgelink_nodes_serialport as _;
+
 use edgelink_core::runtime::debug_channel::DebugMessage;
 use edgelink_core::runtime::engine::Engine;
 use edgelink_core::runtime::node_log_channel::NodeLogMessage;
