@@ -1,19 +1,19 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-11-13T07:22:16.476129Z",
+  "generated_at": "2026-11-13T12:10:47.833788Z",
   "ref": "master",
-  "commit": "4664012d6a606de869d1cd3bc5238f07071f12c4",
+  "commit": "546c51485506eb82392b035ff631cd40c9bc2503",
   "node_red": {
     "version": "5.0.9"
   },
   "totals": {
-    "covered": 1602,
-    "missing": 0,
+    "covered": 1601,
+    "missing": 1,
     "extra": 0,
     "skipped": 35,
     "js": 1637,
-    "python": 1637,
-    "coverage": 0.9786194257788637
+    "python": 1636,
+    "coverage": 0.9780085522296884
   },
   "categories": [
     {
@@ -3534,8 +3534,8 @@
           "python_spec_file": "nodes/network/test_mqtt_node.py",
           "node_red_spec_file": "test/nodes/core/network/21-mqtt_spec.js",
           "totals": {
-            "covered": 31,
-            "missing": 0,
+            "covered": 30,
+            "missing": 1,
             "extra": 0,
             "skipped": 1
           },
@@ -3665,7 +3665,7 @@
               "title": "MQTT Nodes should use the url from a repeated \"connect\" action"
             },
             {
-              "status": "covered",
+              "status": "missing",
               "title": "MQTT Nodes skipping MQTT tests. Set env var \"NR_MQTT_TESTS=true\" to enable. Requires a v5 capable broker running on localhost:1883."
             }
           ]
