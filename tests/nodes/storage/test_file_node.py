@@ -356,7 +356,7 @@ class TestFileNodes:
             content = "File message line 1\nFile message line 2\n"
             file_to_test.write_bytes(content.encode("utf-8"))
             msgs = await _file_in({"filename": str(file_to_test), "format": ""}, [{"payload": ""}])
-            assert bytes(msgs[0]["payload"]) == content.encode("utf-8")
+            assert msgs[0]["payload"] == {"$__el_type": "Buffer", "data": list(content.encode("utf-8"))}
 
         @pytest.mark.asyncio
         @pytest.mark.it('should read in a file and output a utf8 string')
@@ -452,7 +452,7 @@ class TestFileNodes:
             content = "File message line 1\nFile message line 2\n"
             file_to_test.write_bytes(content.encode("utf-8"))
             msgs = await _file_in({"filename": str(file_to_test), "format": "stream"}, [{"payload": ""}])
-            assert bytes(msgs[0]["payload"]) == content.encode("utf-8")
+            assert msgs[0]["payload"] == {"$__el_type": "Buffer", "data": list(content.encode("utf-8"))}
             assert msgs[0]["parts"]["count"] == 1
             assert msgs[0]["parts"]["type"] == "buffer"
             assert msgs[0]["parts"]["ch"] == ""

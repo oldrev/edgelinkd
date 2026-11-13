@@ -96,7 +96,7 @@ class TestInjectNode:
     @pytest.mark.it('inject value (bin)')
     async def test_it_inject_value_bin(self):
         val_buf = '[1,2,3,4,5]'
-        await basic_test("bin", val_buf, json.loads(val_buf))
+        await basic_test("bin", val_buf, {"$__el_type": "Buffer", "data": json.loads(val_buf)})
 
     @pytest.mark.asyncio
     @pytest.mark.it('inject value of environment variable ')

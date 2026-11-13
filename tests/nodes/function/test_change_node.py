@@ -396,8 +396,8 @@ class TestChangeNode:
                 {"nid": "1", "msg": {"payload": ""}},
             ]
             msgs = await run_flow_with_msgs_ntimes(flows, injections, 1)
-            assert msgs[0]['payload'] == [72, 101, 108,
-                                          108, 111, 32, 87, 111, 114, 108, 100]
+            assert msgs[0]['payload'] == {
+                "$__el_type": "Buffer", "data": [72, 101, 108, 108, 111, 32, 87, 111, 114, 108, 100]}
 
         @pytest.mark.asyncio
         @pytest.mark.it('''sets the value of the message property to the current timestamp''')

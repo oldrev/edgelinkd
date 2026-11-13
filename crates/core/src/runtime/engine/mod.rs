@@ -400,18 +400,29 @@ impl Engine {
         let run_start = std::time::Instant::now();
         let cancel = CancellationToken::new();
         let mut deferred = Vec::new();
+        let mut delayed = Vec::new();
         for (node_id, msg, delay_ms) in msgs_to_inject.drain(..) {
             if delay_ms <= 0.0 {
                 self.inject_msg(&node_id, MsgHandle::new(msg), cancel.clone()).await?;
-                continue;
+            } else {
+                delayed.push((node_id, msg, delay_ms));
             }
+        }
+        // Stable ordering mirrors consecutive receive() calls in a single Node-RED timer.
+        delayed.sort_by(|a, b| a.2.total_cmp(&b.2));
+        if !delayed.is_empty() {
             let engine = self.clone();
             let inject_cancel = cancel.clone();
+            let schedule_start = tokio::time::Instant::now();
             deferred.push(tokio::spawn(async move {
-                tokio::select! {
-                    _ = inject_cancel.cancelled() => {}
-                    _ = tokio::time::sleep(std::time::Duration::from_secs_f64(delay_ms / 1000.0)) => {
-                        let _ = engine.inject_msg(&node_id, MsgHandle::new(msg), inject_cancel).await;
+                for (node_id, msg, delay_ms) in delayed {
+                    tokio::select! {
+                        _ = inject_cancel.cancelled() => return,
+                        _ = tokio::time::sleep_until(schedule_start + std::time::Duration::from_secs_f64(delay_ms / 1000.0)) => {
+                            if engine.inject_msg(&node_id, MsgHandle::new(msg), inject_cancel.clone()).await.is_err() {
+                                return;
+                            }
+                        }
                     }
                 }
             }));

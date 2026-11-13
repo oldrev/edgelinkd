@@ -158,7 +158,7 @@ class TestTriggerNode:
         }
         msgs = await run_single_node_with_msgs_ntimes(node, [{"payload": None}], 1)
         # Upstream compares the payload to `Buffer.from(JSON.parse(val_buf))`.
-        assert msgs[0]['payload'] == json.loads(val_buf)
+        assert msgs[0]['payload'] == {"$__el_type": "Buffer", "data": json.loads(val_buf)}
 
     @pytest.mark.asyncio
     @pytest.mark.it('should output 2st value when triggered (bin)')
@@ -170,7 +170,7 @@ class TestTriggerNode:
         }
         msgs = await run_single_node_with_msgs_ntimes(node, [{"payload": None}], 2)
         assert msgs[0]['payload'] == "foo"
-        assert msgs[1]['payload'] == json.loads(val_buf)
+        assert msgs[1]['payload'] == {"$__el_type": "Buffer", "data": json.loads(val_buf)}
 
     @pytest.mark.asyncio
     @pytest.mark.it('should output 1st value when triggered (env)')

@@ -192,7 +192,7 @@ class TestSubflow:
         assert msg["VN"] == 100
         assert msg["VB"] == True
         assert msg["VJ"] == [1, 2, 3]
-        assert msg["Vb"] == [65, 65]
+        assert msg["Vb"] == {"$__el_type": "Buffer", "data": [65, 65]}
         assert msg["VE"] == "STR"
         # assert msg["Vj"] == 3 #FIXME
 

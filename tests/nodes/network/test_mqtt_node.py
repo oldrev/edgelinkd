@@ -369,7 +369,7 @@ class TestMqttNodes:
                                                          "messageExpiryInterval": 30,
                                                          "userProperties": {"source": "test"}})
         assert message["responseTopic"] == "reply"
-        assert message["correlationData"] == list(b"cid")
+        assert message["correlationData"] == {"$__el_type": "Buffer", "data": list(b"cid")}
         assert message["messageExpiryInterval"] == 30
         assert message["userProperties"] == {"source": "test"}
 
@@ -447,7 +447,7 @@ class TestMqttNodes:
     @pytest.mark.asyncio
     @pytest.mark.it('should send String and receive Buffer (buffer mode)')
     async def test_string_buffer_mode(self):
-        await _buffer_roundtrip(list(b"hello"), "buffer", list(b"hello"))
+        await _buffer_roundtrip(list(b"hello"), "buffer", {"$__el_type": "Buffer", "data": list(b"hello")})
 
     @pytest.mark.asyncio
     @pytest.mark.it('should send utf8 Buffer and receive String (auto mode)')
@@ -457,7 +457,7 @@ class TestMqttNodes:
     @pytest.mark.asyncio
     @pytest.mark.it('should send non utf8 Buffer and receive Buffer (auto mode)')
     async def test_non_utf8_buffer_auto(self):
-        await _buffer_roundtrip([0xff, 0xfe, 0x00], "auto", [0xff, 0xfe, 0x00])
+        await _buffer_roundtrip([0xff, 0xfe, 0x00], "auto", {"$__el_type": "Buffer", "data": [0xff, 0xfe, 0x00]})
 
     @pytest.mark.asyncio
     @pytest.mark.it('should send/receive all v5 flags and settings')
@@ -472,7 +472,7 @@ class TestMqttNodes:
         assert message["qos"] == 1
         assert message["retain"] is True
         assert message["responseTopic"] == "reply/topic"
-        assert message["correlationData"] == list(b"abc")
+        assert message["correlationData"] == {"$__el_type": "Buffer", "data": list(b"abc")}
         assert message["messageExpiryInterval"] == 2000
         assert message["payloadFormatIndicator"] is True
         assert message["userProperties"] == {"prop1": "val1"}
@@ -499,7 +499,7 @@ class TestMqttNodes:
     @pytest.mark.it('should send buffer with v5 media type "application/zip" and receive a buffer (auto mode)')
     async def test_v5_buffer_binary(self):
         payload = list(b"valid utf8 binary payload")
-        message = await _v5_roundtrip(payload, "auto", "application/zip", payload, buffer_payload=True)
+        message = await _v5_roundtrip(payload, "auto", "application/zip", {"$__el_type": "Buffer", "data": payload}, buffer_payload=True)
         assert message["contentType"] == "application/zip"
 
     @pytest.mark.asyncio
@@ -708,6 +708,6 @@ class TestMqttNodes:
             assert messages[0]["contentType"] == "application/json"
             assert messages[0]["userProperties"] == {"will": "value"}
             assert messages[0]["responseTopic"] == "reply/topic"
-            assert messages[0]["correlationData"] == list(b"abc")
+            assert messages[0]["correlationData"] == {"$__el_type": "Buffer", "data": list(b"abc")}
             assert messages[0]["messageExpiryInterval"] == 2000
             assert messages[0]["payloadFormatIndicator"] is True
