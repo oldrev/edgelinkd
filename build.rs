@@ -107,7 +107,9 @@ fn build_static_files() {
 
     // Build Node-RED if needed
     if env::var("EDGELINK_NODE_RED_PREBUILT").as_deref() == Ok("1") {
-        for resource in ["index.html", "red/red.min.js", "red/main.min.js", "red/style.min.css", "vendor/vendor.js"] {
+        // index.html comes from crates/web/public, not the Node-RED build.
+        // Validate it below after merging both sources into static_dir.
+        for resource in ["red/red.min.js", "red/main.min.js", "red/style.min.css", "vendor/vendor.js"] {
             assert!(
                 node_red_dir.join(resource).is_file(),
                 "Missing prebuilt editor resource: {resource}; run npm run build in 3rd-party/node-red on the host first"
