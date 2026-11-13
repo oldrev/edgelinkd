@@ -48,27 +48,43 @@ impl<'js> NodeClass {
 
     #[qjs(rename = "prepareJSONata")]
     fn prepare_jsonata(&self, source: String, ctx: Ctx<'js>) -> rquickjs::Result<rquickjs::Object<'js>> {
-        crate::runtime::jsonata::JsonataExpression::compile(&source)
-            .map_err(|e| rquickjs::Exception::throw_message(&ctx, &e.to_string()))?;
-        let object = rquickjs::Object::new(ctx)?;
-        object.set("source", source.clone())?;
-        object.set("_legacyMode", source.contains("msg."))?;
-        Ok(object)
+        #[cfg(not(feature = "jsonata"))]
+        {
+            let _ = source;
+            Err(rquickjs::Exception::throw_message(&ctx, "JSONata support is not compiled in"))
+        }
+        #[cfg(feature = "jsonata")]
+        {
+            crate::runtime::jsonata::JsonataExpression::compile(&source)
+                .map_err(|e| rquickjs::Exception::throw_message(&ctx, &e.to_string()))?;
+            let object = rquickjs::Object::new(ctx)?;
+            object.set("source", source.clone())?;
+            object.set("_legacyMode", source.contains("msg."))?;
+            Ok(object)
+        }
     }
 
     #[qjs(rename = "evaluateJSONata")]
     fn evaluate_jsonata(&self, source: String, message: Value<'js>, ctx: Ctx<'js>) -> rquickjs::Result<Value<'js>> {
-        let node = self.node.upgrade().ok_or(rquickjs::Error::UnrelatedRuntime)?;
-        let expression = crate::runtime::jsonata::JsonataExpression::compile(&source)
-            .map_err(|e| rquickjs::Exception::throw_message(&ctx, &e.to_string()))?;
-        let msg = Msg::from_js(&ctx, message)?;
-        let host = crate::runtime::jsonata::JsonataHost::new(node.flow().as_ref(), Some(node.as_ref()));
-        let result = expression
-            .evaluate(Some(&msg), &host)
-            .map_err(|e| rquickjs::Exception::throw_message(&ctx, &e.to_string()))?;
-        match result {
-            Some(value) => value.into_js(&ctx),
-            None => Ok(Value::new_undefined(ctx)),
+        #[cfg(not(feature = "jsonata"))]
+        {
+            let _ = (source, message);
+            Err(rquickjs::Exception::throw_message(&ctx, "JSONata support is not compiled in"))
+        }
+        #[cfg(feature = "jsonata")]
+        {
+            let node = self.node.upgrade().ok_or(rquickjs::Error::UnrelatedRuntime)?;
+            let expression = crate::runtime::jsonata::JsonataExpression::compile(&source)
+                .map_err(|e| rquickjs::Exception::throw_message(&ctx, &e.to_string()))?;
+            let msg = Msg::from_js(&ctx, message)?;
+            let host = crate::runtime::jsonata::JsonataHost::new(node.flow().as_ref(), Some(node.as_ref()));
+            let result = expression
+                .evaluate(Some(&msg), &host)
+                .map_err(|e| rquickjs::Exception::throw_message(&ctx, &e.to_string()))?;
+            match result {
+                Some(value) => value.into_js(&ctx),
+                None => Ok(Value::new_undefined(ctx)),
+            }
         }
     }
 
