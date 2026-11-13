@@ -4,15 +4,80 @@ import os
 
 from tests import *
 
-# Node-RED's `head`/`tail`/`index` rules select from a `msg.parts` sequence. The switch node parses
-# those rule types but never matches them (`SwitchRuleOperator::apply` is called with an empty
-# `parts`), and it has neither the pending-sequence buffer nor the `repair` rewrite that upstream
-# uses to hold a sequence until it is complete, so a flow using them simply stops emitting. That is
-# a runtime gap, not a test-harness limitation; until it is implemented (or the rule types are
-# rejected at deploy time) these specs stay out of scope.
-_SEQUENCE_OUT_OF_SCOPE = ("head/tail/index sequence rules are not implemented: the switch node has "
-                          "no pending-sequence buffer and never passes `msg.parts` to the rule "
-                          "operators, so a sequence rule silently stalls the flow")
+
+async def _sequence_switch(rule, repair, setup=False, inputs=None):
+    flow = [
+        {'id':'100','type':'tab'},
+        {'id':'1','z':'100','type':'switch','property':'payload','rules':[rule],
+         'checkall':True,'repair':repair,'outputs':1,'wires':[['2']]},
+        {'id':'2','z':'100','type':'test-once'},
+    ]
+    if setup:
+        flow.append({'id':'3','z':'100','type':'function',
+                     'func':"global.set('count',3); return msg;",'wires':[['1']]})
+    inputs = inputs if inputs is not None else [
+        {'payload':i,'parts':{'id':222,'index':i,'count':5,'type':'array','custom':'retained'}}
+        for i in range(5)]
+    return await run_flow_for_seconds(flow, inputs, 0.1, injectee_node_id='3' if setup else '1')
+
+
+def _assert_sequence(msgs, expected, repair, original_count=5, original_id=222):
+    assert [m['payload'] for m in msgs] == expected
+    assert len({m['parts']['id'] for m in msgs}) == 1
+    for index, msg in enumerate(msgs):
+        parts = msg['parts']
+        assert parts['count'] == (len(expected) if repair else original_count)
+        assert parts['index'] == (index if repair else msg['payload'])
+        assert (parts['id'] != original_id) if repair else (parts['id'] == original_id)
+        assert parts['type'] == 'array'
+        assert parts['custom'] == 'retained'
+
+
+async def _multi_sequence_switch(repair, overlap):
+    rules = [{'t':'gte' if overlap else 'gt','v':0},
+             {'t':'lte' if overlap else 'lt','v':0}, {'t':'else'}]
+    flow = [
+        {'id':'100','type':'tab'},
+        {'id':'1','z':'100','type':'switch','property':'payload','rules':rules,
+         'checkall':True,'repair':repair,'outputs':3,'wires':[['2'],['3'],['4']]},
+        {'id':'5','z':'100','type':'test-once'},
+    ]
+    for port in range(3):
+        flow.append({'id':str(port+2),'z':'100','type':'function',
+                     'func':f'msg.port={port}; return msg;', 'wires':[['5']]})
+    values = [1,-2,2,0,-1]
+    inputs = [{'payload':value,'xindex':index,'parts':{'id':222,'index':index,'count':5}}
+              for index,value in enumerate(values)]
+    msgs = await run_flow_for_seconds(flow, inputs, 0.1)
+    expected = [[1,2,0],[-2,0,-1],[]] if overlap else [[1,2],[-2,-1],[0]]
+    assert len(msgs) == sum(map(len, expected))
+    ids = []
+    for port, vals in enumerate(expected):
+        output = [m for m in msgs if m['port'] == port]
+        assert [m['payload'] for m in output] == vals
+        if output:
+            assert len({m['parts']['id'] for m in output}) == 1
+            ids.append(output[0]['parts']['id'])
+        for index,msg in enumerate(output):
+            assert msg['parts']['index'] == (index if repair else msg['xindex'])
+            assert msg['parts']['count'] == (len(vals) if repair else 5)
+    if repair:
+        assert len(set(ids)) == len(ids)
+        assert 222 not in ids
+
+
+async def _binary_switch_test(rule, value, values):
+    # Create and consume native binary values inside the flow, so JSON only carries arrays.
+    flow = [
+        {"id": "100", "type": "tab"},
+        {"id": "1", "z": "100", "type": "function", "func": "msg.payload = new Uint8Array(msg.payload).buffer; return msg;", "wires": [["2"]]},
+        {"id": "2", "z": "100", "type": "switch", "property": "payload", "rules": [{"t": rule, "v": value}], "outputs": 1, "wires": [["3"]]},
+        {"id": "3", "z": "100", "type": "function", "func": "msg.payload = Array.from(new Uint8Array(msg.payload)); return msg;", "wires": [["4"]]},
+        {"id": "4", "z": "100", "type": "test-once"},
+    ]
+    result = await run_flow_with_msgs_ntimes(flow, [{"nid": "1", "msg": {"payload": values}}], 1)
+    assert result[0]["payload"] == values
+
 
 async def _generic_switch_test(rule, rule_with, checkall, should_receive, send_payload):
     flow = [
@@ -235,8 +300,8 @@ class TestSwitchNode:
     async def test_it_should_check_if_payload_if_of_type_number_nan(self):
         await _generic_switch_test("istype", "number", True, False, float('nan'))
 
-    @pytest.mark.skip(reason="the pytest bridge cannot carry an `Infinity` number (it is not JSON), "
-                             "so the upstream `istype number` case for it cannot be sent")
+    @pytest.mark.skip(reason="Non-finite numbers are outside the JSON-backed Variant number model; "
+                             "creating Infinity inside a function cannot preserve its number type")
     @pytest.mark.asyncio
     @pytest.mark.it("should check if payload if of type number Infinity")
     async def test_it_should_check_if_payload_if_of_type_number_infinity(self):
@@ -257,13 +322,10 @@ class TestSwitchNode:
     async def test_it_should_check_if_payload_if_of_type_array(self):
         await _generic_switch_test("istype", "array", True, True, [1, 2, 3, "a", "b"])
 
-    @pytest.mark.skip(reason="binary payloads cannot cross the pytest bridge as a JS object: the "
-                             "`istype buffer` check needs a real Buffer in the sandbox, and a Python "
-                             "`bytearray` arrives as a list of ints")
     @pytest.mark.asyncio
     @pytest.mark.it("should check if payload if of type buffer")
     async def test_it_should_check_if_payload_if_of_type_buffer(self):
-        await _generic_switch_test("istype", "buffer", True, True, bytearray(b"Hello"))
+        await _binary_switch_test("istype", "buffer", [72,101,108,108,111])
 
     @pytest.mark.asyncio
     @pytest.mark.it("should check if payload if of type object")
@@ -285,8 +347,8 @@ class TestSwitchNode:
     async def test_it_should_check_if_payload_if_of_type_null(self):
         await _generic_switch_test("istype", "null", True, True, None)
 
-    @pytest.mark.skip(reason="there is no `undefined` in Python or Rust, and the pytest bridge cannot "
-                             "send one: the upstream `istype undefined` case has no equivalent")
+    @pytest.mark.skip(reason="Variant has no undefined type: function output maps JS undefined to null, "
+                             "so Node-RED's distinct undefined type is outside the supported value model")
     @pytest.mark.asyncio
     @pytest.mark.it("should check if payload if of type undefined")
     async def test_it_should_check_if_payload_if_of_type_undefined(self):
@@ -491,12 +553,10 @@ class TestSwitchNode:
     async def test_it_should_check_if_payload_is_empty_array(self):
         await _singular_switch_test("empty", True, True, [])
 
-    @pytest.mark.skip(reason="binary payloads cannot cross the pytest bridge as a JS object: an empty "
-                             "Buffer cannot be sent, and a Python `bytearray()` arrives as an empty list")
     @pytest.mark.asyncio
     @pytest.mark.it("should check if payload is empty (buffer)")
     async def test_it_should_check_if_payload_is_empty_buffer(self):
-        await _singular_switch_test("empty", True, True, bytearray())
+        await _binary_switch_test("empty", "", [])
 
     @pytest.mark.asyncio
     @pytest.mark.it("should check if payload is empty (object)")
@@ -809,32 +869,11 @@ class TestSwitchNode:
         assert len(msgs) == 1
         assert msgs[0]["payload"] == "pass"
 
-    @pytest.mark.skip(reason=_SEQUENCE_OUT_OF_SCOPE)
     @pytest.mark.asyncio
     @pytest.mark.it("should take head of message sequence (w. JSONata)")
     async def test_it_should_take_head_of_message_sequence_w_jsonata(self):
-        flow = [
-            {"id": "100", "type": "tab"},
-            {"id": "1", "z": "100", "type": "switch", "name": "switchNode", "property": "payload",
-             "rules": [{"t": "head", "v": "1+4/2", "vt": "jsonata"}], "checkall": False, "repair": True,
-             "outputs": 1, "wires": [["2"]]},
-            {"id": "2", "z": "100", "type": "test-once"}
-        ]
-
-        injections = []
-        for i in range(5):
-            injections.append({
-                "nid": "1",
-                "msg": {
-                    "payload": i,
-                    "parts": {"index": i, "count": 5, "id": 222}
-                }
-            })
-
-        msgs = await run_flow_with_msgs_ntimes(flows_obj=flow, msgs=injections, nexpected=3, timeout=0.5)
-        assert len(msgs) == 3
-        for i, msg in enumerate(msgs):
-            assert msg["payload"] == i
+        msgs = await _sequence_switch({'t': 'head', 'v': '1+4/2', 'vt': 'jsonata'}, True)
+        _assert_sequence(msgs, [0, 1, 2], True)
 
     @pytest.mark.asyncio 
     @pytest.mark.it("should handle env var expression")
@@ -852,120 +891,29 @@ class TestSwitchNode:
         os.environ["VAR"] = "VAL"
         await _custom_flow_switch_test(flow, True, "OK")
 
-    # Sequence handling tests (`msg.parts`). The head/tail/index rules parse but never match and
-    # there is no pending-sequence buffer, so these remain out of scope (see the module comment).
-    @pytest.mark.skip(reason=_SEQUENCE_OUT_OF_SCOPE)
     @pytest.mark.asyncio
     @pytest.mark.it("should take head of message sequence (no repair)")
     async def test_it_should_take_head_of_message_sequence_no_repair(self):
-        flow = [
-            {"id": "100", "type": "tab"},
-            {"id": "1", "z": "100", "type": "switch", "name": "switchNode", "property": "payload",
-             "rules": [{"t": "head", "v": 3}], "checkall": False, "repair": False, 
-             "outputs": 1, "wires": [["2"]]},
-            {"id": "2", "z": "100", "type": "test-once"}
-        ]
-        
-        # Create sequence messages with parts
-        injections = []
-        for i in range(5):
-            injections.append({
-                "nid": "1", 
-                "msg": {
-                    "payload": i, 
-                    "parts": {"index": i, "count": 5, "id": 222}
-                }
-            })
-        
-        msgs = await run_flow_with_msgs_ntimes(flows_obj=flow, msgs=injections, nexpected=3, timeout=0.5)
-        assert len(msgs) == 3
-        for i, msg in enumerate(msgs):
-            assert msg["payload"] == i
+        msgs = await _sequence_switch({'t': 'head', 'v': 3}, False)
+        _assert_sequence(msgs, [0, 1, 2], False)
 
-    @pytest.mark.skip(reason=_SEQUENCE_OUT_OF_SCOPE)
     @pytest.mark.asyncio
     @pytest.mark.it("should take head of message sequence (repair)")
     async def test_it_should_take_head_of_message_sequence_repair(self):
-        flow = [
-            {"id": "100", "type": "tab"},
-            {"id": "1", "z": "100", "type": "switch", "name": "switchNode", "property": "payload",
-             "rules": [{"t": "head", "v": 3}], "checkall": False, "repair": True,
-             "outputs": 1, "wires": [["2"]]},
-            {"id": "2", "z": "100", "type": "test-once"}
-        ]
-        
-        injections = []
-        for i in range(5):
-            injections.append({
-                "nid": "1",
-                "msg": {
-                    "payload": i,
-                    "parts": {"index": i, "count": 5, "id": 222}
-                }
-            })
-        
-        msgs = await run_flow_with_msgs_ntimes(flows_obj=flow, msgs=injections, nexpected=3, timeout=0.5)
-        assert len(msgs) == 3
-        for i, msg in enumerate(msgs):
-            assert msg["payload"] == i
-            # When repair=True, parts should be updated
-            assert msg["parts"]["count"] == 3
+        msgs = await _sequence_switch({'t': 'head', 'v': 3}, True)
+        _assert_sequence(msgs, [0, 1, 2], True)
 
-    @pytest.mark.skip(reason=_SEQUENCE_OUT_OF_SCOPE)
     @pytest.mark.asyncio
     @pytest.mark.it("should take tail of message sequence (no repair)")
     async def test_it_should_take_tail_of_message_sequence_no_repair(self):
-        flow = [
-            {"id": "100", "type": "tab"},
-            {"id": "1", "z": "100", "type": "switch", "name": "switchNode", "property": "payload",
-             "rules": [{"t": "tail", "v": 3}], "checkall": True, "repair": False,
-             "outputs": 1, "wires": [["2"]]},
-            {"id": "2", "z": "100", "type": "test-once"}
-        ]
-        
-        injections = []
-        for i in range(5):
-            injections.append({
-                "nid": "1",
-                "msg": {
-                    "payload": i,
-                    "parts": {"index": i, "count": 5, "id": 222}
-                }
-            })
-        
-        msgs = await run_flow_with_msgs_ntimes(flows_obj=flow, msgs=injections, nexpected=3, timeout=0.5)
-        assert len(msgs) == 3
-        expected_values = [2, 3, 4]  # Last 3 items
-        for i, msg in enumerate(msgs):
-            assert msg["payload"] == expected_values[i]
+        msgs = await _sequence_switch({'t': 'tail', 'v': 3}, False)
+        _assert_sequence(msgs, [2, 3, 4], False)
 
-    @pytest.mark.skip(reason=_SEQUENCE_OUT_OF_SCOPE)
     @pytest.mark.asyncio
     @pytest.mark.it("should take slice of message sequence (no repair)")
     async def test_it_should_take_slice_of_message_sequence_no_repair(self):
-        flow = [
-            {"id": "100", "type": "tab"},
-            {"id": "1", "z": "100", "type": "switch", "name": "switchNode", "property": "payload",
-             "rules": [{"t": "index", "v": 1, "v2": 3}], "checkall": True, "repair": False,
-             "outputs": 1, "wires": [["2"]]},
-            {"id": "2", "z": "100", "type": "test-once"}
-        ]
-        
-        injections = []
-        for i in range(5):
-            injections.append({
-                "nid": "1",
-                "msg": {
-                    "payload": i,
-                    "parts": {"index": i, "count": 5, "id": 222}
-                }
-            })
-        
-        msgs = await run_flow_with_msgs_ntimes(flows_obj=flow, msgs=injections, nexpected=3, timeout=0.5)
-        assert len(msgs) == 3
-        expected_values = [1, 2, 3]  # Items from index 1 to 3
-        for i, msg in enumerate(msgs):
-            assert msg["payload"] == expected_values[i]
+        msgs = await _sequence_switch({'t': 'index', 'v': 1, 'v2': 3}, False)
+        _assert_sequence(msgs, [1, 2, 3], False)
 
     @pytest.mark.asyncio
     @pytest.mark.it("should check JSONata expression is true")
@@ -1005,6 +953,8 @@ class TestSwitchNode:
         assert len(msgs) == 2
         assert msgs[0]["payload"] == 1
         assert msgs[1]["payload"] == 3
+        assert [m['parts']['index'] for m in msgs] == [0, 1]
+        assert all(m['parts']['count'] == 2 for m in msgs)
 
     @pytest.mark.asyncio
     @pytest.mark.it("should be able to use $N in JSONata expression") 
@@ -1032,6 +982,8 @@ class TestSwitchNode:
         assert len(msgs) == 2
         assert msgs[0]["payload"] == 3
         assert msgs[1]["payload"] == 4
+        assert [m['parts']['index'] for m in msgs] == [0, 1]
+        assert all(m['parts']['count'] == 2 for m in msgs)
 
     @pytest.mark.asyncio
     @pytest.mark.it("should handle empty rule")
@@ -1050,7 +1002,6 @@ class TestSwitchNode:
         msgs = await run_flow_with_msgs_ntimes(flows_obj=flow, msgs=injections, nexpected=0, timeout=0.2)
         assert len(msgs) == 0
 
-    @pytest.mark.skip(reason="`nexpected=0` returns without running the flow, so 'emits nothing' cannot be observed")
     @pytest.mark.asyncio
     @pytest.mark.it("should handle invalid jsonata expression")
     async def test_it_should_handle_invalid_jsonata_expression(self):
@@ -1067,97 +1018,129 @@ class TestSwitchNode:
             {"nid": "1", "msg": {"payload": 1}},
         ]
         
-        # Should not receive any messages due to invalid expression
-        msgs = await run_flow_with_msgs_ntimes(flows_obj=flow, msgs=injections, nexpected=0, timeout=0.5)
-        assert len(msgs) == 0
+        flow.append({"id": "3", "z": "100", "type": "catch", "scope": ["1"], "uncaught": False, "wires": [["2"]]})
+        take_node_logs()
+        msgs = await run_flow_with_msgs_ntimes(flow, injections, 1)
+        assert "error" in msgs[0]
+        assert msgs[0]["error"]["source"]["type"] == "switch"
+        assert msgs[0]["error"]["message"]
 
     @pytest.mark.asyncio
     @pytest.mark.it("should not repair message sequence for each port")
     async def test_it_should_not_repair_message_sequence_for_each_port(self):
-        flow = [
-            {"id": "100", "type": "tab"},
-            {"id": "1", "z": "100", "type": "switch", "name": "switchNode", "property": "payload",
-             "rules": [{"t": "gt", "v": 0}, {"t": "lt", "v": 0}, {"t": "else"}],
-             "checkall": True, "repair": False,
-             "outputs": 3, "wires": [["2"], ["3"], ["4"]]},
-            {"id": "2", "z": "100", "type": "test-once"},
-            {"id": "3", "z": "100", "type": "test-once"},
-            {"id": "4", "z": "100", "type": "test-once"}
-        ]
-        
-        injections = []
-        data = [1, -2, 2, 0, -1]
-        for i, val in enumerate(data):
-            injections.append({
-                "nid": "1",
-                "msg": {
-                    "payload": val,
-                    "parts": {"index": i, "count": len(data), "id": 222}
-                }
-            })
-        
-        # Expected: n2 gets [1, 2], n3 gets [-2, -1], n4 gets [0]
-        msgs = await run_flow_with_msgs_ntimes(flows_obj=flow, msgs=injections, nexpected=5, timeout=0.5)
-        assert len(msgs) == 5
+        await _multi_sequence_switch(False, False)
 
     @pytest.mark.asyncio
     @pytest.mark.it("should repair message sequence for each port")
     async def test_it_should_repair_message_sequence_for_each_port(self):
-        flow = [
-            {"id": "100", "type": "tab"},
-            {"id": "1", "z": "100", "type": "switch", "name": "switchNode", "property": "payload",
-             "rules": [{"t": "gt", "v": 0}, {"t": "lt", "v": 0}, {"t": "else"}],
-             "checkall": True, "repair": True,
-             "outputs": 3, "wires": [["2"], ["3"], ["4"]]},
-            {"id": "2", "z": "100", "type": "test-once"},
-            {"id": "3", "z": "100", "type": "test-once"},
-            {"id": "4", "z": "100", "type": "test-once"}
-        ]
-        
-        injections = []
-        data = [1, -2, 2, 0, -1]
-        for i, val in enumerate(data):
-            injections.append({
-                "nid": "1",
-                "msg": {
-                    "payload": val,
-                    "parts": {"index": i, "count": len(data), "id": 222}
-                }
-            })
-        
-        msgs = await run_flow_with_msgs_ntimes(flows_obj=flow, msgs=injections, nexpected=5, timeout=0.5)
-        assert len(msgs) == 5
-        # When repair=True, parts should be updated for each output port
+        await _multi_sequence_switch(True, False)
 
-    @pytest.mark.skip(reason=_SEQUENCE_OUT_OF_SCOPE)
     @pytest.mark.asyncio
     @pytest.mark.it("should take head of message sequence (w. context)")
     async def test_it_should_take_head_of_message_sequence_w_context(self):
-        pass
+        msgs = await _sequence_switch({'t': 'head', 'v': 'count', 'vt': 'global'}, True, setup=True)
+        _assert_sequence(msgs, [0, 1, 2], True)
 
-    @pytest.mark.skip(reason=_SEQUENCE_OUT_OF_SCOPE)
     @pytest.mark.asyncio
     @pytest.mark.it("should take tail of message sequence (repair)")
     async def test_it_should_take_tail_of_message_sequence_repair(self):
-        pass
+        msgs = await _sequence_switch({'t': 'tail', 'v': 3}, True)
+        _assert_sequence(msgs, [2, 3, 4], True)
 
-    @pytest.mark.skip(reason=_SEQUENCE_OUT_OF_SCOPE)
     @pytest.mark.asyncio
     @pytest.mark.it("should take slice of message sequence (repair)")
     async def test_it_should_take_slice_of_message_sequence_repair(self):
-        pass
+        msgs = await _sequence_switch({'t': 'index', 'v': 1, 'v2': 3}, True)
+        _assert_sequence(msgs, [1, 2, 3], True)
 
-    @pytest.mark.skip(reason=_SEQUENCE_OUT_OF_SCOPE)
     @pytest.mark.asyncio
     @pytest.mark.it("should repair message sequence for each port (overlap)")
     async def test_it_should_repair_message_sequence_for_each_port_overlap(self):
-        pass
+        await _multi_sequence_switch(True, True)
 
-    @pytest.mark.skip(reason="the upstream case drains the node's pending-sequence buffer past its "
-                             "cap and asserts the warning: without the buffer there is nothing to "
-                             "overflow, so the spec is out of scope for the same reason as the other "
-                             "sequence rules")
     @pytest.mark.asyncio
     @pytest.mark.it("should handle too many pending messages")
     async def test_it_should_handle_too_many_pending_messages(self):
-        pass
+        flow = [
+            {'id':'100','type':'tab'},
+            {'id':'1','z':'100','type':'switch','property':'payload','rules':[{'t':'tail','v':2}],
+             'checkall':True,'repair':False,'outputs':1,'wires':[[]]},
+            {'id':'2','z':'100','type':'catch','scope':['1'],'wires':[['3']]},
+            {'id':'3','z':'100','type':'test-once'},
+        ]
+        config = dict(TEST_EDGELINLKD_CONFIG)
+        config['runtime'] = dict(config['runtime'], flow={'node_message_buffer_max_length':2})
+        inputs = [{'payload':i, 'parts':{'id':222,'index':index,'count':4}} for i,index in [(3,2),(2,1),(4,3),(1,0)]]
+        take_node_logs()
+        msgs = await run_flow_with_msgs_ntimes(flow, inputs, 1, config=config)
+        assert 'too-many' in msgs[0]['error']['message'] or 'too many' in msgs[0]['error']['message'].lower()
+        assert any(event['type'] == 'switch' and event['level'] == 'ERROR'
+                   and event['msg'] == 'switch.errors.too-many' for event in take_node_logs())
+
+
+@pytest.mark.asyncio
+async def test_switch_interleaved_sequences_learn_count_from_final_part():
+    inputs = []
+    for index in range(3):
+        for sequence in ['A','B']:
+            parts = {'id':sequence,'index':index,'type':'array','custom':'retained'}
+            if index == 2:
+                parts['count'] = 3
+            inputs.append({'payload':index,'sequence':sequence,'parts':parts})
+    msgs = await _sequence_switch({'t':'tail','v':2}, True, inputs=inputs)
+    assert len(msgs) == 4
+    sequence_ids = []
+    for sequence in ['A','B']:
+        group = [m for m in msgs if m['sequence'] == sequence]
+        _assert_sequence(group, [1,2], True, original_count=3, original_id=sequence)
+        sequence_ids.append(group[0]['parts']['id'])
+    assert len(set(sequence_ids)) == 2
+
+
+@pytest.mark.asyncio
+async def test_switch_head_without_repair_does_not_wait_for_complete_sequence():
+    inputs = [{'payload':0,'parts':{'id':222,'index':0,'type':'array','custom':'retained'}}]
+    msgs = await _sequence_switch({'t':'head','v':1}, False, inputs=inputs)
+    assert len(msgs) == 1
+    assert msgs[0]['parts'] == inputs[0]['parts']
+
+
+@pytest.mark.asyncio
+async def test_switch_sequence_rule_error_does_not_discard_later_inputs():
+    flow = [
+        {'id': '100', 'type': 'tab'},
+        {'id': '1', 'z': '100', 'type': 'switch', 'propertyType': 'jsonata',
+         'property': 'payload = 1 ? $notReal() : payload',
+         'rules': [{'t': 'tail', 'v': 2}], 'repair': False,
+         'checkall': True, 'outputs': 1, 'wires': [['3']]},
+        {'id': '2', 'z': '100', 'type': 'catch', 'scope': ['1'], 'wires': [['3']]},
+        {'id': '3', 'z': '100', 'type': 'test-once'},
+    ]
+    inputs = [{'payload': i + 1, 'parts': {'id': 'errors', 'index': i, 'count': 3}} for i in range(3)]
+    msgs = await run_flow_with_msgs_ntimes(flow, inputs, 3)
+    assert sorted(m['payload'] for m in msgs if 'error' not in m) == [2, 3]
+    assert [m['payload'] for m in msgs if 'error' in m] == [1]
+
+
+@pytest.mark.asyncio
+async def test_switch_overflow_clears_other_groups_and_accepts_new_sequence():
+    flow = [
+        {'id':'100','type':'tab'},
+        {'id':'1','z':'100','type':'switch','property':'payload','rules':[{'t':'tail','v':1}],
+         'checkall':True,'repair':True,'outputs':1,'wires':[['3']]},
+        {'id':'2','z':'100','type':'catch','scope':['1'],'wires':[['3']]},
+        {'id':'3','z':'100','type':'test-once'},
+    ]
+    config = dict(TEST_EDGELINLKD_CONFIG)
+    config['runtime'] = dict(config['runtime'], flow={'node_message_buffer_max_length':2})
+    inputs = [
+        {'payload':'old A','parts':{'id':'A','index':0,'count':3}},
+        {'payload':'old B','parts':{'id':'B','index':0,'count':3}},
+        {'payload':'overflow','parts':{'id':'A','index':1,'count':3}},
+        {'payload':'fresh','parts':{'id':'C','index':0,'count':1}},
+    ]
+    msgs = await run_flow_with_msgs_ntimes(flow, inputs, 2, config=config)
+    assert len([msg for msg in msgs if 'error' in msg]) == 1
+    valid = [msg for msg in msgs if 'error' not in msg]
+    assert len(valid) == 1 and valid[0]['payload'] == 'fresh'
+    assert valid[0]['parts']['index'] == 0 and valid[0]['parts']['count'] == 1

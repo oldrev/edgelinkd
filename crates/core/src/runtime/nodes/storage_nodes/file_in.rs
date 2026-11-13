@@ -27,25 +27,6 @@ enum FileFormat {
     Stream,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
-enum FileEncoding {
-    #[serde(rename = "none")]
-    #[default]
-    None,
-    #[serde(rename = "utf8")]
-    Utf8,
-    #[serde(rename = "base64")]
-    Base64,
-    #[serde(rename = "binary")]
-    Binary,
-    #[serde(rename = "hex")]
-    Hex,
-    #[serde(rename = "ucs2", alias = "utf16le", alias = "utf-16le")]
-    Ucs2,
-    #[serde(rename = "utf-16be")]
-    Utf16Be,
-}
-
 #[derive(Debug, Clone, Deserialize)]
 struct FileInNodeConfig {
     #[serde(default = "default_filename")]
@@ -56,14 +37,18 @@ struct FileInNodeConfig {
     filename_type: Option<String>,
     #[serde(default)]
     format: FileFormat,
-    #[serde(default)]
-    encoding: FileEncoding,
+    #[serde(default = "default_file_encoding")]
+    encoding: String,
     #[serde(default)]
     #[serde(rename = "allProps")]
     all_props: bool,
     #[serde(default = "default_send_error")]
     #[serde(rename = "sendError")]
     send_error: bool,
+}
+
+fn default_file_encoding() -> String {
+    "none".to_owned()
 }
 
 fn default_filename() -> String {
@@ -92,6 +77,7 @@ impl FileInNode {
         options: Option<&config::Config>,
     ) -> crate::Result<Box<dyn FlowNodeBehavior>> {
         let file_config = FileInNodeConfig::deserialize(&config.rest)?;
+        super::file::validate_encoding(&file_config.encoding)?;
         let node = FileInNode {
             base: base_node,
             config: file_config,
@@ -164,21 +150,8 @@ impl FileInNode {
         Variant::Object(error)
     }
 
-    fn decode_data(&self, data: &[u8]) -> String {
-        match self.config.encoding {
-            FileEncoding::None | FileEncoding::Utf8 => String::from_utf8_lossy(data).to_string(),
-            FileEncoding::Base64 => {
-                use base64::{Engine as _, engine::general_purpose};
-                general_purpose::STANDARD.encode(data)
-            }
-            FileEncoding::Binary => String::from_utf8_lossy(data).to_string(),
-            FileEncoding::Hex => hex::encode(data),
-            FileEncoding::Ucs2 => {
-                let units = data.as_chunks::<2>().0.iter().map(|pair| u16::from_le_bytes(*pair));
-                String::from_utf16_lossy(&units.collect::<Vec<_>>())
-            }
-            FileEncoding::Utf16Be => encoding_rs::UTF_16BE.decode(data).0.into_owned(),
-        }
+    fn decode_data(&self, data: &[u8]) -> crate::Result<String> {
+        super::file::decode_file_bytes(data, &self.config.encoding)
     }
 
     async fn read_file_utf8(&self, filename: &str, _msg: &Msg) -> crate::Result<Variant> {
@@ -188,12 +161,12 @@ impl FileInNode {
 
         match self.config.format {
             FileFormat::Utf8 => {
-                let content = self.decode_data(&buf);
+                let content = self.decode_data(&buf)?;
                 Ok(Variant::String(content))
             }
             FileFormat::Buffer => Ok(Variant::Bytes(buf)),
             _ => {
-                let content = self.decode_data(&buf);
+                let content = self.decode_data(&buf)?;
                 Ok(Variant::String(content))
             }
         }
@@ -234,7 +207,7 @@ impl FileInNode {
         let mut file = File::open(filename).await?;
         let mut buf = Vec::new();
         file.read_to_end(&mut buf).await?;
-        let content = self.decode_data(&buf);
+        let content = self.decode_data(&buf)?;
         let mut lines: Vec<&str> = content.split('\n').collect();
         // `split` always yields at least one piece, and the trailing one is the spare upstream sends
         // at `end` with the count.
@@ -294,113 +267,125 @@ impl FlowNodeBehavior for FileInNode {
     async fn run(self: Arc<Self>, stop_token: CancellationToken) {
         while !stop_token.is_cancelled() {
             let node = self.clone();
-            with_uow(node.as_ref(), stop_token.clone(), |node, msg| async move {
-                let filename = {
-                    let msg_guard = msg.read().await;
-                    match node.evaluated_filename(&msg_guard).await {
-                        Ok(filename) => filename.unwrap_or_default(),
-                        Err(err) => {
-                            // `evaluateNodeProperty` failed: Node-RED reports it and drops the msg.
-                            node.publish_node_log("ERROR", format!("{err:#}"));
-                            return Ok(());
-                        }
-                    }
-                };
-                // Upstream strips tabs, CR and LF from the filename before it is used.
-                let filename: String = filename.chars().filter(|c| !matches!(c, '\t' | '\r' | '\n')).collect();
-
-                if filename.is_empty() {
-                    node.warn_event("file.errors.nofilename");
-                    return Ok(());
-                }
-
-                let full_filename = node.settings.resolve(&filename);
-                {
-                    let mut msg_guard = msg.write().await;
-                    msg_guard.set("filename".to_string(), Variant::String(filename.clone()));
-                }
-
-                node.report_status(
-                    StatusObject {
-                        fill: Some(crate::runtime::nodes::StatusFill::Grey),
-                        shape: Some(crate::runtime::nodes::StatusShape::Dot),
-                        text: Some(filename.clone()),
-                    },
-                    CancellationToken::new(),
-                )
-                .await;
-
-                let result = match node.config.format {
-                    FileFormat::Lines => {
+            let run_cancel = stop_token.clone();
+            with_uow(node.as_ref(), run_cancel.clone(), |node, msg| {
+                let cancel = run_cancel.clone();
+                async move {
+                    let filename = {
                         let msg_guard = msg.read().await;
-                        node.read_file_lines(&full_filename, &msg_guard).await
-                    }
-                    FileFormat::Stream => {
-                        let msg_guard = msg.read().await;
-                        node.read_file_stream(&full_filename, &msg_guard).await
-                    }
-                    _ => {
-                        let msg_guard = msg.read().await;
-                        node.read_file_utf8(&full_filename, &msg_guard).await.map(|payload| {
-                            let mut new_msg = msg_guard.clone();
-                            new_msg["payload"] = payload;
-                            vec![new_msg]
-                        })
-                    }
-                };
-
-                match result {
-                    Ok(messages) => {
-                        node.report_status(
-                            StatusObject { fill: None, shape: None, text: None },
-                            CancellationToken::new(),
-                        )
-                        .await;
-                        for output_msg in messages {
-                            let envelope = Envelope { port: 0, msg: MsgHandle::new(output_msg) };
-                            node.fan_out_one(envelope, CancellationToken::new()).await?;
-                        }
-                    }
-                    Err(e) => {
-                        let io_error = e.downcast_ref::<std::io::Error>();
-                        match io_error {
-                            Some(io_error) => node.error_event(io_error),
-                            None => {
-                                let message = format!("Error: {e:#}");
-                                log::error!("[file in:{}] {message}", node.name());
-                                node.publish_node_log("ERROR", message);
+                        match node.evaluated_filename(&msg_guard).await {
+                            Ok(filename) => filename.unwrap_or_default(),
+                            Err(err) => {
+                                node.publish_node_log("ERROR", format!("{err:#}"));
+                                let error_message = err.to_string();
+                                if let Some(flow) = node.flow()
+                                    && let Err(report_error) = flow
+                                        .handle_error(node, &error_message, Some(msg.clone()), None, cancel.clone())
+                                        .await
+                                {
+                                    log::error!("Failed to report file-in filename error: {report_error}");
+                                }
+                                node.notify_uow_completed(msg.clone(), cancel.clone()).await;
+                                return Ok(());
                             }
                         }
+                    };
+                    // Upstream strips tabs, CR and LF from the filename before it is used.
+                    let filename: String = filename.chars().filter(|c| !matches!(c, '\t' | '\r' | '\n')).collect();
 
-                        node.report_status(
-                            StatusObject {
-                                fill: Some(crate::runtime::nodes::StatusFill::Red),
-                                shape: Some(crate::runtime::nodes::StatusShape::Dot),
-                                text: Some(format!("{e}")),
-                            },
-                            CancellationToken::new(),
-                        )
-                        .await;
+                    if filename.is_empty() {
+                        node.warn_event("file.errors.nofilename");
+                        return Ok(());
+                    }
 
-                        if node.config.send_error {
-                            let mut error_msg = {
-                                let msg_guard = msg.read().await;
-                                msg_guard.clone()
-                            };
-                            error_msg.remove("payload");
-                            error_msg["filename"] = Variant::String(filename);
-                            error_msg["error"] = match io_error {
-                                Some(io_error) => FileInNode::error_variant(io_error, &full_filename),
-                                None => Variant::String(format!("{e:#}")),
-                            };
+                    let full_filename = node.settings.resolve(&filename);
+                    {
+                        let mut msg_guard = msg.write().await;
+                        msg_guard.set("filename".to_string(), Variant::String(filename.clone()));
+                    }
 
-                            let envelope = Envelope { port: 0, msg: MsgHandle::new(error_msg) };
-                            node.fan_out_one(envelope, CancellationToken::new()).await?;
+                    node.report_status(
+                        StatusObject {
+                            fill: Some(crate::runtime::nodes::StatusFill::Grey),
+                            shape: Some(crate::runtime::nodes::StatusShape::Dot),
+                            text: Some(filename.clone()),
+                        },
+                        CancellationToken::new(),
+                    )
+                    .await;
+
+                    let result = match node.config.format {
+                        FileFormat::Lines => {
+                            let msg_guard = msg.read().await;
+                            node.read_file_lines(&full_filename, &msg_guard).await
+                        }
+                        FileFormat::Stream => {
+                            let msg_guard = msg.read().await;
+                            node.read_file_stream(&full_filename, &msg_guard).await
+                        }
+                        _ => {
+                            let msg_guard = msg.read().await;
+                            node.read_file_utf8(&full_filename, &msg_guard).await.map(|payload| {
+                                let mut new_msg = msg_guard.clone();
+                                new_msg["payload"] = payload;
+                                vec![new_msg]
+                            })
+                        }
+                    };
+
+                    match result {
+                        Ok(messages) => {
+                            node.report_status(
+                                StatusObject { fill: None, shape: None, text: None },
+                                CancellationToken::new(),
+                            )
+                            .await;
+                            for output_msg in messages {
+                                let envelope = Envelope { port: 0, msg: MsgHandle::new(output_msg) };
+                                node.fan_out_one(envelope, CancellationToken::new()).await?;
+                            }
+                        }
+                        Err(e) => {
+                            let io_error = e.downcast_ref::<std::io::Error>();
+                            match io_error {
+                                Some(io_error) => node.error_event(io_error),
+                                None => {
+                                    let message = format!("Error: {e:#}");
+                                    log::error!("[file in:{}] {message}", node.name());
+                                    node.publish_node_log("ERROR", message);
+                                }
+                            }
+
+                            node.report_status(
+                                StatusObject {
+                                    fill: Some(crate::runtime::nodes::StatusFill::Red),
+                                    shape: Some(crate::runtime::nodes::StatusShape::Dot),
+                                    text: Some(format!("{e}")),
+                                },
+                                CancellationToken::new(),
+                            )
+                            .await;
+
+                            if node.config.send_error {
+                                let mut error_msg = {
+                                    let msg_guard = msg.read().await;
+                                    msg_guard.clone()
+                                };
+                                error_msg.remove("payload");
+                                error_msg["filename"] = Variant::String(filename);
+                                error_msg["error"] = match io_error {
+                                    Some(io_error) => FileInNode::error_variant(io_error, &full_filename),
+                                    None => Variant::String(format!("{e:#}")),
+                                };
+
+                                let envelope = Envelope { port: 0, msg: MsgHandle::new(error_msg) };
+                                node.fan_out_one(envelope, CancellationToken::new()).await?;
+                            }
                         }
                     }
-                }
 
-                Ok(())
+                    Ok(())
+                }
             })
             .await;
         }

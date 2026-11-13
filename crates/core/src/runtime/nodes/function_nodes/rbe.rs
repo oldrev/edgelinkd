@@ -207,7 +207,7 @@ impl RbeNode {
                 };
 
                 if num_value.is_nan() {
-                    log::warn!("The value '{value:?}' is not a number");
+                    self.publish_node_log("WARN", format!("rbe.warn.not-number: {value:?}"));
                     return false;
                 }
 

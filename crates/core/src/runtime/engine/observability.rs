@@ -5,6 +5,43 @@ impl Engine {
         self.inner.all_flow_nodes.get(id).map(|x| x.value().clone())
     }
 
+    /// Resolve function link calls using only link-in nodes, preferring the caller's tab.
+    #[cfg(feature = "js")]
+    pub(crate) fn resolve_function_link_target(
+        &self,
+        target: &str,
+        caller_flow: ElementId,
+    ) -> crate::Result<Arc<dyn FlowNodeBehavior>> {
+        if let Some(node) =
+            crate::runtime::model::json::deser::parse_red_id_str(target).and_then(|id| self.find_flow_node_by_id(&id))
+        {
+            if node.type_str() == "link in" {
+                return Ok(node);
+            }
+        } else {
+            let candidates: Vec<_> = self
+                .inner
+                .all_flow_nodes
+                .iter()
+                .filter(|node| node.type_str() == "link in" && node.name() == target)
+                .filter(|node| node.flow().is_some_and(|flow| !flow.is_subflow()))
+                .map(|node| node.value().clone())
+                .collect();
+            let local: Vec<_> =
+                candidates.iter().filter(|node| node.flow().is_some_and(|flow| flow.id() == caller_flow)).collect();
+            if local.len() == 1 {
+                return Ok(local[0].clone());
+            }
+            if candidates.len() == 1 {
+                return Ok(candidates[0].clone());
+            }
+            if candidates.len() > 1 {
+                anyhow::bail!("Multiple link-in nodes named '{}' found", target);
+            }
+        }
+        anyhow::bail!("target link-in node '{}' not found", target)
+    }
+
     pub fn flow_node_metrics(&self) -> Vec<(ElementId, NodeMetricsSnapshot)> {
         let mut metrics: Vec<_> = self.inner.all_flow_nodes.iter().map(|node| (*node.key(), node.metrics())).collect();
         metrics.sort_by_key(|(id, _)| id.to_string());

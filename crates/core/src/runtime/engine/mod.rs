@@ -61,7 +61,7 @@ impl WeakEngine {
 
 struct InnerEngine {
     shutdown: tokio::sync::RwLock<bool>,
-    stop_token: CancellationToken,
+    stop_token: tokio::sync::RwLock<CancellationToken>,
     _args: EngineArgs,
     /// The configuration this engine was built with. A redeploy without its own configuration
     /// (the web deploy path) reuses this instead of silently falling back to the defaults.
@@ -139,7 +139,7 @@ impl Engine {
         let engine = Self {
             inner: Arc::new(InnerEngine {
                 shutdown: tokio::sync::RwLock::new(true),
-                stop_token: CancellationToken::new(),
+                stop_token: tokio::sync::RwLock::new(CancellationToken::new()),
                 all_flow_nodes: DashMap::new(),
                 global_nodes: DashMap::new(),
                 flows: DashMap::new(),

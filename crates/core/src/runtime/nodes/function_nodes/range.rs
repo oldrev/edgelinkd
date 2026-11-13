@@ -1,4 +1,3 @@
-use core::f64;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -80,14 +79,21 @@ impl RangeNode {
         Ok(Box::new(node))
     }
 
-    fn do_range(&self, msg: &mut Msg) -> crate::Result<()> {
+    fn do_range(&self, msg: &mut Msg) -> crate::Result<bool> {
         if let Some(value) = msg.get_nav_stripped_mut(&self.config.property) {
             let mut n: f64 = match value {
                 Variant::Number(num_value) => num_value
                     .as_f64()
                     .ok_or(EdgelinkError::OutOfRange)
                     .with_context(|| format!("Cannot convert the number `{num_value}` to float"))?,
-                Variant::String(s) => s.parse::<f64>()?,
+                Variant::Bool(value) => {
+                    if *value {
+                        1.0
+                    } else {
+                        0.0
+                    }
+                }
+                Variant::String(s) => parse_numeric_string(s),
                 _ => <f64>::NAN,
             };
 
@@ -95,7 +101,7 @@ impl RangeNode {
                 match self.config.action {
                     RangeAction::Drop => {
                         if n < self.config.minin || n > self.config.maxin {
-                            return Err(EdgelinkError::OutOfRange.into());
+                            return Ok(false);
                         }
                     }
 
@@ -116,15 +122,36 @@ impl RangeNode {
                     new_value = new_value.round();
                 }
 
-                *value = Variant::Number(serde_json::Number::from_f64(new_value).unwrap());
-                Ok(())
+                *value = serde_json::Number::from_f64(new_value).map(Variant::Number).unwrap_or(Variant::Null);
+                Ok(true)
             } else {
-                Err(EdgelinkError::OutOfRange).with_context(|| format!("The value is not a numner: {value:?}"))
+                self.publish_node_log("INFO", format!("range.errors.notnumber: {value:?}"));
+                Ok(false)
             }
         } else {
-            Ok(())
+            Ok(true)
         }
     }
+}
+
+fn parse_numeric_string(value: &str) -> f64 {
+    let value = value.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}');
+    for (prefixes, radix) in [(["0x", "0X"], 16), (["0o", "0O"], 8), (["0b", "0B"], 2)] {
+        if let Some(digits) = prefixes.iter().find_map(|prefix| value.strip_prefix(prefix)) {
+            if digits.is_empty() {
+                return <f64>::NAN;
+            }
+            return digits
+                .chars()
+                .try_fold(0.0, |n, c| c.to_digit(radix).map(|digit| n * f64::from(radix) + f64::from(digit)))
+                .unwrap_or(<f64>::NAN);
+        }
+    }
+    // Rust also accepts `inf`; JavaScript Number() only accepts `Infinity`.
+    if matches!(value, "inf" | "+inf" | "-inf" | "infinity" | "+infinity" | "-infinity") {
+        return <f64>::NAN;
+    }
+    value.parse().unwrap_or(<f64>::NAN)
 }
 
 impl FromStr for RangeAction {
@@ -153,7 +180,9 @@ impl FlowNodeBehavior for RangeNode {
             with_uow(self.as_ref(), cancel.child_token(), |node, msg| async move {
                 {
                     let mut msg_guard = msg.write().await;
-                    node.do_range(&mut msg_guard)?;
+                    if !node.do_range(&mut msg_guard)? {
+                        return Ok(());
+                    }
                 }
                 node.fan_out_one(Envelope { port: 0, msg }, cancel.child_token()).await?;
                 Ok(())

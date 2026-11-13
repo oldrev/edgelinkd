@@ -13,4 +13,4 @@ These pages cover what you need to evaluate and operate it:
 - **[Architecture](architecture/)** — how the crates fit together and how a message moves through the engine.
 - **[Compatibility](compatibility/)** — what "Node-RED compatible" means here, and what to check before migrating flows.
 
-> EdgeLinkd 4.1.16 is a release based on Node-RED v4.1.16. The project [README](https://github.com/oldrev/edgelinkd#readme) and the [live spec coverage report](../specs/) are the source of truth for current status.
+> The 5.0.9 upgrade branch is based on Node-RED v5.0.9. The project [README](https://github.com/oldrev/edgelinkd#readme) and the [live spec coverage report](../specs/) are the source of truth for current status.

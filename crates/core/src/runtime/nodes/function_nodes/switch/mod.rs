@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -20,6 +21,20 @@ struct SwitchNode {
     base: BaseFlowNodeState,
     config: SwitchNodeConfig,
     prev_value: RwLock<Variant>,
+    max_pending: usize,
+}
+
+#[derive(Debug, Default)]
+struct SequenceGroup {
+    count: Option<usize>,
+    messages: Vec<MsgHandle>,
+}
+
+#[derive(Default)]
+struct SequenceState {
+    groups: HashMap<String, SequenceGroup>,
+    outputs: HashMap<String, Vec<SmallVec<[Envelope; 4]>>>,
+    pending_count: usize,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Deserialize)]
@@ -318,7 +333,7 @@ struct SwitchNodeConfig {
 
 impl SwitchNode {
     fn build(
-        _flow: &Flow,
+        flow: &Flow,
         base: BaseFlowNodeState,
         red_config: &RedFlowNodeConfig,
         _options: Option<&config::Config>,
@@ -327,6 +342,7 @@ impl SwitchNode {
             base,
             config: SwitchNodeConfig::deserialize(&red_config.rest)?,
             prev_value: RwLock::new(Variant::Null),
+            max_pending: flow.settings().node_message_buffer_max_length,
         };
         let rules = if let Some(rules_json) = red_config.rest.get("rules") {
             Self::evalauate_rules(rules_json)?
@@ -405,7 +421,7 @@ impl SwitchNode {
         Ok(rules)
     }
 
-    async fn dispatch_msg(&self, orig_msg: &MsgHandle, cancel: CancellationToken) -> crate::Result<()> {
+    async fn matched_outputs(&self, orig_msg: &MsgHandle) -> crate::Result<SmallVec<[Envelope; 4]>> {
         let mut envelopes: SmallVec<[Envelope; 4]> = SmallVec::new();
         let msg = orig_msg.read().await;
         let from_value = self.eval_property_value(&msg).await?;
@@ -437,7 +453,30 @@ impl SwitchNode {
                 }
                 let v1 = self.get_v1(rule, &msg).await?;
                 let v2 = self.get_v2(rule, &msg).await?;
-                if rule.operator.apply(&from_value, &v1, &v2, rule.case, &[])? {
+                let accepted = match rule.operator {
+                    SwitchRuleOperator::Head | SwitchRuleOperator::Tail | SwitchRuleOperator::Index => {
+                        let index =
+                            msg.parts().and_then(|p| p.get("index")).and_then(Variant::as_u64).map(|v| v as f64);
+                        let count =
+                            msg.parts().and_then(|p| p.get("count")).and_then(Variant::as_u64).map(|v| v as f64);
+                        let number = |value: &Variant| {
+                            value
+                                .as_f64()
+                                .or_else(|| value.as_str().and_then(|s| s.trim().parse().ok()))
+                                .unwrap_or(f64::NAN)
+                        };
+                        match (rule.operator, index) {
+                            (SwitchRuleOperator::Head, Some(index)) => index < number(&v1),
+                            (SwitchRuleOperator::Tail, Some(index)) => {
+                                count.is_some_and(|count| count - number(&v1) <= index)
+                            }
+                            (SwitchRuleOperator::Index, Some(index)) => number(&v1) <= index && index <= number(&v2),
+                            _ => false,
+                        }
+                    }
+                    _ => rule.operator.apply(&from_value, &v1, &v2, rule.case, &[])?,
+                };
+                if accepted {
                     envelopes.push(Envelope { port, msg: orig_msg.clone() });
                     matched = true;
                     if !self.config.check_all {
@@ -451,8 +490,113 @@ impl SwitchNode {
             let mut prev = self.prev_value.write().await;
             *prev = last_property_value;
         }
-        if !envelopes.is_empty() {
-            self.fan_out_many(envelopes, cancel).await?;
+        Ok(envelopes)
+    }
+
+    async fn dispatch_msg(
+        &self,
+        msg: &MsgHandle,
+        state: &mut SequenceState,
+        cancel: CancellationToken,
+    ) -> crate::Result<()> {
+        let metadata = {
+            let msg = msg.read().await;
+            msg.parts().filter(|p| p.contains_key("id") && p.contains_key("index")).map(|parts| {
+                let id = &parts["id"];
+                let id = id.as_str().map(str::to_owned).unwrap_or_else(|| id.to_string().unwrap_or_default());
+                (id, parts.get("count").and_then(Variant::as_u64).map(|count| count as usize))
+            })
+        };
+        let needs_count =
+            self.config.repair || self.config.rules.iter().any(|r| r.operator == SwitchRuleOperator::Tail);
+        let Some((id, count)) = metadata.filter(|_| needs_count) else {
+            let outputs = self.matched_outputs(msg).await?;
+            if !outputs.is_empty() {
+                self.fan_out_many(outputs, cancel).await?;
+            }
+            return Ok(());
+        };
+        let group = state.groups.entry(id.clone()).or_default();
+        group.messages.push(msg.clone());
+        if count.is_some() {
+            group.count = count;
+        }
+        state.pending_count += 1;
+        if self.max_pending > 0 && state.pending_count > self.max_pending {
+            state.groups.clear();
+            state.outputs.clear();
+            state.pending_count = 0;
+            self.publish_node_log("ERROR", "switch.errors.too-many".to_owned());
+            return Err(EdgelinkError::InvalidOperation("switch.errors.too-many".to_owned()).into());
+        }
+        let group = state.groups.get(&id).expect("registered sequence");
+        if group.count != Some(group.messages.len()) {
+            return Ok(());
+        }
+        let group = state.groups.remove(&id).expect("completed sequence");
+        state.pending_count -= group.messages.len();
+        let count = group.messages.len();
+        let mut rows = Vec::with_capacity(count);
+        for input in group.messages {
+            input.write().await.set_nav("parts.count", Variant::from(count as u64), true)?;
+            match self.matched_outputs(&input).await {
+                Ok(row) => {
+                    if self.config.repair {
+                        rows.push(row);
+                    } else if !row.is_empty() {
+                        self.fan_out_many(row, cancel.clone()).await?;
+                    }
+                }
+                Err(error) => {
+                    self.publish_node_log("ERROR", error.to_string());
+                    self.report_error(error.to_string(), input, cancel.clone()).await;
+                }
+            }
+        }
+        if !self.config.repair {
+            return Ok(());
+        }
+        state.pending_count += rows.len();
+        let pending = state.outputs.entry(id.clone()).or_default();
+        pending.extend(rows);
+        if self.max_pending > 0 && state.pending_count > self.max_pending {
+            state.groups.clear();
+            state.outputs.clear();
+            state.pending_count = 0;
+            self.publish_node_log("ERROR", "switch.errors.too-many".to_owned());
+            return Err(EdgelinkError::InvalidOperation("switch.errors.too-many".to_owned()).into());
+        }
+        if state.outputs[&id].len() != count {
+            return Ok(());
+        }
+        let rows = state.outputs.remove(&id).expect("complete output sequence");
+        state.pending_count -= rows.len();
+        let ports = self.config.outputs.max(self.config.rules.len());
+        let mut counts = vec![0usize; ports];
+        for row in &rows {
+            for output in row {
+                counts[output.port] += 1;
+            }
+        }
+        let ids: Vec<_> = (0..ports).map(|_| Msg::generate_id_variant()).collect();
+        let mut indexes = vec![0usize; ports];
+        for row in rows {
+            let mut repaired = SmallVec::<[Envelope; 4]>::new();
+            for output in row {
+                let port = output.port;
+                let cloned = output.msg.deep_clone(false).await;
+                {
+                    let mut msg = cloned.write().await;
+                    msg.set_nav("parts.id", ids[port].clone(), true)?;
+                    msg.set_nav("parts.index", Variant::from(indexes[port] as u64), true)?;
+                    msg.set_nav("parts.count", Variant::from(counts[port] as u64), true)?;
+                }
+                indexes[port] += 1;
+                repaired.push(Envelope { port, msg: cloned });
+            }
+            if !repaired.is_empty() {
+                self.fan_out_many(repaired, cancel.clone()).await?;
+            }
         }
         Ok(())
     }
@@ -539,11 +683,14 @@ impl FlowNodeBehavior for SwitchNode {
     }
 
     async fn run(self: Arc<Self>, stop_token: CancellationToken) {
+        // Owned by this task: shutdown/redeploy drops every incomplete sequence.
+        let mut sequences = SequenceState::default();
         while !stop_token.is_cancelled() {
             let cancel = stop_token.clone();
+            let sequences = &mut sequences;
             with_uow(self.as_ref(), cancel.clone(), |node, msg| async move {
                 // Do the message dispatching
-                node.dispatch_msg(&msg, cancel).await
+                node.dispatch_msg(&msg, sequences, cancel).await
             })
             .await;
         }

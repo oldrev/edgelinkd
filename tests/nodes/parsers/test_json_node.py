@@ -77,14 +77,21 @@ class TestJsonNode:
         msgs = await run_single_node_with_msgs_ntimes(node, injections, 1)
         assert msgs[0]["payload"] == 1962
 
-    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should log an error if asked to parse an invalid json string')
     async def test_invalid_json_string(self):
         node = {"type": "json"}
         injections = [{"payload": "foo", "topic": "bar"}]
-        with pytest.raises(Exception):
-            await run_single_node_with_msgs_ntimes(node, injections, 1)
+        msg = await _catch_json_error(node, injections)
+        assert msg["error"]["source"]["type"] == "json"
+        assert msg["error"]["message"]
+        if isinstance(injections[0].get("schema"), dict):
+            assert msg["schemaError"]
+            assert msg["schemaError"][0]["keyword"] == "type"
+            assert msg["schemaError"][0]["dataPath"] == ".number"
+            assert msg["schemaError"][0]["params"] == {"type": "number"}
+            assert msg["schemaError"][0]["message"] == "should be number"
+            assert "json.errors.schema-error" in msg["error"]["message"]
 
     @pytest.mark.asyncio
     @pytest.mark.it('should pass straight through if no payload set')
@@ -189,7 +196,6 @@ class TestJsonNode:
         msgs = await run_single_node_with_msgs_ntimes(node, injections, 1)
         assert msgs[0]["payload"] == '{"number":3,"string":"allo"}'
 
-    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should log an error if passed an invalid object and valid schema')
     async def test_invalid_object_with_schema(self):
@@ -197,10 +203,17 @@ class TestJsonNode:
         obj = {"number": "foo", "string": 3}
         schema = {"title": "testSchema", "type": "object", "properties": {"number": {"type": "number"}, "string": {"type": "string"}}}
         injections = [{"payload": obj, "schema": schema}]
-        with pytest.raises(Exception):
-            await run_single_node_with_msgs_ntimes(node, injections, 1)
+        msg = await _catch_json_error(node, injections)
+        assert msg["error"]["source"]["type"] == "json"
+        assert msg["error"]["message"]
+        if isinstance(injections[0].get("schema"), dict):
+            assert msg["schemaError"]
+            assert msg["schemaError"][0]["keyword"] == "type"
+            assert msg["schemaError"][0]["dataPath"] == ".number"
+            assert msg["schemaError"][0]["params"] == {"type": "number"}
+            assert msg["schemaError"][0]["message"] == "should be number"
+            assert "json.errors.schema-error" in msg["error"]["message"]
 
-    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should log an error if passed an invalid object and valid schema and action is object')
     async def test_invalid_object_with_schema_action_obj(self):
@@ -208,10 +221,17 @@ class TestJsonNode:
         obj = {"number": "foo", "string": 3}
         schema = {"title": "testSchema", "type": "object", "properties": {"number": {"type": "number"}, "string": {"type": "string"}}}
         injections = [{"payload": obj, "schema": schema}]
-        with pytest.raises(Exception):
-            await run_single_node_with_msgs_ntimes(node, injections, 1)
+        msg = await _catch_json_error(node, injections)
+        assert msg["error"]["source"]["type"] == "json"
+        assert msg["error"]["message"]
+        if isinstance(injections[0].get("schema"), dict):
+            assert msg["schemaError"]
+            assert msg["schemaError"][0]["keyword"] == "type"
+            assert msg["schemaError"][0]["dataPath"] == ".number"
+            assert msg["schemaError"][0]["params"] == {"type": "number"}
+            assert msg["schemaError"][0]["message"] == "should be number"
+            assert "json.errors.schema-error" in msg["error"]["message"]
 
-    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should log an error if passed an invalid JSON string and valid schema')
     async def test_invalid_json_string_with_schema(self):
@@ -219,10 +239,17 @@ class TestJsonNode:
         json_str = '{"number":"Hello","string":3}'
         schema = {"title": "testSchema", "type": "object", "properties": {"number": {"type": "number"}, "string": {"type": "string"}}}
         injections = [{"payload": json_str, "schema": schema}]
-        with pytest.raises(Exception):
-            await run_single_node_with_msgs_ntimes(node, injections, 1)
+        msg = await _catch_json_error(node, injections)
+        assert msg["error"]["source"]["type"] == "json"
+        assert msg["error"]["message"]
+        if isinstance(injections[0].get("schema"), dict):
+            assert msg["schemaError"]
+            assert msg["schemaError"][0]["keyword"] == "type"
+            assert msg["schemaError"][0]["dataPath"] == ".number"
+            assert msg["schemaError"][0]["params"] == {"type": "number"}
+            assert msg["schemaError"][0]["message"] == "should be number"
+            assert "json.errors.schema-error" in msg["error"]["message"]
 
-    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should log an error if passed an invalid JSON string and valid schema and action is string')
     async def test_invalid_json_string_with_schema_action_str(self):
@@ -230,10 +257,17 @@ class TestJsonNode:
         json_str = '{"number":"Hello","string":3}'
         schema = {"title": "testSchema", "type": "object", "properties": {"number": {"type": "number"}, "string": {"type": "string"}}}
         injections = [{"payload": json_str, "schema": schema}]
-        with pytest.raises(Exception):
-            await run_single_node_with_msgs_ntimes(node, injections, 1)
+        msg = await _catch_json_error(node, injections)
+        assert msg["error"]["source"]["type"] == "json"
+        assert msg["error"]["message"]
+        if isinstance(injections[0].get("schema"), dict):
+            assert msg["schemaError"]
+            assert msg["schemaError"][0]["keyword"] == "type"
+            assert msg["schemaError"][0]["dataPath"] == ".number"
+            assert msg["schemaError"][0]["params"] == {"type": "number"}
+            assert msg["schemaError"][0]["message"] == "should be number"
+            assert "json.errors.schema-error" in msg["error"]["message"]
 
-    @pytest.mark.skip(reason="Out of scope: this upstream Node-RED behavior is not supported by EdgeLinkd")
     @pytest.mark.asyncio
     @pytest.mark.it('should log an error if passed a valid object and invalid schema')
     async def test_valid_object_with_invalid_schema(self):
@@ -241,8 +275,16 @@ class TestJsonNode:
         obj = {"number": "foo", "string": 3}
         schema = "garbage"
         injections = [{"payload": obj, "schema": schema}]
-        with pytest.raises(Exception):
-            await run_single_node_with_msgs_ntimes(node, injections, 1)
+        msg = await _catch_json_error(node, injections)
+        assert msg["error"]["source"]["type"] == "json"
+        assert msg["error"]["message"]
+        if isinstance(injections[0].get("schema"), dict):
+            assert msg["schemaError"]
+            assert msg["schemaError"][0]["keyword"] == "type"
+            assert msg["schemaError"][0]["dataPath"] == ".number"
+            assert msg["schemaError"][0]["params"] == {"type": "number"}
+            assert msg["schemaError"][0]["message"] == "should be number"
+            assert "json.errors.schema-error" in msg["error"]["message"]
 
     @pytest.mark.asyncio
     @pytest.mark.it('msg.schema property should be deleted before sending to next node (string input)')
@@ -271,3 +313,116 @@ class TestJsonNode:
     @pytest.mark.it('should log an error if asked to parse an invalid json string in a buffer')
     async def test_invalid_json_string_in_buffer(self):
         pass
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('should log an error, not throw, if passed a malformed JSON string, a schema, and action is string')
+    async def test_malformed_json_schema_action_str(self):
+        node = {"type": "json", "action": "str"}
+        schema = {"type": "object", "properties": {"number": {"type": "number"}}}
+        msg = await _catch_json_error(node, [{"payload": '{"number":3,', "schema": schema}])
+        assert "JSON parse error" in msg["error"]["message"]
+        assert msg["payload"] == '{"number":3,'
+        assert msg["schema"] == schema
+        # A malformed message must not stop the node from processing the next input.
+        msgs = await run_single_node_with_msgs_ntimes(node, [
+            {"payload": '{"number":3,', "schema": schema},
+            {"payload": '{"number":3}', "schema": schema},
+        ], 1)
+        assert msgs[0]["payload"] == '{"number":3}'
+        assert "schema" not in msgs[0]
+
+
+async def _catch_json_error(node, injections):
+    flows = [
+        {"id": "100", "type": "tab"},
+        dict(node, id="1", z="100", wires=[["4"]]),
+        {"id": "2", "z": "100", "type": "catch", "scope": ["1"], "wires": [["3"]]},
+        {"id": "3", "z": "100", "type": "test-once"},
+        {"id": "4", "z": "100", "type": "test-once"},
+    ]
+    msgs = await run_flow_with_msgs_ntimes(flows, injections, 1)
+    assert "error" in msgs[0]
+    return msgs[0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("schema,payload", [
+    ({"type": "object", "required": ["number"]}, {}),
+    ({"type": "number", "minimum": 5}, 3),
+    ({"type": "string", "minLength": 4}, "abc"),
+    ({"type": "array", "uniqueItems": True}, [1, 1]),
+    ({"definitions": {"positive": {"type": "integer", "minimum": 1}},
+      "$ref": "#/definitions/positive"}, 0),
+])
+async def test_schema_constraints_are_enforced(schema, payload):
+    import json
+    msg = await _catch_json_error({"type": "json", "action": "str"}, [
+        {"payload": json.dumps(payload), "schema": schema},
+    ])
+    assert msg["schemaError"]
+    assert "json.errors.schema-error" in msg["error"]["message"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("schema,payload,keyword,params,message", [
+    ({"additionalProperties": False}, {"extra": 1}, "additionalProperties", {"additionalProperty": "extra"}, "should NOT have additional properties"),
+    ({"items": [{}], "additionalItems": False}, [1, 2], "additionalItems", {"limit": 1}, "should NOT have more than 1 items"),
+    ({"oneOf": [{"type": "number"}, {"minimum": 0}]}, 1, "oneOf", {"passingSchemas": [0, 1]}, "should match exactly one schema in oneOf"),
+    ({"propertyNames": {"pattern": "^[a-z]+$"}}, {"BAD": 1}, "propertyNames", {"propertyName": "BAD"}, "property name is invalid"),
+])
+async def test_schema_ajv_diagnostics(schema, payload, keyword, params, message):
+    import json
+    msg = await _catch_json_error({"type": "json", "action": "str"}, [
+        {"payload": json.dumps(payload), "schema": schema},
+    ])
+    error = next(error for error in msg["schemaError"] if error["keyword"] == keyword)
+    assert error["params"] == params
+    assert error["message"] == message
+    assert error["dataPath"] == ""
+
+
+@pytest.mark.asyncio
+async def test_draft6_schema_validation():
+    schema = {"$schema": "http://json-schema.org/draft-06/schema#", "type": "number", "exclusiveMinimum": 2}
+    msg = await _catch_json_error({"type": "json"}, [{"payload": 2, "schema": schema}])
+    assert msg["schemaError"][0]["keyword"] == "exclusiveMinimum"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("schema", [
+    {"$schema": "https://json-schema.org/draft/2020-12/schema"},
+    {"$ref": "https://example.invalid/schema.json"},
+])
+async def test_unsupported_schema_fails_loudly(schema):
+    msg = await _catch_json_error({"type": "json"}, [{"payload": {}, "schema": schema}])
+    assert "support" in msg["error"]["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_invalid_schema_compiles_before_missing_property_passthrough():
+    msg = await _catch_json_error({"type": "json"}, [{"schema": "garbage"}])
+    assert "json.errors.schema-error-compile" in msg["error"]["message"]
+
+
+@pytest.mark.asyncio
+async def test_schema_multiple_additional_properties_report_all_errors():
+    msg = await _catch_json_error({"type": "json"}, [
+        {"payload": {"a": 1, "b": 2}, "schema": {"additionalProperties": False}},
+    ])
+    assert [error["params"] for error in msg["schemaError"]] == [
+        {"additionalProperty": "a"}, {"additionalProperty": "b"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_schema_property_names_do_not_become_schema_keywords():
+    schema = {"properties": {"$ref": {"type": "string"}, "$schema": {"type": "string"}},
+              "default": {"$ref": "https://example.invalid/literal-data"},
+              "x-annotation": {"$ref": "https://example.invalid/annotation-data"},
+              "enum": [{"$ref": "hello", "$schema": "world"}]}
+    value = {"$ref": "hello", "$schema": "world"}
+    msgs = await run_single_node_with_msgs_ntimes({"type": "json", "action": "obj"}, [
+        {"payload": value, "schema": schema},
+    ], 1)
+    assert msgs[0]["payload"] == value
+    assert "schema" not in msgs[0]

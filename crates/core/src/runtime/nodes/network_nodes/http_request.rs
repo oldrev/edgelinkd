@@ -106,6 +106,12 @@ impl HttpRequestNode {
         _options: Option<&config::Config>,
     ) -> crate::Result<Box<dyn FlowNodeBehavior>> {
         let http_config = HttpRequestNodeConfig::deserialize(&config.rest)?;
+        if http_config.tls.as_ref().is_some_and(|tls| !tls.is_empty()) {
+            return Err(crate::EdgelinkError::NotSupported(
+                "TLS configuration for HTTP Request nodes is not supported".to_owned(),
+            )
+            .into());
+        }
 
         let node = HttpRequestNode { base: state, config: http_config };
         Ok(Box::new(node))

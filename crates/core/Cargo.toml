@@ -43,11 +43,12 @@ uuid.workspace = true
 bytes.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
+jsonschema = { workspace = true, optional = true }
 serde_with.workspace = true
 bincode.workspace = true
 sha2.workspace = true
 hex.workspace = true
-encoding_rs.workspace = true
+encoding_rs = { workspace = true, optional = true }
 # Template engine and YAML support
 mustache = "0.9.0"
 serde_yaml_ng = { version = "0.10.0", optional = true }
@@ -89,7 +90,7 @@ futures.workspace = true
 
 
 [features]
-default = ["core", "metrics", "js", "jsonata", "nodes_network", "nodes_storage", "nodes_parser"]
+default = ["core", "metrics", "js", "jsonata", "nodes_network", "nodes_storage", "nodes_parser", "nodes_file_encodings"]
 core = []
 metrics = []
 pymod = []
@@ -98,8 +99,10 @@ js = ["rquickjs", "rquickjs-extra"]
 jsonata = ["jsonata-core"]
 rqjs_bindgen = ["js", "rquickjs/bindgen"]
 nodes_network = ["nodes_mqtt", "nodes_udp", "nodes_tcp", "nodes_http", "nodes_websocket"]
-nodes_parser = ["nodes_xml", "nodes_yaml", "scraper"]
+nodes_parser = ["dep:jsonschema", "nodes_xml", "nodes_yaml", "scraper"]
 nodes_storage = ["nodes_storage_watch"]
+nodes_file_encodings = ["dep:encoding_rs"]
+file_encodings_legacy = []
 nodes_mqtt = ["rumqttc"]
 nodes_http = ["tokio/net", "reqwest", "urlencoding"]
 nodes_tcp = ["tokio/net"]

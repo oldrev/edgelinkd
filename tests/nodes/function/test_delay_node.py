@@ -9,6 +9,66 @@ import math
 from tests import *
 
 
+@pytest.mark.describe('delay Node')
+class TestDelayBurst:
+    @staticmethod
+    def node(**kwargs):
+        return dict({"type": "delay", "pauseType": "burst", "rate": 3,
+                     "nbRateUnits": 1, "rateUnits": "second", "outputs": 1}, **kwargs)
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('can handle a burst in burst mode')
+    async def test_burst(self):
+        msgs = await run_single_node_for_seconds(self.node(), [{"payload": i} for i in range(1, 6)], 0.7)
+        assert [msg['payload'] for msg in msgs] == [1, 2, 3]
+
+    @pytest.mark.asyncio
+    @pytest.mark.it('can reset a burst in burst mode')
+    async def test_reset(self):
+        msgs = await run_single_node_for_seconds(self.node(),
+            [{"payload": i} for i in range(1, 6)] + [{"reset": False}, {"payload": 6}], 0.7)
+        assert [msg['payload'] for msg in msgs] == [1, 2, 3, 6]
+
+    @pytest.mark.asyncio
+    async def test_slots_expire_individually_and_dropped_messages_use_second_output(self):
+        flows = [
+            {"id": "100", "type": "tab"},
+            dict(self.node(rate=2, outputs=2), id="1", z="100", wires=[["2"], ["3"]]),
+            {"id": "2", "z": "100", "type": "change", "rules": [{"t": "set", "p": "port", "pt": "msg", "to": "accepted", "tot": "str"}], "wires": [["4"]]},
+            {"id": "3", "z": "100", "type": "change", "rules": [{"t": "set", "p": "port", "pt": "msg", "to": "dropped", "tot": "str"}], "wires": [["4"]]},
+            {"id": "4", "z": "100", "type": "test-once"},
+        ]
+        msgs = await run_flow_for_seconds_scheduled(flows, [
+            {"payload": 1}, {"payload": 2, "delay_ms": 300}, {"payload": 3, "delay_ms": 700},
+            {"payload": 4, "delay_ms": 1100}, {"payload": 5, "delay_ms": 1150},
+            {"payload": 6, "delay_ms": 1450}], 1.6)
+        assert [(m['payload'], m['port']) for m in msgs] == [
+            (1, 'accepted'), (2, 'accepted'), (3, 'dropped'),
+            (4, 'accepted'), (5, 'dropped'), (6, 'accepted')]
+
+    @pytest.mark.asyncio
+    async def test_reset_cancels_old_expiry_and_emits_status_and_done(self):
+        flows = [
+            {"id": "100", "type": "tab"},
+            dict(self.node(rate=1, outputs=2), id="1", z="100", wires=[["3"], ["6"]]),
+            {"id": "2", "z": "100", "type": "complete", "scope": ["1"], "wires": [["4"]]},
+            {"id": "3", "z": "100", "type": "change", "rules": [{"t": "set", "p": "kind", "pt": "msg", "to": "output", "tot": "str"}], "wires": [["5"]]},
+            {"id": "4", "z": "100", "type": "change", "rules": [{"t": "set", "p": "kind", "pt": "msg", "to": "done", "tot": "str"}], "wires": [["5"]]},
+            {"id": "5", "z": "100", "type": "test-once"},
+            {"id": "6", "z": "100", "type": "change", "rules": [{"t": "set", "p": "kind", "pt": "msg", "to": "dropped", "tot": "str"}], "wires": [["5"]]},
+        ]
+        take_status_messages()
+        msgs = await run_flow_for_seconds_scheduled(flows, [
+            {"payload": 1}, {"reset": True, "delay_ms": 300},
+            {"payload": 2, "delay_ms": 400}, {"payload": 3, "delay_ms": 1100}], 1.5)
+        assert len([m for m in msgs if m['kind'] == 'done']) == 4
+        assert [(m['payload'], m['kind']) for m in msgs if m['kind'] != 'done'] == [
+            (1, 'output'), (2, 'output'), (3, 'dropped')]
+        statuses = [s['status'] for s in take_status_messages()]
+        assert any(s.get('fill') == 'red' and s.get('shape') == 'dot' for s in statuses)
+        assert any(s.get('fill') == 'green' and s.get('shape') == 'ring' for s in statuses)
+
+
 async def _generic_rate_limit_seconds_test(limit: int, nb_unit: int, runtime_in_millis: int, rate_value=None):
     """
     Runs a rate limit test - only testing seconds!

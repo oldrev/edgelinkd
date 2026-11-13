@@ -39,7 +39,7 @@ hero:
       label: "supported node types"
     - value: "6"
       label: "supported target triples"
-    - value: "v4.1.16"
+    - value: "v5.0.9"
       label: "Node-RED release used as the behavioural reference"
 
 why:
@@ -179,7 +179,7 @@ architecture:
     name: "Spec harness"
     path: "tests/ · crates/pymod"
     desc: "Node-RED's mocha specs, ported to pytest, drive the real engine through the `edgelink_pymod` PyO3 extension on every CI run."
-    chips: ["pytest", "PyO3", "Node-RED v4.0.9 reference"]
+    chips: ["pytest", "PyO3", "Node-RED v5.0.9 reference"]
   notes:
     - title: "Deploy builds a task graph"
       body: "The engine parses `flows.json`, resolves every node type against the registry and spawns one Tokio task per node, wired through per-port senders."
@@ -194,7 +194,7 @@ compat:
   num: "04"
   label: "Compatibility"
   title: "Compatible where supported. Explicit everywhere else."
-  lead: "EdgeLinkd is a Node-RED compatible runtime, not a clone. Whatever it ships must behave exactly like Node-RED v4.0.9; whatever does not fit an embedded budget is declined — loudly."
+  lead: "EdgeLinkd is a Node-RED compatible runtime, not a clone. Whatever it ships must behave exactly like Node-RED v5.0.9; whatever does not fit an embedded budget is declined — loudly."
   principles:
     - title: "Same behaviour, or no behaviour"
       body: "For every supported node and option, message semantics, error and status behaviour and the editor contract match upstream."

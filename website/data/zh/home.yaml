@@ -37,7 +37,7 @@ hero:
       label: "个自包含二进制，内置编辑器"
     - value: "6"
       label: "个官方支持的目标平台"
-    - value: "v4.1.16"
+    - value: "v5.0.9"
       label: "作为行为基准的 Node-RED 版本"
 
 why:
@@ -177,7 +177,7 @@ architecture:
     name: "规范测试工具链"
     path: "tests/ · crates/pymod"
     desc: "移植为 pytest 的 Node-RED mocha 规范，在每次 CI 中通过 PyO3 扩展 `edgelink_pymod` 驱动真实引擎。"
-    chips: ["pytest", "PyO3", "以 Node-RED v4.0.9 为基准"]
+    chips: ["pytest", "PyO3", "以 Node-RED v5.0.9 为基准"]
   notes:
     - title: "部署即构建任务图"
       body: "引擎解析 `flows.json`，在注册表中解析每个节点类型，为每个节点创建一个 Tokio 任务，并按输出端口连线。"
@@ -192,7 +192,7 @@ compat:
   num: "04"
   label: "兼容性"
   title: "支持的，就严格兼容；不支持的，就明确拒绝。"
-  lead: "EdgeLinkd 是兼容 Node-RED 的运行时，而不是它的克隆。凡是提供的功能，行为必须与 Node-RED v4.0.9 一致；凡是超出嵌入式预算的功能，都会被明确拒绝。"
+  lead: "EdgeLinkd 是兼容 Node-RED 的运行时，而不是它的克隆。凡是提供的功能，行为必须与 Node-RED v5.0.9 一致；凡是超出嵌入式预算的功能，都会被明确拒绝。"
   principles:
     - title: "要么一致，要么不提供"
       body: "对每个已支持的节点与选项，消息语义、错误与状态行为、编辑器契约都与上游保持一致。"

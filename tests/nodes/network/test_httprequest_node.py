@@ -571,6 +571,12 @@ class TestHttpRequestNode:
     @pytest.mark.describe('protocol')
     class TestProtocol:
         @pytest.mark.asyncio
+        @pytest.mark.skip(reason="PKCS#12/PFX client certificates require a TLS identity importer not included in the embedded HTTP client")
+        @pytest.mark.it('should use pfx tls file')
+        async def test_should_use_pfx_tls_file(self):
+            pass
+
+        @pytest.mark.asyncio
         @pytest.mark.skip(reason='invalid proxy configuration is out of scope for the embedded runtime')
         @pytest.mark.it('should not use http-proxy-config when invalid url is specified')
         async def test_0056a(self):

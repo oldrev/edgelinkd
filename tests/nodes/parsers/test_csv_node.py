@@ -1,6 +1,6 @@
 """Ported specs for the `csv` node.
 
-Upstream: `3rd-party/node-red/test/nodes/core/parsers/70-CSV_spec.js` (v4.0.9). The spec covers two
+Upstream: `3rd-party/node-red/test/nodes/core/parsers/70-CSV_spec.js` (v5.0.9). The spec covers two
 configurations of the same node: `CSV node (Legacy Mode)` (the default) and `CSV node (RFC Mode)`
 (`spec: "rfc"`), each with a `csv to json` and a `json object to csv` section.
 
@@ -1110,3 +1110,58 @@ class TestCsvNodeRfcMode:
         events = _csv_events()
         assert [event["level"] for event in events] == ["ERROR"]
         assert [event["msg"] for event in events] == ["csv.errors.csv_js"]
+
+
+@pytest.mark.describe("CSV node sequence metadata")
+class TestCsvSequenceMetadata:
+    pass
+
+
+def _add_sequence_tests():
+    cases = [
+        ("array part with trailing newline", "1,2,3\n", {"id": "files", "type": "array", "index": 6, "count": 19, "len": 1}, {}),
+        ("array part without trailing newline", "1,2,3", {"id": "files", "type": "array", "index": 6, "count": 19, "len": 1}, {}),
+        ("single-item array part", "1,2,3\n", {"id": "files", "type": "array", "index": 0, "count": 1, "len": 1}, {}),
+        ("object part", "1,2,3\n", {"id": "files", "type": "object", "index": 1, "count": 2, "key": "file.csv"}, {}),
+        ("array part with its own header", "a,b,c\n1,2,3", {"id": "files", "type": "array", "index": 6, "count": 19, "len": 1}, {"hdrin": True}),
+        ("array part with a skipped line", "ignored\n1,2,3", {"id": "files", "type": "array", "index": 6, "count": 19, "len": 1}, {"skip": 1}),
+    ]
+    for spec, mode in [("legacy", "Legacy"), ("rfc", "RFC4180")]:
+        for i, (name, payload, parts, extra) in enumerate(cases):
+            def make_test(spec, payload, parts, extra):
+                async def test(self):
+                    result = await _csv({"spec": spec, "temp": "a,b,c", "multi": "mult", **extra},
+                                        {"payload": payload, "parts": parts})
+                    assert result[0]["payload"] == [{"a": 1, "b": 2, "c": 3}]
+                    assert result[0]["columns"] == "a,b,c"
+                    assert result[0]["parts"] == parts
+                return test
+            test = pytest.mark.asyncio(make_test(spec, payload, parts, extra))
+            test = pytest.mark.it(f"should parse an independent {name} in {mode} mode")(test)
+            setattr(TestCsvSequenceMetadata, f"test_{spec}_independent_{i}", test)
+        for part_type in [None, "string", "buffer"]:
+            def make_aggregate(spec, part_type):
+                async def test(self):
+                    messages = []
+                    for index, payload in enumerate(["1,2,3\n", "4,5,6\n"]):
+                        parts = {"id": "rows", "index": index, "count": 2}
+                        if part_type is not None:
+                            parts["type"] = part_type
+                        messages.append({"payload": payload, "parts": parts})
+                    result = await _csv({"spec": spec, "temp": "a,b,c", "multi": "mult"}, messages, 1)
+                    assert result[0]["payload"] == [{"a": 1, "b": 2, "c": 3}, {"a": 4, "b": 5, "c": 6}]
+                    assert "parts" not in result[0]
+                return test
+            title = f"should aggregate newline-terminated CSV parts with {part_type or 'unspecified'} type in {mode} mode"
+            test = pytest.mark.it(title)(pytest.mark.asyncio(make_aggregate(spec, part_type)))
+            setattr(TestCsvSequenceMetadata, f"test_{spec}_aggregate_{part_type}", test)
+
+
+_add_sequence_tests()
+
+
+@pytest.mark.asyncio
+async def test_csv_rfc_strips_initial_bom():
+    result = await _csv({"spec": "rfc", "hdrin": True, "multi": "mult"}, "\ufeffa,b,c\n1,2,3")
+    assert result[0]["columns"] == "a,b,c"
+    assert result[0]["payload"] == [{"a": 1, "b": 2, "c": 3}]

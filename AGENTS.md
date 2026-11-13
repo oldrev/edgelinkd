@@ -18,7 +18,7 @@ editor built in. Rust workspace layout:
 | `node-plugins/` | statically linked node plug-ins |
 | `tests/` | pytest port of Node-RED's mocha spec suite |
 | `scripts/` | build/packaging helpers + the spec coverage audit |
-| `3rd-party/node-red/` | pinned Node-RED checkout (git submodule, v4.0.9) — the behavioural reference |
+| `3rd-party/node-red/` | pinned Node-RED checkout (git submodule, v5.0.9) — the behavioural reference |
 
 ## Design philosophy: embedded-first, compatible where supported
 
@@ -29,7 +29,7 @@ Node-RED feature one-to-one is **not** a goal.
 The compatibility contract is therefore conditional, and it cuts both ways:
 
 - **What we ship does behave like Node-RED.** For every node, option and property type we
-  offer, the observable behaviour must match the pinned upstream v4.0.9 — message semantics,
+  offer, the observable behaviour must match the pinned upstream v5.0.9 — message semantics,
   error and status behaviour, editor contract — and that is what the ported spec tests in
   `tests/` assert.
 - **What does not fit the budget, we do not offer.** A feature whose memory or binary-size

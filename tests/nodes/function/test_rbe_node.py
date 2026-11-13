@@ -8,6 +8,26 @@ from tests import *
 class TestRbeNode:
 
     @pytest.mark.asyncio
+    @pytest.mark.it('should only send output if a Date payload changes (rbe)')
+    async def test_date_payload_changes(self):
+        flows = [
+            {"id": "100", "type": "tab"},
+            {"id": "1", "z": "100", "type": "function", "func": "msg.payload = new Date(msg.payload); return msg;", "wires": [["2"]]},
+            {"id": "2", "z": "100", "type": "rbe", "func": "rbe", "gap": "0", "wires": [["3"]]},
+            {"id": "3", "z": "100", "type": "function", "func": "msg.payload = msg.payload.getTime(); return msg;", "wires": [["4"]]},
+            {"id": "4", "z": "100", "type": "test-once"},
+        ]
+        msgs = await run_flow_for_seconds(flows, [{"payload": value} for value in [1000, 1000, 2000]], 0.2)
+        assert [msg['payload'] for msg in msgs] == [1000, 2000]
+
+    @pytest.mark.asyncio
+    async def test_first_empty_object_is_forwarded_once(self):
+        msgs = await run_single_node_for_seconds(
+            {"type": "rbe", "func": "rbe", "gap": "0"},
+            [{"payload": {}}, {"payload": {}}, {"payload": {"value": 1}}], 0.1)
+        assert [msg['payload'] for msg in msgs] == [{}, {"value": 1}]
+
+    @pytest.mark.asyncio
     @pytest.mark.it('''should only send output if payload changes - with multiple topics (rbe)''')
     async def test_0001(self):
         node = {
@@ -324,11 +344,13 @@ class TestRbeNode:
         msgs = await run_single_node_with_msgs_ntimes({"type": "rbe", "gap": "0"}, [{"payload": "a"}, {"payload": "a"}], 1)
         assert msgs[0]["payload"] == "a"
 
-    @pytest.mark.skip(reason="the spec asserts that a warning was logged (`helper.log()`); the "
-                             "pytest bridge has no log-event capture. It also expects no output for "
-                             "a non-numeric payload, which a `*_for_seconds` sampler could check, but "
-                             "that would not be the assertion the title claims")
     @pytest.mark.asyncio
     @pytest.mark.it('should warn if no number found in deadband mode')
     async def test_should_warn_if_no_number_found_in_deadband_mode(self):
-        pass
+        take_node_logs()
+        msgs = await run_single_node_for_seconds(
+            {"type": "rbe", "func": "deadband", "gap": "1"},
+            [{"payload": "not a number"}, {"payload": 10, "sentinel": True}], 0.1)
+        assert len(msgs) == 1 and msgs[0]['sentinel'] is True
+        assert any(event['type'] == 'rbe' and event['level'] == 'WARN'
+                   for event in take_node_logs())

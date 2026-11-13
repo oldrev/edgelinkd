@@ -44,6 +44,9 @@ use edgelink_macro::*;
 #[derive(Debug, Clone, Deserialize)]
 #[allow(dead_code)]
 struct TlsConfigNodeConfig {
+    /// PKCS#12 bundles require a TLS identity importer not included in this build.
+    #[serde(default)]
+    p12: Option<String>,
     /// Path to client certificate file (optional)
     #[serde(default)]
     cert: String,
@@ -120,6 +123,11 @@ impl TlsConfigNode {
     ) -> crate::Result<Box<dyn GlobalNodeBehavior>> {
         let context = engine.get_context_manager().new_context(engine.context(), config.id.to_string());
         let tls_config = TlsConfigNodeConfig::deserialize(&config.rest)?;
+        if tls_config.p12.as_ref().is_some_and(|path| !path.is_empty()) {
+            return Err(
+                crate::EdgelinkError::NotSupported("PKCS#12/PFX TLS identities are not supported".to_owned()).into()
+            );
+        }
         let credentials = TlsCredentials::default();
         let node = TlsConfigNode {
             base: BaseGlobalNodeState {

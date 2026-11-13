@@ -168,6 +168,11 @@
                 "test/nodes/core/parsers/70-CSV_spec.js"
             ],
             [
+                "csv leading empty",
+                "nodes/parsers/test_csv_leading_empty_node.py",
+                "test/nodes/core/parsers/70-CSV-leading-empty_spec.js"
+            ],
+            [
                 "yaml node",
                 "nodes/parsers/test_yaml_node.py",
                 "test/nodes/core/parsers/70-YAML_spec.js"
