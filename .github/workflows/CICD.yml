@@ -242,6 +242,7 @@ jobs:
         env:
           EDGELINK_BUILD_TARGET: ${{ matrix.target }}
           EDGELINK_BUILD_PROFILE: ci
+          EDGELINK_FILE_ENCODINGS_LEGACY: '1'
         run: pytest ./tests -v
 
       - name: Generate Node-RED spec coverage JSON
@@ -249,6 +250,7 @@ jobs:
         env:
           EDGELINK_BUILD_TARGET: ${{ matrix.target }}
           EDGELINK_BUILD_PROFILE: ci
+          EDGELINK_FILE_ENCODINGS_LEGACY: '1'
         run: |
           python ./scripts/specs_diff.py 3rd-party/node-red \
             --json-output ./specs-report.json \
@@ -579,6 +581,12 @@ jobs:
       - name: Package release build
         run: python ./scripts/dist-pack.py --branch tag --version "${{ github.ref_name }}" --mode release --target x86_64-pc-windows-msvc
 
+      - name: Download Node-RED spec coverage JSON
+        uses: actions/download-artifact@v4
+        with:
+          name: node-red-spec-report
+          path: spec-report
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -587,7 +595,9 @@ jobs:
           body: |
             EdgeLinkd release ${{ github.ref_name }}.
             Built from tag ${{ github.ref_name }} at ${{ github.sha }}.
-          files: build-out/edgelinkd-dist-x86_64-pc-windows-msvc-*.zip
+          files: |
+            build-out/edgelinkd-dist-x86_64-pc-windows-msvc-*.zip
+            spec-report/specs-report.json
           prerelease: ${{ contains(github.ref_name, '-beta.') }}
           overwrite_files: true
           fail_on_unmatched_files: true
