@@ -62,11 +62,16 @@ def extract_it_strings_js(red_dir, file_path) -> list[str]:
         # first item (``mocha``) and drops the test path/options, leaving an empty report.
         local_mocha = os.path.join(red_dir, "node_modules", ".bin", "mocha.cmd" if platform.system() == "Windows" else "mocha")
         mocha = local_mocha if os.path.exists(local_mocha) else "mocha"
+        # Specs may live in a sibling node-red-nodes submodule rather than below NR_PATH.
+        # Let Node resolve their shared test dependencies from the pinned Node-RED install.
+        env = os.environ.copy()
+        node_path = os.path.join(red_dir, "node_modules")
+        env["NODE_PATH"] = os.pathsep.join(filter(None, [node_path, env.get("NODE_PATH", "")]))
         result = subprocess.run([
             mocha,
             os.path.relpath(file_path, red_dir), "--dry-run", "--reporter=json", "--exit",
             "--reporter-options", f"output={report_file_path}"
-        ], cwd=red_dir, capture_output=True, text=True)
+        ], cwd=red_dir, capture_output=True, text=True, env=env)
 
         # Read the report after mocha finishes
         if result.returncode != 0:
