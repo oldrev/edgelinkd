@@ -1,19 +1,19 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-11-13T12:10:47.833788Z",
+  "generated_at": "2026-11-14T03:11:43.946121Z",
   "ref": "master",
-  "commit": "546c51485506eb82392b035ff631cd40c9bc2503",
+  "commit": "df180063ec1f38947115993fddf0fd32bff22496",
   "node_red": {
     "version": "5.0.9"
   },
   "totals": {
-    "covered": 1601,
+    "covered": 1606,
     "missing": 1,
     "extra": 0,
     "skipped": 35,
-    "js": 1637,
-    "python": 1636,
-    "coverage": 0.9780085522296884
+    "js": 1642,
+    "python": 1641,
+    "coverage": 0.9780755176613886
   },
   "categories": [
     {
@@ -5108,6 +5108,39 @@
             {
               "status": "covered",
               "title": "HTML node should retrieve paragraph contents when specified"
+            }
+          ]
+        },
+        {
+          "node": "cbor node",
+          "python_spec_file": "nodes/parsers/test_cbor_node.py",
+          "node_red_spec_file": "../node-red-nodes/test/parsers/cbor/70-cbor_spec.js",
+          "totals": {
+            "covered": 5,
+            "missing": 0,
+            "extra": 0,
+            "skipped": 0
+          },
+          "specs": [
+            {
+              "status": "covered",
+              "title": "cbor node ignore msg with no payload"
+            },
+            {
+              "status": "covered",
+              "title": "cbor node should be loaded with correct defaults"
+            },
+            {
+              "status": "covered",
+              "title": "cbor node should error if the buffer fails to decode"
+            },
+            {
+              "status": "covered",
+              "title": "cbor node should pack an object"
+            },
+            {
+              "status": "covered",
+              "title": "cbor node should unpack a Buffer"
             }
           ]
         }
