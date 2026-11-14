@@ -1,19 +1,19 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-11-13T07:20:17.372659Z",
+  "generated_at": "2026-11-14T03:31:22.733882Z",
   "ref": "v5.0.9",
-  "commit": "4664012d6a606de869d1cd3bc5238f07071f12c4",
+  "commit": "df180063ec1f38947115993fddf0fd32bff22496",
   "node_red": {
     "version": "5.0.9"
   },
   "totals": {
-    "covered": 1602,
-    "missing": 0,
+    "covered": 1606,
+    "missing": 1,
     "extra": 0,
     "skipped": 35,
-    "js": 1637,
-    "python": 1637,
-    "coverage": 0.9786194257788637
+    "js": 1642,
+    "python": 1641,
+    "coverage": 0.9780755176613886
   },
   "categories": [
     {
@@ -3534,8 +3534,8 @@
           "python_spec_file": "nodes/network/test_mqtt_node.py",
           "node_red_spec_file": "test/nodes/core/network/21-mqtt_spec.js",
           "totals": {
-            "covered": 31,
-            "missing": 0,
+            "covered": 30,
+            "missing": 1,
             "extra": 0,
             "skipped": 1
           },
@@ -3665,7 +3665,7 @@
               "title": "MQTT Nodes should use the url from a repeated \"connect\" action"
             },
             {
-              "status": "covered",
+              "status": "missing",
               "title": "MQTT Nodes skipping MQTT tests. Set env var \"NR_MQTT_TESTS=true\" to enable. Requires a v5 capable broker running on localhost:1883."
             }
           ]
@@ -5108,6 +5108,39 @@
             {
               "status": "covered",
               "title": "HTML node should retrieve paragraph contents when specified"
+            }
+          ]
+        },
+        {
+          "node": "cbor node",
+          "python_spec_file": "nodes/parsers/test_cbor_node.py",
+          "node_red_spec_file": "../node-red-nodes/test/parsers/cbor/70-cbor_spec.js",
+          "totals": {
+            "covered": 5,
+            "missing": 0,
+            "extra": 0,
+            "skipped": 0
+          },
+          "specs": [
+            {
+              "status": "covered",
+              "title": "cbor node ignore msg with no payload"
+            },
+            {
+              "status": "covered",
+              "title": "cbor node should be loaded with correct defaults"
+            },
+            {
+              "status": "covered",
+              "title": "cbor node should error if the buffer fails to decode"
+            },
+            {
+              "status": "covered",
+              "title": "cbor node should pack an object"
+            },
+            {
+              "status": "covered",
+              "title": "cbor node should unpack a Buffer"
             }
           ]
         }
