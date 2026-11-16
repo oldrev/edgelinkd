@@ -2,11 +2,11 @@
   "schema_version": 1,
   "reports": [
     {
-      "name": "v5.0.9",
-      "ref": "v5.0.9",
+      "name": "master",
+      "ref": "master",
       "commit": "df180063ec1f38947115993fddf0fd32bff22496",
-      "generated_at": "2026-11-14T03:31:22.733882Z",
-      "url": "reports/v5.0.9.json",
+      "generated_at": "2026-11-16T09:13:51.755360Z",
+      "url": "reports/master.json",
       "totals": {
         "covered": 1606,
         "missing": 1,
@@ -18,11 +18,11 @@
       }
     },
     {
-      "name": "master",
-      "ref": "master",
+      "name": "v5.0.9",
+      "ref": "v5.0.9",
       "commit": "df180063ec1f38947115993fddf0fd32bff22496",
-      "generated_at": "2026-11-14T03:11:43.946121Z",
-      "url": "reports/master.json",
+      "generated_at": "2026-11-14T03:31:22.733882Z",
+      "url": "reports/v5.0.9.json",
       "totals": {
         "covered": 1606,
         "missing": 1,
